@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Environment & Secrets
+.env
+authorized.json
+
+# Temporary Files
+audio_files/
+___backup versioni/
+.DS_Store
+
+# Virtual Environment
+venv/
+.venv/
+env/

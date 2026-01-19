@@ -1,0 +1,10 @@
+services:
+  bot:
+    build: .
+    container_name: telegram-audio-bot
+    env_file:
+      - .env
+    volumes:
+      - ./audio_files:/app/audio_files
+      - ./authorized.json:/app/authorized.json
+    restart: always
