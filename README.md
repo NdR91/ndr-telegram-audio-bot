@@ -1,14 +1,16 @@
 # Telegram Audio Transcriber Bot 🎙️🤖
 
-Un bot Telegram avanzato che trascrive note vocali e file audio utilizzando **OpenAI Whisper**, elabora il testo con **GPT-4o-mini** per migliorarne la leggibilità, e gestisce automaticamente limiti di lunghezza e cleanup dei file.
+Un bot Telegram avanzato che trascrive note vocali e file audio, elabora il testo per migliorarne la leggibilità, e gestisce automaticamente limiti di lunghezza e cleanup dei file.
 
 ## ✨ Funzionalità
 
+- **Multi-Provider LLM**: Supporto nativo per **OpenAI** (Whisper + GPT) e **Google Gemini** (multimodale nativo).
 - **Trascrizione Audio**: Supporta vocali Telegram e file audio (mp3, ogg, wav, ecc.) via FFmpeg.
-- **Rielaborazione Intelligente**: Usa GPT-4o-mini per correggere errori, aggiungere punteggiatura e formattare il testo trascritto.
+- **Rielaborazione Intelligente**: Corregge errori, aggiunge punteggiatura e formatta il testo trascritto usando LLM configurabili.
 - **Gestione Messaggi Lunghi**: Suddivide automaticamente le risposte che superano i 4096 caratteri di Telegram.
 - **Controllo Accessi**: Whitelist integrata per autorizzare singoli utenti (admin/user) o gruppi specifici.
 - **Cleanup Automatico**: I file audio temporanei vengono cancellati immediatamente dopo l'elaborazione per non occupare spazio su disco.
+- **Prompt Configurabili**: Personalizza il comportamento del bot senza toccare il codice.
 
 ## 🚀 Installazione e Setup
 
@@ -16,8 +18,8 @@ Poiché i file di configurazione contengono dati sensibili, non sono inclusi nel
 
 ### 1. Clona il Repository
 ```bash
-git clone https://github.com/tuo-username/telegram-audio-bot.git
-cd telegram-audio-bot
+git clone https://github.com/NdR91/ndr-telegram-audio-bot.git
+cd ndr-telegram-audio-bot
 ```
 
 ### 2. Crea il file `.env`
@@ -25,19 +27,31 @@ Crea un file chiamato `.env` nella root del progetto e inserisci le tue chiavi A
 
 ```bash
 # .env
-TELEGRAM_TOKEN=il_tuo_token_telegram_bot_father
-OPENAI_API_KEY=la_tua_chiave_api_openai
-# Optional: 'openai' (default) or 'gemini'
-LLM_PROVIDER=openai
 
-# If using Gemini:
+# Token del bot Telegram (obbligatorio)
+TELEGRAM_TOKEN=il_tuo_token_telegram_bot_father
+
+# --- Provider OpenAI (default) ---
+LLM_PROVIDER=openai
+OPENAI_API_KEY=la_tua_chiave_api_openai
+# Opzionale: specifica un modello diverso (default: gpt-4o-mini)
+# LLM_MODEL=gpt-4o-mini
+
+# --- Provider Google Gemini (alternativo) ---
 # LLM_PROVIDER=gemini
 # GEMINI_API_KEY=tua_chiave_google_ai_studio
-# LLM_MODEL=gemini-1.5-flash (default) or gemini-2.0-flash-exp
+# LLM_MODEL=gemini-1.5-flash
+# oppure per versioni preview/sperimentali:
+# LLM_MODEL=gemini-2.0-flash-exp
+
+# --- Configurazione Prompt (Opzionale) ---
+# Personalizza il comportamento del sistema e il template di rielaborazione
+# PROMPT_SYSTEM="Sei un assistente utile."
+# PROMPT_REFINE_TEMPLATE="Questo è un testo... {raw_text} ..."
 ```
 
 ### 3. Crea il file `authorized.json`
-Crea un file chiamato `authorized.json` per gestire i permessi. Al primo avvio deve contenere almeno l'ID del tuo utente admin (puoi scoprirlo usando il bot `@userinfobot` su Telegram).
+Crea un file chiamato `authorized.json` per gestire i permessi. Al primo avvio deve contenere almeno l'ID del tuo utente admin (puoi scoprirlo usando il bot `@userinfobot` su Telegram o il comando `/whoami` dopo il primo avvio).
 
 ```json
 {
@@ -91,9 +105,29 @@ Se preferisci eseguire il bot localmente con Python:
 ## 📦 Struttura del Progetto
 
 - `bot/main.py`: Logica principale del bot Telegram.
-- `bot/utils.py`: Funzioni di trascrizione (Whisper) e rielaborazione (GPT).
-- `bot/constants.py`: Testi e configurazioni statiche.
+- `bot/providers.py`: Implementazioni dei provider LLM (OpenAI, Gemini).
+- `bot/utils.py`: Funzioni di utilità (conversione audio, provider factory).
+- `bot/constants.py`: Testi, prompt e configurazioni statiche.
 - `audio_files/`: Cartella temporanea per il download degli audio (si svuota automaticamente).
+- `authorized.json`: Whitelist utenti/gruppi (non versionato).
+- `.env`: Variabili d'ambiente (non versionato).
+
+## 🔧 Configurazione Avanzata
+
+### Provider LLM
+Il bot supporta due provider:
+- **OpenAI**: Usa Whisper v1 per trascrizione e GPT-4o-mini (o altri modelli chat) per la rielaborazione.
+- **Gemini**: Usa modelli multimodali Google (es. `gemini-1.5-flash`) che processano direttamente l'audio.
+
+Per cambiare provider, modifica `LLM_PROVIDER` nel `.env`. Per specificare un modello custom, usa `LLM_MODEL`.
+
+### Personalizzazione Prompt
+Se vuoi modificare il comportamento del bot (es. evitare frasi introduttive, cambiare lo stile di scrittura), puoi sovrascrivere i prompt nel `.env`:
+
+**Esempio per ridurre verbosità (Gemini):**
+```bash
+PROMPT_REFINE_TEMPLATE="Correggi questo testo trascritto. Aggiungi punteggiatura. NON aggiungere commenti. Restituisci SOLO il testo corretto.\n\nTesto:\n{raw_text}\n\nRisposta:"
+```
 
 ## 📝 Changelog
 

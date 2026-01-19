@@ -42,14 +42,24 @@ def msg_group_added(gid): return f"✅ Gruppo {gid} aggiunto."
 def msg_group_removed(gid): return f"✅ Gruppo {gid} rimosso."
 
 # Prompts
-PROMPT_SYSTEM = "Sei un assistente utile."
-PROMPT_REFINE_TEMPLATE = (
+import os
+
+# ... (omessi messaggi precedenti)
+
+# Prompts
+PROMPT_SYSTEM = os.getenv('PROMPT_SYSTEM', "Sei un assistente utile.")
+
+_DEFAULT_REFINE_TEMPLATE = (
     "Questo è un testo generato da una trascrizione automatica. Correggilo da eventuali errori, "
     "aggiungi la punteggiatura, riformula se ti rendi conto che la trascrizione è inaccurata, "
     "ma rimani il più aderente possibile al testo originale. Considera la presenza di eventuali "
-    "esitazioni e ripetizioni, rendile adatte ad un testo scritto.\n\n"
+    "esitazioni e ripetizioni, rendile adatte ad un testo scritto.\n"
+    "IMPORTANTE: Restituisci SOLO il testo rielaborato. NON aggiungere commenti introduttivi, "
+    "premese o saluti.\n\n"
     "Testo originale:\n{raw_text}\n\nTesto rielaborato:\n"
 )
+
+PROMPT_REFINE_TEMPLATE = os.getenv('PROMPT_REFINE_TEMPLATE', _DEFAULT_REFINE_TEMPLATE)
 
 # Configuration
 MAX_MESSAGE_LENGTH = 4000
