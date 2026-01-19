@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Possibilità di utilizzare modelli sperimentali o preview (es. `gemini-2.0-flash-exp`) senza modificare il codice.
 - Dipendenza `google-generativeai`.
 
+### Risolto
+- Risolto un bug dove l'header del messaggio Telegram mostrava sempre "GPT-4o mini" invece del modello realmente utilizzato.
+
 ## v20260119.1 - Provider Abstraction
 ### Aggiunto
 - Supporto multi-provider per LLM (Provider Agnostic).

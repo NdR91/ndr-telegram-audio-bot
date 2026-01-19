@@ -33,7 +33,7 @@ MSG_UNSUPPORTED_TYPE = "❌ Tipo di file non supportato."
 MSG_PROCESSING = "🔄 Audio ricevuto, sto elaborando…"
 MSG_ERROR_INTERNAL = "❌ Errore interno durante l’elaborazione."
 
-MSG_COMPLETION_HEADER = "🤖 **Audio rielaborato tramite LLM: GPT-4o mini**"
+MSG_COMPLETION_HEADER = "🤖 **Audio rielaborato tramite LLM: {model_name}**"
 
 # Success Messages
 def msg_user_added(uid): return f"✅ Utente {uid} aggiunto."

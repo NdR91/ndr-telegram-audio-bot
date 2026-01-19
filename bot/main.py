@@ -174,7 +174,8 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_text = provider.refine_text(raw_text)
 
         # 2) Header LLM e testo rielaborato
-        full_text = f"{c.MSG_COMPLETION_HEADER}\n\n{final_text}"
+        header = c.MSG_COMPLETION_HEADER.format(model_name=provider.model_name)
+        full_text = f"{header}\n\n{final_text}"
 
         # Split lunghezze
         if len(full_text) <= c.MAX_MESSAGE_LENGTH:
