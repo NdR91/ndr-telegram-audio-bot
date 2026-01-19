@@ -1,19 +1,9 @@
-# bot/utils.py
-
 import os
 import subprocess
 import logging
-from openai import OpenAI
-import constants as c
+from providers import OpenAIProvider, LLMProvider
 
 logger = logging.getLogger(__name__)
-
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-if not OPENAI_API_KEY:
-    logger.error("OPENAI_API_KEY mancante")
-    raise RuntimeError("API key OpenAI mancante")
-
-client = OpenAI(api_key=OPENAI_API_KEY)
 
 def convert_to_mp3(src_path: str, dst_path: str) -> None:
     logger.info(f"Convert {src_path} → {dst_path}")
@@ -26,31 +16,23 @@ def convert_to_mp3(src_path: str, dst_path: str) -> None:
         logger.error(f"FFmpeg error: {e.stderr}")
         raise RuntimeError("Errore conversione audio")
 
-def transcribe_audio(mp3_path: str) -> str:
-    logger.info(f"Transcribe {mp3_path} with Whisper v1")
-    with open(mp3_path,'rb') as audio:
-        transcription = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio,
-            temperature=0
-        )
-    # L'oggetto Transcription ha l'attributo .text
-    text = transcription.text
-    logger.debug(f"Raw text: {text}")
-    return text
+_provider_instance = None
 
-def refine_text(raw_text: str) -> str:
-    logger.info("Refine text with ChatCompletion")
-    prompt = c.PROMPT_REFINE_TEMPLATE.format(raw_text=raw_text)
+def get_provider() -> LLMProvider:
+    """Factory function to get the configured LLM provider."""
+    global _provider_instance
+    if _provider_instance:
+        return _provider_instance
 
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role":"system","content":c.PROMPT_SYSTEM},
-            {"role":"user","content":prompt}
-        ],
-        max_tokens=4096, temperature=0.7
-    )
-    out = resp.choices[0].message.content.strip()
-    logger.debug(f"Refined text: {out}")
-    return out
+    provider_name = os.getenv('LLM_PROVIDER', 'openai').lower()
+    
+    if provider_name == 'openai':
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY configurata ma mancante.")
+        logger.info("Initializing OpenAI Provider")
+        _provider_instance = OpenAIProvider(api_key)
+    else:
+        raise ValueError(f"Provider sconosciuto: {provider_name}")
+    
+    return _provider_instance

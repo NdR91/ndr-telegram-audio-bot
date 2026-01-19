@@ -27,6 +27,8 @@ Crea un file chiamato `.env` nella root del progetto e inserisci le tue chiavi A
 # .env
 TELEGRAM_TOKEN=il_tuo_token_telegram_bot_father
 OPENAI_API_KEY=la_tua_chiave_api_openai
+# Optional: 'openai' (default) or others in future
+LLM_PROVIDER=openai
 ```
 
 ### 3. Crea il file `authorized.json`

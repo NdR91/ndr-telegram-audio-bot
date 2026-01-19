@@ -166,8 +166,12 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await file_obj.download_to_drive(ogg_path)
     try:
         utils.convert_to_mp3(ogg_path, mp3_path)
-        raw_text = utils.transcribe_audio(mp3_path)
-        final_text = utils.refine_text(raw_text)
+        
+        # Inizializza provider
+        provider = utils.get_provider()
+        
+        raw_text = provider.transcribe_audio(mp3_path)
+        final_text = provider.refine_text(raw_text)
 
         # 2) Header LLM e testo rielaborato
         full_text = f"{c.MSG_COMPLETION_HEADER}\n\n{final_text}"
