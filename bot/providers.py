@@ -22,8 +22,9 @@ class LLMProvider(ABC):
 class OpenAIProvider(LLMProvider):
     """OpenAI Implementation."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model_name: str = "gpt-4o-mini"):
         self.client = OpenAI(api_key=api_key)
+        self.model_name = model_name
 
     def transcribe_audio(self, file_path: str) -> str:
         logger.info(f"Transcribe {file_path} with Whisper v1")
@@ -42,7 +43,7 @@ class OpenAIProvider(LLMProvider):
         prompt = c.PROMPT_REFINE_TEMPLATE.format(raw_text=raw_text)
 
         resp = self.client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=self.model_name,
             messages=[
                 {"role": "system", "content": c.PROMPT_SYSTEM},
                 {"role": "user", "content": prompt}
@@ -60,10 +61,9 @@ import time
 class GeminiProvider(LLMProvider):
     """Google Gemini Implementation."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model_name: str = "gemini-1.5-flash"):
         genai.configure(api_key=api_key)
-        # Usa Gemini 1.5 Flash che è ottimizzato per multimodale e velocità
-        self.model_name = "gemini-1.5-flash"
+        self.model_name = model_name
         self.model = genai.GenerativeModel(self.model_name)
 
     def transcribe_audio(self, file_path: str) -> str:

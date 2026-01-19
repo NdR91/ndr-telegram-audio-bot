@@ -25,19 +25,28 @@ def get_provider() -> LLMProvider:
         return _provider_instance
 
     provider_name = os.getenv('LLM_PROVIDER', 'openai').lower()
+    model_name = os.getenv('LLM_MODEL') # Default gestito dai provider se None
     
     if provider_name == 'openai':
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY configurata ma mancante.")
-        logger.info("Initializing OpenAI Provider")
-        _provider_instance = OpenAIProvider(api_key)
+        logger.info(f"Initializing OpenAI Provider (model: {model_name or 'default'})")
+        # Se model_name è None, usa il default della classe
+        if model_name:
+             _provider_instance = OpenAIProvider(api_key, model_name)
+        else:
+             _provider_instance = OpenAIProvider(api_key)
+
     elif provider_name == 'gemini':
         api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY configurata ma mancante.")
-        logger.info("Initializing Gemini Provider")
-        _provider_instance = GeminiProvider(api_key)
+        logger.info(f"Initializing Gemini Provider (model: {model_name or 'default'})")
+        if model_name:
+            _provider_instance = GeminiProvider(api_key, model_name)
+        else:
+            _provider_instance = GeminiProvider(api_key)
     else:
         raise ValueError(f"Provider sconosciuto: {provider_name}")
     

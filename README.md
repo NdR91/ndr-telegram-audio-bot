@@ -33,6 +33,7 @@ LLM_PROVIDER=openai
 # If using Gemini:
 # LLM_PROVIDER=gemini
 # GEMINI_API_KEY=tua_chiave_google_ai_studio
+# LLM_MODEL=gemini-1.5-flash (default) or gemini-2.0-flash-exp
 ```
 
 ### 3. Crea il file `authorized.json`
