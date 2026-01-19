@@ -1,7 +1,7 @@
 import os
 import subprocess
 import logging
-from providers import OpenAIProvider, LLMProvider
+from providers import OpenAIProvider, GeminiProvider, LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,12 @@ def get_provider() -> LLMProvider:
             raise RuntimeError("OPENAI_API_KEY configurata ma mancante.")
         logger.info("Initializing OpenAI Provider")
         _provider_instance = OpenAIProvider(api_key)
+    elif provider_name == 'gemini':
+        api_key = os.getenv('GEMINI_API_KEY')
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY configurata ma mancante.")
+        logger.info("Initializing Gemini Provider")
+        _provider_instance = GeminiProvider(api_key)
     else:
         raise ValueError(f"Provider sconosciuto: {provider_name}")
     
