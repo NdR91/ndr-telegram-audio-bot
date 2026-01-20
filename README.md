@@ -46,7 +46,7 @@ OPENAI_API_KEY=la_tua_chiave_api_openai
 
 # --- Configurazione Prompt (Opzionale) ---
 # Personalizza il comportamento del sistema e il template di rielaborazione
-# PROMPT_SYSTEM="Sei un assistente utile."
+# PROMPT_SYSTEM="Sei un esperto di trascrizione audio. Correggi errori automatici, aggiungi punteggiatura, mantieni il significato originale e restituisci SOLO il testo corretto senza commenti."
 # PROMPT_REFINE_TEMPLATE="Questo è un testo... {raw_text} ..."
 ```
 

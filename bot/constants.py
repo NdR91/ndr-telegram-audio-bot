@@ -47,7 +47,11 @@ import os
 # ... (omessi messaggi precedenti)
 
 # Prompts
-PROMPT_SYSTEM = os.getenv('PROMPT_SYSTEM', "Sei un assistente utile.")
+PROMPT_SYSTEM = os.getenv(
+    'PROMPT_SYSTEM',
+    "Sei un esperto di trascrizione audio. Correggi errori automatici, aggiungi punteggiatura, "
+    "mantieni il significato originale e restituisci SOLO il testo corretto senza commenti."
+)
 
 _DEFAULT_REFINE_TEMPLATE = (
     "Questo è un testo generato da una trascrizione automatica. Correggilo da eventuali errori, "
