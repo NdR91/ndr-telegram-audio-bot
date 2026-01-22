@@ -140,11 +140,24 @@ Create a file named `authorized.json` in the root directory. This controls who c
 
 ## 📦 Project Structure
 
-- `bot/main.py`: Entry point and bootstrapper.
-- `bot/handlers/`: Telegram command logic (Audio, Admin, Base).
-- `bot/core/`: Application setup.
-- `bot/providers.py`: LLM provider implementations.
-- `audio_files/`: Temporary storage (auto-cleaned).
+```text
+.
+├── audio_files/          # Temporary storage (auto-cleaned)
+├── bot/
+│   ├── core/             # Application builder & setup
+│   ├── decorators/       # Authentication & timeouts
+│   ├── handlers/         # Telegram commands logic (audio, admin)
+│   ├── ui/               # Progress bars & feedback
+│   ├── config.py         # Centralized configuration
+│   ├── constants.py      # Messages & prompts
+│   ├── main.py           # Entry point
+│   ├── providers.py      # LLM interfaces (OpenAI/Gemini)
+│   └── utils.py          # FFmpeg & helpers
+├── .env.example          # Environment variables template
+├── authorized.json       # Access control list (not committed)
+├── docker-compose.yml    # Docker configuration
+└── requirements.txt      # Python dependencies
+```
 
 ## 📝 Changelog
 
