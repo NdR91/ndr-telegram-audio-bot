@@ -1,0 +1,48 @@
+"""
+Authentication and authorization decorators for Telegram bot handlers.
+"""
+
+import logging
+from functools import wraps
+from typing import Callable, Any
+
+from telegram import Update
+from telegram.ext import ContextTypes
+
+logger = logging.getLogger(__name__)
+
+
+def restricted(func: Callable) -> Callable:
+    """
+    Decorator to restrict access to authorized users, groups, and admins.
+    
+    Args:
+        func: The async function to wrap
+        
+    Returns:
+        Wrapped function that checks authorization before execution
+    """
+    @wraps(func)
+    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        # Import here to avoid circular imports
+        from bot.config import Config
+        from bot import constants as c
+        
+        # Get user and chat IDs
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        
+        # Get config (lazy loading to avoid circular imports)
+        config = Config()
+        
+        # Check authorization
+        if (user_id in config.authorized_data.get('admin', []) or
+            user_id in config.authorized_data.get('users', []) or
+            chat_id in config.authorized_data.get('groups', [])):
+            return await func(update, context, *args, **kwargs)
+        
+        # User not authorized
+        logger.warning(f"Unauthorized access attempt - User: {user_id}, Chat: {chat_id}")
+        await update.message.reply_text(c.MSG_UNAUTHORIZED)
+    
+    return wrapped

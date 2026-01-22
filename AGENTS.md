@@ -53,6 +53,8 @@ No Cursor rules or Copilot instructions were found in:
 - Standard library imports first, then third-party, then local modules.
 - Use explicit imports (no star imports).
 - Keep import blocks compact with a single blank line between groups.
+- For files within `bot/` package, use relative imports when appropriate.
+- Use `sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))` for critical modules that need project root access.
 
 ### Naming
 - Modules: snake_case (`providers.py`, `constants.py`).
@@ -76,6 +78,7 @@ No Cursor rules or Copilot instructions were found in:
 
 ### Error handling
 - Fail fast on missing env variables at startup in `bot/main.py`.
+- Use custom exceptions from `bot.exceptions` module for specific error types.
 - Raise `RuntimeError` for unrecoverable failures in helpers.
 - For handler flows, catch exceptions and send a user-facing error message.
 - Always clean up temporary files in a `finally` block.
@@ -84,6 +87,7 @@ No Cursor rules or Copilot instructions were found in:
 - Handlers are `async def` and use `await` for Telegram operations.
 - Use `ApplicationBuilder` and register handlers in `main()`.
 - Keep command handlers small and focused on request/response.
+- Use decorators from `bot.decorators` for authentication and timeout handling.
 
 ### Prompts and LLM usage
 - Prompts are defined in `bot/constants.py`.
@@ -93,14 +97,20 @@ No Cursor rules or Copilot instructions were found in:
 - Always include `{raw_text}` in the refine template.
 
 ### Configuration files
-- `.env` and `authorized.json` are required at runtime and must not be committed.
+- `.env` and `authorized.json` are required at runtime and must not be committed. Never touch them.
 - Avoid logging secrets or tokens.
 
 ## Repo layout
-- `bot/main.py`: Telegram bot entry point and handlers.
+- `bot/main.py`: Telegram bot entry point and configuration initialization.
+- `bot/core/app.py`: Application builder and handler registration.
+- `bot/handlers/`: Command, admin, and audio processing handlers.
 - `bot/providers.py`: LLM providers for transcription and refinement.
+- `bot/config.py`: Centralized configuration management and validation.
 - `bot/utils.py`: FFmpeg conversion and provider factory.
 - `bot/constants.py`: Messages, prompts, and config constants.
+- `bot/exceptions.py`: Custom exception classes for error handling.
+- `bot/decorators/`: Authentication and timeout decorators.
+- `bot/ui/progress.py`: Progress message UI components.
 - `audio_files/`: Temporary storage for downloaded audio files.
 
 ## When adding new functionality
@@ -118,3 +128,4 @@ No Cursor rules or Copilot instructions were found in:
 - Telegram message length limit: split responses over 4000 chars.
 - FFmpeg errors should surface as `RuntimeError` in helpers.
 - Gemini file uploads can be asynchronous; wait for ACTIVE state.
+- Circular imports: use late imports inside functions when needed between bot modules.

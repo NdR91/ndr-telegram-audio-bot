@@ -5,6 +5,52 @@ Tutti i cambiamenti significativi al progetto saranno documentati in questo file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 🚀 v20260122.2 - Modular Architecture Refactoring & SDK Stabilization
+
+### 🏗️ Refactoring Architetturale
+Il codebase è stato trasformato da un'architettura monolitica a una modulare e scalabile per migliorare la manutenibilità e facilitare lo sviluppo futuro.
+
+- **Decomposizione del Core (`bot/main.py`)**:
+  - Il file principale (ridotto da ~320 a ~85 righe) ora funge solo da entry point e bootstrapper.
+  - La logica di business è stata migrata in moduli specializzati.
+
+- **Nuova Struttura Modulare**:
+  - `bot/handlers/`: Logica specifica per i comandi Telegram.
+    - `audio.py`: Pipeline completa di gestione audio (download, conversione, trascrizione).
+    - `admin.py`: Comandi di gestione whitelist.
+    - `commands.py`: Comandi base (`/start`, `/help`, `/whoami`).
+  - `bot/core/`: Logica di inizializzazione e setup dell'applicazione Telegram (`app.py`).
+  - `bot/ui/`: Gestione della presentazione e feedback utente (`progress.py`).
+  - `bot/decorators/`: Logica trasversale riutilizzabile (`auth.py`, `timeout.py`).
+
+- **Unified Whitelist Management**:
+  - Creata la classe `WhitelistManager` per centralizzare la logica di gestione permessi.
+  - Eliminata la duplicazione del codice nei 4 comandi admin (`adduser`, `removeuser`, etc.), riducendo la complessità ciclomatica e migliorando la robustezza.
+
+### 🔧 Technical Improvements & Fixes
+Questi miglioramenti sono stati necessari per stabilizzare la nuova architettura e supportare le ultime dipendenze.
+
+- **Google GenAI SDK v1.0 Compatibility**:
+  - Aggiornamento completo alla nuova sintassi SDK `google-genai` >=1.0.0.
+  - Risolta incompatibilità critica nell'upload file: il metodo `client.files.upload` ora utilizza correttamente il parametro `file=` (fix regressione parametri `path=`).
+
+- **Async Stability & Telegram API v20+**:
+  - Corretta gestione delle coroutine per il download dei file (`await file.download_to_drive()`).
+  - Reso asincrono il metodo di determinazione tipo file per compatibilità completa con l'ecosistema async.
+
+- **Smart Progress UI**:
+  - Implementato sistema di deduplicazione messaggi di progresso.
+  - Previene i warning "Message is not modified" dell'API Telegram evitando chiamate ridondanti quando lo stato non cambia.
+  - Aggiunto cleanup automatico della cache di stato.
+
+- **Import System Hardening**:
+  - Configurato `sys.path` nel bootstrap per garantire import assoluti consistenti.
+  - Risolti problemi di importazione circolare e dipendenze tra moduli in ambienti Docker e sviluppo locale.
+
+### 📦 Codebase Health
+- **Type Hints**: Estesa copertura dei type hints a tutti i nuovi moduli per migliore dev experience e sicurezza.
+- **Logging Contestuale**: Migliorato il logging per includere contesto specifico del modulo attivo.
+
 ## 🚀 v20260122.1 - Indicatori di Progresso e Migrazione Google GenAI
 
 ### ✨ Nuove Funzionalità

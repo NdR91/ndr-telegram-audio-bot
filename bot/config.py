@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
-from exceptions import (
+from bot.exceptions import (
     ConfigError,
     MissingRequiredConfig,
     InvalidConfig,

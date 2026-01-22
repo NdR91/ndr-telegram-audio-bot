@@ -99,13 +99,21 @@ Se preferisci eseguire il bot localmente con Python:
 
 ## 📦 Struttura del Progetto
 
-- `bot/main.py`: Logica principale del bot Telegram.
-- `bot/providers.py`: Implementazioni dei provider LLM (OpenAI, Gemini).
-- `bot/utils.py`: Funzioni di utilità (conversione audio, provider factory).
-- `bot/constants.py`: Testi, prompt e configurazioni statiche.
-- `audio_files/`: Cartella temporanea per il download degli audio (si svuota automaticamente).
-- `authorized.json`: Whitelist utenti/gruppi (non versionato).
-- `.env`: Variabili d'ambiente (non versionato).
+- `bot/main.py`: Entry point e bootstrap configurazione.
+- `bot/core/`: Logica core applicativa (App Builder).
+- `bot/handlers/`: Moduli per comandi Telegram:
+  - `audio.py`: Pipeline elaborazione audio.
+  - `admin.py`: Comandi gestione whitelist.
+  - `commands.py`: Comandi base.
+- `bot/ui/`: Gestione feedback utente e progress bar.
+- `bot/decorators/`: Logica trasversale (Auth, Timeouts).
+- `bot/providers.py`: Implementazioni provider LLM (OpenAI, Gemini).
+- `bot/config.py`: Gestione configurazione centralizzata.
+- `bot/utils.py`: Utility provider factory e conversioni.
+- `bot/constants.py`: Testi statici e costanti.
+- `audio_files/`: Cartella temporanea (si svuota automaticamente).
+- `authorized.json`: Whitelist utenti/gruppi.
+- `.env`: Variabili d'ambiente.
 
 ## 🔧 Configurazione
 

@@ -1,6 +1,6 @@
 import subprocess
 import logging
-from providers import OpenAIProvider, GeminiProvider, LLMProvider
+from bot.providers import OpenAIProvider, GeminiProvider, LLMProvider
 
 logger = logging.getLogger(__name__)
 

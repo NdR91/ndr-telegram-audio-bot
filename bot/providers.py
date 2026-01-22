@@ -77,7 +77,7 @@ class GeminiProvider(LLMProvider):
         
         # Carica il file su Google AI Studio con nuovo SDK
         try:
-            audio_file = self.client.files.upload(path=file_path)
+            audio_file = self.client.files.upload(file=file_path)
         except Exception as e:
             logger.error(f"Failed to upload audio file: {e}")
             raise RuntimeError(f"Google AI File Upload failed: {e}")
