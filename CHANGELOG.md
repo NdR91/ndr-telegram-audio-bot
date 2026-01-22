@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modello Gemini di default aggiornato a `gemini-2.0-flash`
 
 ### 📚 Documentazione
-- Aggiunto `MIGRATION_GUIDE.md` per riferimento futuro e migrazione SDK
+- Documentazione tecnica per migrazione Google GenAI SDK integrata in CHANGELOG.md
 - Documentazione completa breaking changes e benefici della migrazione
 
 ### 🐛 Bug Fixes
