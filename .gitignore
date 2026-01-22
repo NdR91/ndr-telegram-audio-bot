@@ -10,6 +10,14 @@ authorized.json
 audio_files/
 ___backup versioni/
 .DS_Store
+note.md
+
+# macOS System Files
+._*
+._*/
+.__*
+.AppleDouble
+.LSOverride
 
 # Virtual Environment
 venv/

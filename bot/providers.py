@@ -1,8 +1,6 @@
-import os
 import logging
 from abc import ABC, abstractmethod
 from openai import OpenAI
-import constants as c
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +20,13 @@ class LLMProvider(ABC):
 class OpenAIProvider(LLMProvider):
     """OpenAI Implementation."""
 
-    def __init__(self, api_key: str, model_name: str = "gpt-4o-mini"):
+    def __init__(self, api_key: str, model_name: str = "gpt-4o-mini", prompts: dict | None = None):
         self.client = OpenAI(api_key=api_key)
         self.model_name = model_name
+        self.prompts = prompts or {
+            'system': "Sei un esperto di trascrizione audio. Correggi errori automatici, aggiungi punteggiatura, mantieni il significato originale e restituisci SOLO il testo corretto senza commenti.",
+            'refine_template': "Questo è un testo generato da una trascrizione automatica. Correggilo da eventuali errori, aggiungi la punteggiatura, riformula se ti rendi conto che la trascrizione è inaccurate, ma rimani il più aderente possibile al testo originale. Considera la presenza di eventuali esitazioni e ripetizioni, rendile adatte ad un testo scritto.\nIMPORTANTE: Restituisci SOLO il testo rielaborato. NON aggiungere commenti introduttivi, premese o saluti.\n\nTesto originale:\n{raw_text}\n\nTesto rielaborato:\n"
+        }
 
     def transcribe_audio(self, file_path: str) -> str:
         logger.info(f"Transcribe {file_path} with Whisper v1")
@@ -40,18 +42,19 @@ class OpenAIProvider(LLMProvider):
 
     def refine_text(self, raw_text: str) -> str:
         logger.info("Refine text with ChatCompletion")
-        prompt = c.PROMPT_REFINE_TEMPLATE.format(raw_text=raw_text)
+        prompt = self.prompts['refine_template'].format(raw_text=raw_text)
 
         resp = self.client.chat.completions.create(
             model=self.model_name,
             messages=[
-                {"role": "system", "content": c.PROMPT_SYSTEM},
+                {"role": "system", "content": self.prompts['system']},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=4096, 
             temperature=0.7
         )
-        out = resp.choices[0].message.content.strip()
+        response_content = resp.choices[0].message.content
+        out = response_content.strip() if response_content else ""
         logger.debug(f"Refined text: {out}")
         return out
 
@@ -61,10 +64,14 @@ import time
 class GeminiProvider(LLMProvider):
     """Google Gemini Implementation."""
 
-    def __init__(self, api_key: str, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: str, model_name: str = "gemini-1.5-flash", prompts: dict | None = None):
         genai.configure(api_key=api_key)
         self.model_name = model_name
         self.model = genai.GenerativeModel(self.model_name)
+        self.prompts = prompts or {
+            'system': "Sei un esperto di trascrizione audio. Correggi errori automatici, aggiungi punteggiatura, mantieni il significato originale e restituisci SOLO il testo corretto senza commenti.",
+            'refine_template': "Questo è un testo generato da una trascrizione automatica. Correggilo da eventuali errori, aggiungi la punteggiatura, riformula se ti rendi conto che la trascrizione è inaccurate, ma rimani il più aderente possibile al testo originale. Considera la presenza di eventuali esitazioni e ripetizioni, rendile adatte ad un testo scritto.\nIMPORTANTE: Restituisci SOLO il testo rielaborato. NON aggiungere commenti introduttivi, premese o saluti.\n\nTesto originale:\n{raw_text}\n\nTesto rielaborato:\n"
+        }
 
     def transcribe_audio(self, file_path: str) -> str:
         logger.info(f"Transcribe {file_path} with Gemini")
@@ -96,7 +103,7 @@ class GeminiProvider(LLMProvider):
     def refine_text(self, raw_text: str) -> str:
         logger.info("Refine text with Gemini")
         # Combina system prompt e user prompt perché Gemini usa un array di content
-        full_prompt = f"{c.PROMPT_SYSTEM}\n\n{c.PROMPT_REFINE_TEMPLATE.format(raw_text=raw_text)}"
+        full_prompt = f"{self.prompts['system']}\n\n{self.prompts['refine_template'].format(raw_text=raw_text)}"
         
         response = self.model.generate_content(full_prompt)
         out = response.text.strip()

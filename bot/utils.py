@@ -1,4 +1,3 @@
-import os
 import subprocess
 import logging
 from providers import OpenAIProvider, GeminiProvider, LLMProvider
@@ -18,35 +17,23 @@ def convert_to_mp3(src_path: str, dst_path: str) -> None:
 
 _provider_instance = None
 
-def get_provider() -> LLMProvider:
+def get_provider(config) -> LLMProvider:
     """Factory function to get the configured LLM provider."""
     global _provider_instance
     if _provider_instance:
         return _provider_instance
 
-    provider_name = os.getenv('LLM_PROVIDER', 'openai').lower()
-    model_name = os.getenv('LLM_MODEL') # Default gestito dai provider se None
+    provider_name = config.provider_name
+    model_name = config.model_name
+    api_key = config.get_api_key(provider_name)
+    prompts = config.prompts
     
     if provider_name == 'openai':
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY configurata ma mancante.")
         logger.info(f"Initializing OpenAI Provider (model: {model_name or 'default'})")
-        # Se model_name è None, usa il default della classe
-        if model_name:
-             _provider_instance = OpenAIProvider(api_key, model_name)
-        else:
-             _provider_instance = OpenAIProvider(api_key)
-
+        _provider_instance = OpenAIProvider(api_key, model_name, prompts)
     elif provider_name == 'gemini':
-        api_key = os.getenv('GEMINI_API_KEY')
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY configurata ma mancante.")
         logger.info(f"Initializing Gemini Provider (model: {model_name or 'default'})")
-        if model_name:
-            _provider_instance = GeminiProvider(api_key, model_name)
-        else:
-            _provider_instance = GeminiProvider(api_key)
+        _provider_instance = GeminiProvider(api_key, model_name, prompts)
     else:
         raise ValueError(f"Provider sconosciuto: {provider_name}")
     

@@ -15,6 +15,8 @@ from telegram.ext import (
 
 import utils
 import constants as c
+from config import Config
+from exceptions import ConfigError
 
 # Configurazione logging
 logging.basicConfig(
@@ -24,35 +26,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Variabili d’ambiente
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+# Initialize configuration
+try:
+    config = Config()
+    logger.info("Configuration loaded successfully")
+except (ConfigError, RuntimeError) as e:
+    logger.error(f"Configuration error: {e}")
+    raise
 
-if not TELEGRAM_TOKEN:
-    logger.error("TELEGRAM_TOKEN non trovata in .env")
-    raise RuntimeError("Telegram token mancante")
 
-if not OPENAI_API_KEY:
-    logger.error("OPENAI_API_KEY non trovata in .env")
-    raise RuntimeError("OpenAI API key mancante")
-
-# Percorsi e configurazioni
-AUTHORIZED_FILE = 'authorized.json'
-AUDIO_DIR = 'audio_files'
-
-def load_authorized():
-    with open(AUTHORIZED_FILE, 'r') as f:
-        return json.load(f)
-
-authorized = load_authorized()
 
 def restricted(func):
     @wraps(func)
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-        if (user_id in authorized.get('admin', []) or
-            user_id in authorized.get('users', []) or
-            chat_id in authorized.get('groups', [])):
+        if (user_id in config.authorized_data.get('admin', []) or
+            user_id in config.authorized_data.get('users', []) or
+            chat_id in config.authorized_data.get('groups', [])):
             return await func(update, context, *args, **kwargs)
         await update.message.reply_text(c.MSG_UNAUTHORIZED)
     return wrapped
@@ -74,7 +65,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Comandi admin
 async def adduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in authorized.get('admin', []):
+    if update.effective_user.id not in config.authorized_data.get('admin', []):
         return await update.message.reply_text(c.MSG_ONLY_ADMIN)
     if not context.args:
         return await update.message.reply_text(c.MSG_USAGE_ADDUSER)
@@ -82,15 +73,15 @@ async def adduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_id = int(context.args[0])
     except ValueError:
         return await update.message.reply_text(c.MSG_INVALID_ID)
-    if new_id in authorized.get('users', []):
+    if new_id in config.authorized_data.get('users', []):
         return await update.message.reply_text(c.MSG_USER_ALREADY_WHITELISTED)
-    authorized.setdefault('users', []).append(new_id)
-    with open(AUTHORIZED_FILE, 'w') as f:
-        json.dump(authorized, f, indent=2)
+    config.authorized_data.setdefault('users', []).append(new_id)
+    with open(config.authorized_file, 'w') as f:
+        json.dump(config.authorized_data, f, indent=2)
     await update.message.reply_text(c.msg_user_added(new_id))
 
 async def removeuser(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in authorized.get('admin', []):
+    if update.effective_user.id not in config.authorized_data.get('admin', []):
         return await update.message.reply_text(c.MSG_ONLY_ADMIN)
     if not context.args:
         return await update.message.reply_text(c.MSG_USAGE_REMOVEUSER)
@@ -98,15 +89,15 @@ async def removeuser(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rem_id = int(context.args[0])
     except ValueError:
         return await update.message.reply_text(c.MSG_INVALID_ID)
-    if rem_id not in authorized.get('users', []):
+    if rem_id not in config.authorized_data.get('users', []):
         return await update.message.reply_text(c.MSG_USER_NOT_WHITELISTED)
-    authorized['users'].remove(rem_id)
-    with open(AUTHORIZED_FILE, 'w') as f:
-        json.dump(authorized, f, indent=2)
+    config.authorized_data['users'].remove(rem_id)
+    with open(config.authorized_file, 'w') as f:
+        json.dump(config.authorized_data, f, indent=2)
     await update.message.reply_text(c.msg_user_removed(rem_id))
 
 async def addgroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in authorized.get('admin', []):
+    if update.effective_user.id not in config.authorized_data.get('admin', []):
         return await update.message.reply_text(c.MSG_ONLY_ADMIN)
     if not context.args:
         return await update.message.reply_text(c.MSG_USAGE_ADDGROUP)
@@ -114,15 +105,15 @@ async def addgroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_id = int(context.args[0])
     except ValueError:
         return await update.message.reply_text(c.MSG_INVALID_ID)
-    if new_id in authorized.get('groups', []):
+    if new_id in config.authorized_data.get('groups', []):
         return await update.message.reply_text(c.MSG_GROUP_ALREADY_AUTH)
-    authorized.setdefault('groups', []).append(new_id)
-    with open(AUTHORIZED_FILE, 'w') as f:
-        json.dump(authorized, f, indent=2)
+    config.authorized_data.setdefault('groups', []).append(new_id)
+    with open(config.authorized_file, 'w') as f:
+        json.dump(config.authorized_data, f, indent=2)
     await update.message.reply_text(c.msg_group_added(new_id))
 
 async def removegroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in authorized.get('admin', []):
+    if update.effective_user.id not in config.authorized_data.get('admin', []):
         return await update.message.reply_text(c.MSG_ONLY_ADMIN)
     if not context.args:
         return await update.message.reply_text(c.MSG_USAGE_REMOVEGROUP)
@@ -130,11 +121,11 @@ async def removegroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rem_id = int(context.args[0])
     except ValueError:
         return await update.message.reply_text(c.MSG_INVALID_ID)
-    if rem_id not in authorized.get('groups', []):
+    if rem_id not in config.authorized_data.get('groups', []):
         return await update.message.reply_text(c.MSG_GROUP_NOT_AUTH)
-    authorized['groups'].remove(rem_id)
-    with open(AUTHORIZED_FILE, 'w') as f:
-        json.dump(authorized, f, indent=2)
+    config.authorized_data['groups'].remove(rem_id)
+    with open(config.authorized_file, 'w') as f:
+        json.dump(config.authorized_data, f, indent=2)
     await update.message.reply_text(c.msg_group_removed(rem_id))
 
 # Handler audio
@@ -156,8 +147,8 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await msg.reply_text(c.MSG_UNSUPPORTED_TYPE)
 
     uid = msg.effective_attachment.file_unique_id
-    ogg_path = os.path.join(AUDIO_DIR, f"{uid}.{ext}")
-    mp3_path = os.path.join(AUDIO_DIR, f"{uid}.mp3")
+    ogg_path = os.path.join(config.audio_dir, f"{uid}.{ext}")
+    mp3_path = os.path.join(config.audio_dir, f"{uid}.mp3")
 
     # 1) Messaggio di attesa
     ack_msg = await msg.reply_text(c.MSG_PROCESSING)
@@ -168,7 +159,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         utils.convert_to_mp3(ogg_path, mp3_path)
         
         # Inizializza provider
-        provider = utils.get_provider()
+        provider = utils.get_provider(config)
         
         raw_text = provider.transcribe_audio(mp3_path)
         final_text = provider.refine_text(raw_text)
@@ -200,7 +191,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     # Costruisci applicazione
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app = ApplicationBuilder().token(config.telegram_token).build()
 
     # Registra handler
     app.add_handler(CommandHandler('start', start))

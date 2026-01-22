@@ -23,32 +23,27 @@ cd ndr-telegram-audio-bot
 ```
 
 ### 2. Crea il file `.env`
-Crea un file chiamato `.env` nella root del progetto e inserisci le tue chiavi API:
+Usa il template fornito `.env.example` come riferimento per tutte le opzioni disponibili:
 
 ```bash
-# .env
-
-# Token del bot Telegram (obbligatorio)
-TELEGRAM_TOKEN=il_tuo_token_telegram_bot_father
-
-# --- Provider OpenAI (default) ---
-LLM_PROVIDER=openai
-OPENAI_API_KEY=la_tua_chiave_api_openai
-# Opzionale: specifica un modello diverso (default: gpt-4o-mini)
-# LLM_MODEL=gpt-4o-mini
-
-# --- Provider Google Gemini (alternativo) ---
-# LLM_PROVIDER=gemini
-# GEMINI_API_KEY=tua_chiave_google_ai_studio
-# LLM_MODEL=gemini-1.5-flash
-# oppure per versioni preview/sperimentali:
-# LLM_MODEL=gemini-2.0-flash-exp
-
-# --- Configurazione Prompt (Opzionale) ---
-# Personalizza il comportamento del sistema e il template di rielaborazione
-# PROMPT_SYSTEM="Sei un esperto di trascrizione audio. Correggi errori automatici, aggiungi punteggiatura, mantieni il significato originale e restituisci SOLO il testo corretto senza commenti."
-# PROMPT_REFINE_TEMPLATE="Questo è un testo... {raw_text} ..."
+# Copia il template di configurazione
+cp .env.example .env
+# Modifica .env con le tue credenziali
 ```
+
+Il file `.env` contiene tutte le opzioni configurabili con esempi commentati per:
+- Token Telegram (obbligatorio)
+- Selezione provider LLM (OpenAI/Gemini)
+- API keys per i provider
+- Modelli LLM custom
+- Prompt personalizzati
+- Path configurabili
+
+### 2.1 File di Configurazione Dettagliati
+
+- **`.env.example`**: Template completo con tutte le opzioni disponibili e documentate
+- **`.env`**: File personale con le tue configurazioni (da creare da template)
+- **`authorized.json`**: Whitelist utenti e gruppi autorizzati (da creare manualmente)
 
 ### 3. Crea il file `authorized.json`
 Crea un file chiamato `authorized.json` per gestire i permessi. Al primo avvio deve contenere almeno l'ID del tuo utente admin (puoi scoprirlo usando il bot `@userinfobot` su Telegram o il comando `/whoami` dopo il primo avvio).
@@ -112,6 +107,21 @@ Se preferisci eseguire il bot localmente con Python:
 - `authorized.json`: Whitelist utenti/gruppi (non versionato).
 - `.env`: Variabili d'ambiente (non versionato).
 
+## 🔧 Configurazione
+
+### File di Configurazione
+Il bot ora utilizza un sistema di configurazione centralizzato con validazione automatica. 
+
+### Validazione Automatica
+All'avvio, il bot verifica:
+- ✅ Token Telegram valido
+- ✅ API key del provider selezionato  
+- ✅ Dipendenze esterne (FFmpeg)
+- ✅ Permessi di scrittura per i file audio
+- ✅ Struttura file di autorizzazione
+
+Se manca qualcosa, il bot ti fornirà istruzioni specifiche per risolvere.
+
 ## 🔧 Configurazione Avanzata
 
 ### Provider LLM
@@ -128,6 +138,34 @@ Se vuoi modificare il comportamento del bot (es. evitare frasi introduttive, cam
 ```bash
 PROMPT_REFINE_TEMPLATE="Correggi questo testo trascritto. Aggiungi punteggiatura. NON aggiungere commenti. Restituisci SOLO il testo corretto.\n\nTesto:\n{raw_text}\n\nRisposta:"
 ```
+
+## ✨ Benefits della Nuova Architettura
+
+- **Prevenzione Errori**: Validazione completa prima dell'avvio
+- **Setup Guidato**: Messaggi di errore con istruzioni passo-passo  
+- **Miglior Debug**: Errori specifici per identificare rapidamente i problemi
+- **Manutenzione Facile**: Configurazione centralizzata e modulare
+- **Sviluppo Semplice**: Template `.env.example` con esempi completi
+
+## 🔧 Troubleshooting Avanzato
+
+### Errori di Configurazione
+- `TELEGRAM_TOKEN is required`: Ottieni token da @BotFather su Telegram
+- `OPENAI_API_KEY required`: Configura API key da platform.openai.com
+- `GEMINI_API_KEY required`: Configura API key da makersuite.google.com
+- `FFmpeg is not installed`: `apt-get install ffmpeg` (Ubuntu) o `brew install ffmpeg` (macOS)
+
+### Conflitti di Connessione (409 Conflict)
+Se vedi "Conflict: terminated by other getUpdates request":
+1. Controlla che il bot non sia in esecuzione su più piattaforme
+2. Genera nuovo token da @BotFather se necessario
+3. Verifica che non ci siano webhook attivi residui
+
+### Validation Errors
+Se il bot si ferma all'avvio con errori di validazione:
+1. Controlla il messaggio specifico per istruzioni dettagliate
+2. Verifica che `.env` contenga tutti i requisiti per il provider selezionato
+3. Assicurati che `authorized.json` sia presente e contenga almeno un admin
 
 ## 📝 Changelog
 
