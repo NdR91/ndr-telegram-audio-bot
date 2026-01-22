@@ -31,9 +31,43 @@ MSG_GROUP_ALREADY_AUTH = "Gruppo già autorizzato."
 MSG_GROUP_NOT_AUTH = "Gruppo non autorizzato."
 MSG_UNSUPPORTED_TYPE = "❌ Tipo di file non supportato."
 MSG_PROCESSING = "🔄 Audio ricevuto, sto elaborando…"
-MSG_ERROR_INTERNAL = "❌ Errore interno durante l’elaborazione."
+MSG_ERROR_INTERNAL = "❌ Errore interno durante l'elaborazione."
 
-MSG_COMPLETION_HEADER = "🤖 **Audio rielaborato tramite LLM: {model_name}**"
+# Progress messages
+MSG_PROGRESS_DOWNLOAD = "⬇️ Download audio"
+MSG_PROGRESS_CONVERT = "🔄 Conversione MP3"
+MSG_PROGRESS_TRANSCRIBE = "🎧 Trascrizione audio"
+MSG_PROGRESS_REFINE = "✍️ Rielaborazione testo"
+MSG_PROGRESS_FINALIZING = "🎯 Finalizzazione"
+
+# Timeout messages
+MSG_TIMEOUT_DOWNLOAD = "⏰ Download troppo lento, riprova con file più piccoli"
+MSG_TIMEOUT_CONVERT = "⏰ Conversione audio bloccata, contatta l'admin"
+MSG_TIMEOUT_TRANSCRIBE = "⏰ Server LLM occupato, riprova tra pochi secondi"
+MSG_TIMEOUT_REFINE = "⏰ Rielaborazione lenta, riprova più tardi"
+
+# Error messages per fase
+MSG_ERROR_DOWNLOAD = "❌ Errore nel download audio"
+MSG_ERROR_CONVERT = "❌ Errore conversione MP3"
+MSG_ERROR_TRANSCRIBE = "❌ Errore trascrizione audio"
+MSG_ERROR_REFINE = "❌ Errore rielaborazione testo"
+
+# Progress configuration
+PROGRESS_STAGES = [
+    ("⬇️ Download", "Download audio"),
+    ("🔄 Conversione MP3", "Conversione in MP3"),  
+    ("🎧 Trascrizione audio", "Trascrizione audio"),
+    ("✍️ Rielaborazione testo", "Rielaborazione testo")
+]
+
+PROGRESS_TIMEOUTS = {
+    "download": 30,      # 30 secondi max
+    "convert": 60,       # 60 secondi max
+    "transcribe": 120,   # 120 secondi max
+    "refine": 90         # 90 secondi max
+}
+
+MSG_COMPLETION_HEADER = "📝 **Trascrizione Completata**\n🤖 Modello: {model_name}"
 
 # Success Messages
 def msg_user_added(uid): return f"✅ Utente {uid} aggiunto."

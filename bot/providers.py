@@ -58,54 +58,82 @@ class OpenAIProvider(LLMProvider):
         logger.debug(f"Refined text: {out}")
         return out
 
-import google.generativeai as genai
+import google.genai as genai
 import time
 
 class GeminiProvider(LLMProvider):
-    """Google Gemini Implementation."""
+    """Google Gemini Implementation using new google-genai SDK."""
 
-    def __init__(self, api_key: str, model_name: str = "gemini-1.5-flash", prompts: dict | None = None):
-        genai.configure(api_key=api_key)
+    def __init__(self, api_key: str, model_name: str = "gemini-2.0-flash", prompts: dict | None = None):
+        self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
-        self.model = genai.GenerativeModel(self.model_name)
         self.prompts = prompts or {
             'system': "Sei un esperto di trascrizione audio. Correggi errori automatici, aggiungi punteggiatura, mantieni il significato originale e restituisci SOLO il testo corretto senza commenti.",
             'refine_template': "Questo è un testo generato da una trascrizione automatica. Correggilo da eventuali errori, aggiungi la punteggiatura, riformula se ti rendi conto che la trascrizione è inaccurate, ma rimani il più aderente possibile al testo originale. Considera la presenza di eventuali esitazioni e ripetizioni, rendile adatte ad un testo scritto.\nIMPORTANTE: Restituisci SOLO il testo rielaborato. NON aggiungere commenti introduttivi, premese o saluti.\n\nTesto originale:\n{raw_text}\n\nTesto rielaborato:\n"
         }
 
     def transcribe_audio(self, file_path: str) -> str:
-        logger.info(f"Transcribe {file_path} with Gemini")
+        logger.info(f"Transcribe {file_path} with Gemini (new SDK)")
         
-        # Carica il file su Google AI Studio
-        audio_file = genai.upload_file(path=file_path)
+        # Carica il file su Google AI Studio con nuovo SDK
+        try:
+            audio_file = self.client.files.upload(path=file_path)
+        except Exception as e:
+            logger.error(f"Failed to upload audio file: {e}")
+            raise RuntimeError(f"Google AI File Upload failed: {e}")
         
         # Attendi che il file sia processato (stato ACTIVE)
-        while audio_file.state.name == "PROCESSING":
+        while audio_file.state == "PROCESSING":
             time.sleep(1)
-            audio_file = genai.get_file(audio_file.name)
+            try:
+                audio_file = self.client.files.get(audio_file.name)
+            except Exception as e:
+                logger.error(f"Failed to get file status: {e}")
+                break
 
-        if audio_file.state.name == "FAILED":
+        if audio_file.state == "FAILED":
             raise RuntimeError("Google AI File Upload failed.")
 
-        # Richiedi la trascrizione
-        prompt = "Transcribe this audio file accurately. Output only the text."
-        response = self.model.generate_content([prompt, audio_file])
+        # Richiedi la trascrizione con nuovo SDK
+        prompt = "Transcribe this audio file accurately. Output only text."
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=[prompt, audio_file]
+            )
+        except Exception as e:
+            logger.error(f"Failed to generate transcription: {e}")
+            # Cleanup file remoto in caso di errore
+            try:
+                self.client.files.delete(audio_file.name)
+            except:
+                pass
+            raise RuntimeError(f"Google AI Transcription failed: {e}")
         
-        # Cleanup file remoto (opzionale ma consigliato per non intasare lo storage)
-        # genai.delete_file(audio_file.name) 
-        # Nota: genai.delete_file non è sempre esposto direttamente o necessario se si usa il tier free, 
-        # ma è buona norma. Per ora lo lasciamo commentato per sicurezza API.
+        # Cleanup file remoto per non intasare lo storage
+        try:
+            self.client.files.delete(audio_file.name)
+        except Exception as e:
+            logger.warning(f"Failed to cleanup remote file: {e}")
         
         text = response.text
         logger.debug(f"Gemini Raw text: {text}")
         return text
 
     def refine_text(self, raw_text: str) -> str:
-        logger.info("Refine text with Gemini")
+        logger.info("Refine text with Gemini (new SDK)")
         # Combina system prompt e user prompt perché Gemini usa un array di content
         full_prompt = f"{self.prompts['system']}\n\n{self.prompts['refine_template'].format(raw_text=raw_text)}"
         
-        response = self.model.generate_content(full_prompt)
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=full_prompt
+            )
+        except Exception as e:
+            logger.error(f"Failed to refine text: {e}")
+            raise RuntimeError(f"Google AI Refinement failed: {e}")
+        
         out = response.text.strip()
         logger.debug(f"Gemini Refined text: {out}")
         return out

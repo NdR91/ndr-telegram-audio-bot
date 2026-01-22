@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import asyncio
 from functools import wraps
 
 from telegram import Update, BotCommand
@@ -47,6 +48,41 @@ def restricted(func):
             return await func(update, context, *args, **kwargs)
         await update.message.reply_text(c.MSG_UNAUTHORIZED)
     return wrapped
+
+async def update_progress(context: ContextTypes.DEFAULT_TYPE, 
+                         chat_id: int, 
+                         message_id: int, 
+                         status_text: str) -> None:
+    """Aggiorna il messaggio di progresso con indicatore di digitazione"""
+    try:
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id, 
+            text=status_text
+        )
+    except Exception as e:
+        logger.warning(f"Failed to update progress: {e}")
+
+def get_progress_message(stage: str, stage_num: int, total_stages: int) -> str:
+    """Genera messaggio di progresso con layout a capo e cerchi"""
+    bar_length = 8
+    filled = int(bar_length * stage_num // total_stages)
+    bar = "⚫" * filled + "⚪" * (bar_length - filled)
+    return f"{stage}\nProgress: {bar}\nStep: {stage_num}/{total_stages}"
+
+def timeout_handler(stage_name: str):
+    """Decorator per gestione timeout con tempi specifici per fase"""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            timeout_seconds = c.PROGRESS_TIMEOUTS.get(stage_name, 60)
+            try:
+                return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout_seconds)
+            except asyncio.TimeoutError:
+                raise TimeoutError(f"Timeout in {stage_name}")
+        return wrapper
+    return decorator
 
 # /start
 # /start
@@ -150,21 +186,55 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ogg_path = os.path.join(config.audio_dir, f"{uid}.{ext}")
     mp3_path = os.path.join(config.audio_dir, f"{uid}.mp3")
 
-    # 1) Messaggio di attesa
-    ack_msg = await msg.reply_text(c.MSG_PROCESSING)
+    # 1) Messaggio di progresso iniziale
+    initial_progress = get_progress_message(c.MSG_PROGRESS_DOWNLOAD, 1, len(c.PROGRESS_STAGES))
+    ack_msg = await msg.reply_text(initial_progress)
 
-    # Download e conversione
-    await file_obj.download_to_drive(ogg_path)
     try:
-        utils.convert_to_mp3(ogg_path, mp3_path)
+        # 2) Download con timeout
+        @timeout_handler("download")
+        async def download_audio():
+            await file_obj.download_to_drive(ogg_path)
         
-        # Inizializza provider
-        provider = utils.get_provider(config)
+        await update_progress(context, msg.chat_id, ack_msg.message_id, 
+                            get_progress_message(c.MSG_PROGRESS_DOWNLOAD, 1, len(c.PROGRESS_STAGES)))
+        await download_audio()
         
-        raw_text = provider.transcribe_audio(mp3_path)
-        final_text = provider.refine_text(raw_text)
+        # 3) Conversione MP3 con timeout
+        @timeout_handler("convert")
+        async def convert_audio():
+            utils.convert_to_mp3(ogg_path, mp3_path)
+        
+        await update_progress(context, msg.chat_id, ack_msg.message_id,
+                            get_progress_message(c.MSG_PROGRESS_CONVERT, 2, len(c.PROGRESS_STAGES)))
+        await convert_audio()
+        
+        # 4) Trascrizione audio con timeout
+        @timeout_handler("transcribe")
+        async def transcribe_audio():
+            provider = utils.get_provider(config)
+            return provider.transcribe_audio(mp3_path)
+        
+        await update_progress(context, msg.chat_id, ack_msg.message_id,
+                            get_progress_message(c.MSG_PROGRESS_TRANSCRIBE, 3, len(c.PROGRESS_STAGES)))
+        raw_text = await transcribe_audio()
+        
+        # 5) Rielaborazione testo con timeout
+        @timeout_handler("refine")
+        async def refine_text():
+            provider = utils.get_provider(config)
+            return provider.refine_text(raw_text)
+        
+        await update_progress(context, msg.chat_id, ack_msg.message_id,
+                            get_progress_message(c.MSG_PROGRESS_REFINE, 4, len(c.PROGRESS_STAGES)))
+        final_text = await refine_text()
+        
+        # 6) Finalizzazione
+        await update_progress(context, msg.chat_id, ack_msg.message_id,
+                            get_progress_message(c.MSG_PROGRESS_FINALIZING, 4, len(c.PROGRESS_STAGES)))
 
-        # 2) Header LLM e testo rielaborato
+        # Header LLM e testo rielaborato
+        provider = utils.get_provider(config)
         header = c.MSG_COMPLETION_HEADER.format(model_name=provider.model_name)
         full_text = f"{header}\n\n{final_text}"
 
@@ -179,9 +249,33 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
              for chunk in chunks[1:]:
                  await context.bot.send_message(chat_id=update.effective_chat.id, text=chunk, parse_mode="Markdown")
         return
+
+    except TimeoutError as e:
+        logger.error(f"Timeout durante elaborazione: {e}")
+        if "download" in str(e):
+            await ack_msg.edit_text(c.MSG_TIMEOUT_DOWNLOAD)
+        elif "convert" in str(e):
+            await ack_msg.edit_text(c.MSG_TIMEOUT_CONVERT)
+        elif "transcribe" in str(e):
+            await ack_msg.edit_text(c.MSG_TIMEOUT_TRANSCRIBE)
+        elif "refine" in str(e):
+            await ack_msg.edit_text(c.MSG_TIMEOUT_REFINE)
+        else:
+            await ack_msg.edit_text(c.MSG_ERROR_INTERNAL)
     except Exception as e:
         logger.error(f"Errore pipeline audio→testo: {e}")
-        return await ack_msg.edit_text(c.MSG_ERROR_INTERNAL)
+        # Cerca di identificare la fase dell'errore
+        error_str = str(e).lower()
+        if "download" in error_str:
+            await ack_msg.edit_text(c.MSG_ERROR_DOWNLOAD)
+        elif "ffmpeg" in error_str or "convert" in error_str:
+            await ack_msg.edit_text(c.MSG_ERROR_CONVERT)
+        elif "transcri" in error_str:
+            await ack_msg.edit_text(c.MSG_ERROR_TRANSCRIBE)
+        elif "refine" in error_str:
+            await ack_msg.edit_text(c.MSG_ERROR_REFINE)
+        else:
+            await ack_msg.edit_text(c.MSG_ERROR_INTERNAL)
     finally:
         # Pulizia file temporanei
         if os.path.exists(ogg_path):
