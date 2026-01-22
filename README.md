@@ -1,180 +1,151 @@
+## 👋 Preface
+
+I’m a technology enthusiast and I work as a **Sales Engineer** in a tech company, where part of my role is specifically focused on **Generative AI**. I’m not a software developer (I only have a basic understanding of the fundamentals), but out of personal interest and continuous learning I decided to experiment with tools such as **Antigravity** and **OpenCode**.
+
+For this reason, the entire repository has been developed using what is often called **“vibecoding”**, with the sole purpose of testing **agentic tools designed for software development**. The chosen use case is intentionally simple and well within the reach of many human developers, precisely because the real goal is to observe how these tools reason, navigate, and interpret a small but real codebase.
+
+The decision to publish this repository is driven by two main reasons:
+
+- **Sharing the experience** by including in the repository also the files used by OpenCode (such as `AGENTS.md`), in order to better understand how these agentic systems analyze and interpret a small codebase like this one.
+- **Quite simply, because the bot works**: I use it daily together with a few friends, and it has proven to be genuinely useful and reliable.
+
 # Telegram Audio Transcriber Bot 🎙️🤖
 
-Un bot Telegram avanzato che trascrive note vocali e file audio, elabora il testo per migliorarne la leggibilità, e gestisce automaticamente limiti di lunghezza e cleanup dei file.
+An advanced Telegram bot that transcribes voice notes and audio files, processes the text to improve readability, and automatically manages length limits and file cleanup.
 
-## ✨ Funzionalità
+## ✨ Features
 
-- **Multi-Provider LLM**: Supporto nativo per **OpenAI** (Whisper + GPT) e **Google Gemini** (multimodale nativo).
-- **Trascrizione Audio**: Supporta vocali Telegram e file audio (mp3, ogg, wav, ecc.) via FFmpeg.
-- **Rielaborazione Intelligente**: Corregge errori, aggiunge punteggiatura e formatta il testo trascritto usando LLM configurabili.
-- **Gestione Messaggi Lunghi**: Suddivide automaticamente le risposte che superano i 4096 caratteri di Telegram.
-- **Controllo Accessi**: Whitelist integrata per autorizzare singoli utenti (admin/user) o gruppi specifici.
-- **Cleanup Automatico**: I file audio temporanei vengono cancellati immediatamente dopo l'elaborazione per non occupare spazio su disco.
-- **Prompt Configurabili**: Personalizza il comportamento del bot senza toccare il codice.
+- **Multi-Provider LLM**: Native support for **OpenAI** (Whisper + GPT) and **Google Gemini** (multimodal).
+- **Audio Transcription**: Supports Telegram voice notes and audio files (mp3, ogg, wav, etc.) via FFmpeg.
+- **Smart Refinement**: Corrects errors, adds punctuation, and formats transcribed text using configurable LLMs.
+- **Long Message Handling**: Automatically splits responses that exceed Telegram's 4096-character limit.
+- **Access Control**: Integrated whitelist to authorize individual users (admin/user) or specific groups.
+- **Auto Cleanup**: Temporary audio files are deleted immediately after processing to save disk space.
+- **Configurable Prompts**: Customize bot behavior without touching the code.
 
-## 🚀 Installazione e Setup
+## 🚀 Getting Started
 
-Poiché i file di configurazione contengono dati sensibili, non sono inclusi nel repository. Segui questi step per configurare il bot.
+### Prerequisites
+- **FFmpeg**: Must be installed and available on your system's PATH.
+- **Telegram Bot Token**: Get one from [@BotFather](https://t.me/BotFather).
+- **API Key**: Depending on your provider preference (OpenAI or Google Gemini).
 
-### 1. Clona il Repository
+### 🐳 Docker (Recommended)
+
+The easiest way to run the bot is using Docker Compose.
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/NdR91/ndr-telegram-audio-bot.git
+   cd ndr-telegram-audio-bot
+   ```
+
+2. **Configure environment**:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your TELEGRAM_TOKEN and API keys
+   ```
+
+3. **Configure permissions**:
+   Create an `authorized.json` file (see [Configuration](#-configuration) below).
+
+4. **Start the bot**:
+   ```bash
+   docker-compose up -d --build
+   ```
+   View logs with `docker-compose logs -f`.
+
+### 🛠️ Manual Installation (Local)
+
+1. **Install FFmpeg**:
+   - Ubuntu: `sudo apt-get install ffmpeg`
+   - macOS: `brew install ffmpeg`
+
+2. **Set up Python environment**:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+3. **Configuration**:
+   Copy `.env.example` to `.env` and configure your keys. Create `authorized.json`.
+
+4. **Run**:
+   ```bash
+   python bot/main.py
+   ```
+
+## ⚙️ Configuration
+
+### Environment Variables (`.env`)
+
+See `.env.example` for all available options.
+
+**Basic Setup:**
 ```bash
-git clone https://github.com/NdR91/ndr-telegram-audio-bot.git
-cd ndr-telegram-audio-bot
+TELEGRAM_TOKEN=your_token_here
 ```
 
-### 2. Crea il file `.env`
-Usa il template fornito `.env.example` come riferimento per tutte le opzioni disponibili:
+**Provider Selection:**
+- **OpenAI** (Default): Uses Whisper for audio and GPT-4o-mini for refinement.
+  ```bash
+  LLM_PROVIDER=openai
+  OPENAI_API_KEY=sk-...
+  ```
+- **Google Gemini**: Uses native multimodal audio processing.
+  ```bash
+  LLM_PROVIDER=gemini
+  GEMINI_API_KEY=AIza...
+  LLM_MODEL=gemini-2.0-flash  # Optional: override model
+  ```
 
-```bash
-# Copia il template di configurazione
-cp .env.example .env
-# Modifica .env con le tue credenziali
-```
+### Access Control (`authorized.json`)
 
-Il file `.env` contiene tutte le opzioni configurabili con esempi commentati per:
-- Token Telegram (obbligatorio)
-- Selezione provider LLM (OpenAI/Gemini)
-- API keys per i provider
-- Modelli LLM custom
-- Prompt personalizzati
-- Path configurabili
+Create a file named `authorized.json` in the root directory. This controls who can use the bot.
 
-### 2.1 File di Configurazione Dettagliati
-
-- **`.env.example`**: Template completo con tutte le opzioni disponibili e documentate
-- **`.env`**: File personale con le tue configurazioni (da creare da template)
-- **`authorized.json`**: Whitelist utenti e gruppi autorizzati (da creare manualmente)
-
-### 3. Crea il file `authorized.json`
-Crea un file chiamato `authorized.json` per gestire i permessi. Al primo avvio deve contenere almeno l'ID del tuo utente admin (puoi scoprirlo usando il bot `@userinfobot` su Telegram o il comando `/whoami` dopo il primo avvio).
+**Note**: To find your ID, start the bot and run `/whoami`.
 
 ```json
 {
   "admin": [123456789],
   "users": [],
-  "groups": []
+  "groups": [-100123456789]
 }
 ```
 
-## 🐳 Avvio con Docker (Consigliato)
+- **admin**: Full access + management commands.
+- **users**: Can use transcription features.
+- **groups**: All members of the group can use the bot.
 
-Il metodo più semplice per eseguire il bot è usare Docker Compose.
+## 🎮 Commands
 
-```bash
-docker-compose up -d --build
-```
+### User Commands
+- `/start` - Welcome message.
+- `/whoami` - Display your User ID and current Chat ID.
+- `/help` - Show available commands.
 
-Il bot si avvierà e monterà le cartelle necessarie. I log possono essere controllati con `docker-compose logs -f`.
+### Admin Commands
+- `/adduser <id>` - Add a user to the whitelist.
+- `/removeuser <id>` - Remove a user.
+- `/addgroup <id>` - Authorize a group.
+- `/removegroup <id>` - Remove a group.
 
-## 🛠️ Avvio Manuale (Senza Docker)
+## 🔧 Troubleshooting
 
-Se preferisci eseguire il bot localmente con Python:
+- **`FFmpeg is not installed`**: Ensure FFmpeg is installed and accessible via command line (`ffmpeg -version`).
+- **`TELEGRAM_TOKEN is required`**: Verify your `.env` file exists and is correctly formatted.
+- **409 Conflict**: The bot is already running elsewhere. Stop other instances.
+- **Transcription hangs**: Check your API quota (OpenAI/Gemini).
 
-1.  **Installa FFmpeg**: Assicurati che `ffmpeg` sia installato e disponibile nel PATH del sistema.
-2.  **Crea un Virtual Environment**:
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
-3.  **Installa le dipendenze**:
-    ```bash
-    pip install -r requirements.txt
-    ```
-4.  **Avvia il Bot**:
-    ```bash
-    python bot/main.py
-    ```
+## 📦 Project Structure
 
-## 🎮 Comandi Telegram
-
-- `/start` - Messaggio di benvenuto.
-- `/whoami` - Mostra il tuo User ID e Chat ID (utile per configurare `authorized.json`).
-- `/help` - Mostra la lista dei comandi.
-
-**Comandi Admin:**
-- `/adduser <id>` - Aggiunge un utente alla whitelist.
-- `/removeuser <id>` - Rimuove un utente.
-- `/addgroup <id>` - Autorizza un gruppo.
-- `/removegroup <id>` - Rimuove un gruppo.
-
-## 📦 Struttura del Progetto
-
-- `bot/main.py`: Entry point e bootstrap configurazione.
-- `bot/core/`: Logica core applicativa (App Builder).
-- `bot/handlers/`: Moduli per comandi Telegram:
-  - `audio.py`: Pipeline elaborazione audio.
-  - `admin.py`: Comandi gestione whitelist.
-  - `commands.py`: Comandi base.
-- `bot/ui/`: Gestione feedback utente e progress bar.
-- `bot/decorators/`: Logica trasversale (Auth, Timeouts).
-- `bot/providers.py`: Implementazioni provider LLM (OpenAI, Gemini).
-- `bot/config.py`: Gestione configurazione centralizzata.
-- `bot/utils.py`: Utility provider factory e conversioni.
-- `bot/constants.py`: Testi statici e costanti.
-- `audio_files/`: Cartella temporanea (si svuota automaticamente).
-- `authorized.json`: Whitelist utenti/gruppi.
-- `.env`: Variabili d'ambiente.
-
-## 🔧 Configurazione
-
-### File di Configurazione
-Il bot ora utilizza un sistema di configurazione centralizzato con validazione automatica. 
-
-### Validazione Automatica
-All'avvio, il bot verifica:
-- ✅ Token Telegram valido
-- ✅ API key del provider selezionato  
-- ✅ Dipendenze esterne (FFmpeg)
-- ✅ Permessi di scrittura per i file audio
-- ✅ Struttura file di autorizzazione
-
-Se manca qualcosa, il bot ti fornirà istruzioni specifiche per risolvere.
-
-## 🔧 Configurazione Avanzata
-
-### Provider LLM
-Il bot supporta due provider:
-- **OpenAI**: Usa Whisper v1 per trascrizione e GPT-4o-mini (o altri modelli chat) per la rielaborazione.
-- **Gemini**: Usa modelli multimodali Google (es. `gemini-1.5-flash`) che processano direttamente l'audio.
-
-Per cambiare provider, modifica `LLM_PROVIDER` nel `.env`. Per specificare un modello custom, usa `LLM_MODEL`.
-
-### Personalizzazione Prompt
-Se vuoi modificare il comportamento del bot (es. evitare frasi introduttive, cambiare lo stile di scrittura), puoi sovrascrivere i prompt nel `.env`:
-
-**Esempio per ridurre verbosità (Gemini):**
-```bash
-PROMPT_REFINE_TEMPLATE="Correggi questo testo trascritto. Aggiungi punteggiatura. NON aggiungere commenti. Restituisci SOLO il testo corretto.\n\nTesto:\n{raw_text}\n\nRisposta:"
-```
-
-## ✨ Benefits della Nuova Architettura
-
-- **Prevenzione Errori**: Validazione completa prima dell'avvio
-- **Setup Guidato**: Messaggi di errore con istruzioni passo-passo  
-- **Miglior Debug**: Errori specifici per identificare rapidamente i problemi
-- **Manutenzione Facile**: Configurazione centralizzata e modulare
-- **Sviluppo Semplice**: Template `.env.example` con esempi completi
-
-## 🔧 Troubleshooting Avanzato
-
-### Errori di Configurazione
-- `TELEGRAM_TOKEN is required`: Ottieni token da @BotFather su Telegram
-- `OPENAI_API_KEY required`: Configura API key da platform.openai.com
-- `GEMINI_API_KEY required`: Configura API key da makersuite.google.com
-- `FFmpeg is not installed`: `apt-get install ffmpeg` (Ubuntu) o `brew install ffmpeg` (macOS)
-
-### Conflitti di Connessione (409 Conflict)
-Se vedi "Conflict: terminated by other getUpdates request":
-1. Controlla che il bot non sia in esecuzione su più piattaforme
-2. Genera nuovo token da @BotFather se necessario
-3. Verifica che non ci siano webhook attivi residui
-
-### Validation Errors
-Se il bot si ferma all'avvio con errori di validazione:
-1. Controlla il messaggio specifico per istruzioni dettagliate
-2. Verifica che `.env` contenga tutti i requisiti per il provider selezionato
-3. Assicurati che `authorized.json` sia presente e contenga almeno un admin
+- `bot/main.py`: Entry point and bootstrapper.
+- `bot/handlers/`: Telegram command logic (Audio, Admin, Base).
+- `bot/core/`: Application setup.
+- `bot/providers.py`: LLM provider implementations.
+- `audio_files/`: Temporary storage (auto-cleaned).
 
 ## 📝 Changelog
 
-Vedi [CHANGELOG.md](./CHANGELOG.md) per lo storico delle versioni.
+See [CHANGELOG.md](./CHANGELOG.md) for version history.

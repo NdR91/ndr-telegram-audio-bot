@@ -1,198 +1,197 @@
 # Changelog
 
-Tutti i cambiamenti significativi al progetto saranno documentati in questo file.
+All significant changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## 🚀 v20260122.2 - Modular Architecture Refactoring & SDK Stabilization
 
-### 🏗️ Refactoring Architetturale
-Il codebase è stato trasformato da un'architettura monolitica a una modulare e scalabile per migliorare la manutenibilità e facilitare lo sviluppo futuro.
+### 🏗️ Architectural Refactoring
+The codebase has been transformed from a monolithic architecture to a modular and scalable one to improve maintainability and facilitate future development.
 
-- **Decomposizione del Core (`bot/main.py`)**:
-  - Il file principale (ridotto da ~320 a ~85 righe) ora funge solo da entry point e bootstrapper.
-  - La logica di business è stata migrata in moduli specializzati.
+- **Core Decomposition (`bot/main.py`)**:
+  - The main file (reduced from ~320 to ~85 lines) now serves only as an entry point and bootstrapper.
+  - Business logic has been migrated to specialized modules.
 
-- **Nuova Struttura Modulare**:
-  - `bot/handlers/`: Logica specifica per i comandi Telegram.
-    - `audio.py`: Pipeline completa di gestione audio (download, conversione, trascrizione).
-    - `admin.py`: Comandi di gestione whitelist.
-    - `commands.py`: Comandi base (`/start`, `/help`, `/whoami`).
-  - `bot/core/`: Logica di inizializzazione e setup dell'applicazione Telegram (`app.py`).
-  - `bot/ui/`: Gestione della presentazione e feedback utente (`progress.py`).
-  - `bot/decorators/`: Logica trasversale riutilizzabile (`auth.py`, `timeout.py`).
+- **New Modular Structure**:
+  - `bot/handlers/`: Specific logic for Telegram commands.
+    - `audio.py`: Complete audio management pipeline (download, conversion, transcription).
+    - `admin.py`: Whitelist management commands.
+    - `commands.py`: Base commands (`/start`, `/help`, `/whoami`).
+  - `bot/core/`: Application initialization and setup logic (`app.py`).
+  - `bot/ui/`: User presentation and feedback management (`progress.py`).
+  - `bot/decorators/`: Reusable cross-cutting logic (`auth.py`, `timeout.py`).
 
 - **Unified Whitelist Management**:
-  - Creata la classe `WhitelistManager` per centralizzare la logica di gestione permessi.
-  - Eliminata la duplicazione del codice nei 4 comandi admin (`adduser`, `removeuser`, etc.), riducendo la complessità ciclomatica e migliorando la robustezza.
+  - Created `WhitelistManager` class to centralize permission management logic.
+  - Eliminated code duplication in the 4 admin commands (`adduser`, `removeuser`, etc.), reducing cyclomatic complexity and improving robustness.
 
 ### 🔧 Technical Improvements & Fixes
-Questi miglioramenti sono stati necessari per stabilizzare la nuova architettura e supportare le ultime dipendenze.
+These improvements were necessary to stabilize the new architecture and support the latest dependencies.
 
 - **Google GenAI SDK v1.0 Compatibility**:
-  - Aggiornamento completo alla nuova sintassi SDK `google-genai` >=1.0.0.
-  - Risolta incompatibilità critica nell'upload file: il metodo `client.files.upload` ora utilizza correttamente il parametro `file=` (fix regressione parametri `path=`).
+  - Complete update to the new SDK syntax `google-genai` >=1.0.0.
+  - Fixed critical incompatibility in file upload: `client.files.upload` method now correctly uses the `file=` parameter (fixed `path=` parameter regression).
 
 - **Async Stability & Telegram API v20+**:
-  - Corretta gestione delle coroutine per il download dei file (`await file.download_to_drive()`).
-  - Reso asincrono il metodo di determinazione tipo file per compatibilità completa con l'ecosistema async.
+  - Corrected coroutine handling for file downloading (`await file.download_to_drive()`).
+  - Made the file type determination method asynchronous for full compatibility with the async ecosystem.
 
 - **Smart Progress UI**:
-  - Implementato sistema di deduplicazione messaggi di progresso.
-  - Previene i warning "Message is not modified" dell'API Telegram evitando chiamate ridondanti quando lo stato non cambia.
-  - Aggiunto cleanup automatico della cache di stato.
+  - Implemented progress message deduplication system.
+  - Prevents "Message is not modified" warnings from Telegram API by avoiding redundant calls when status hasn't changed.
+  - Added automatic state cache cleanup.
 
 - **Import System Hardening**:
-  - Configurato `sys.path` nel bootstrap per garantire import assoluti consistenti.
-  - Risolti problemi di importazione circolare e dipendenze tra moduli in ambienti Docker e sviluppo locale.
+  - Configured `sys.path` in bootstrap to ensure consistent absolute imports.
+  - Resolved circular import issues and dependencies between modules in Docker and local development environments.
 
 ### 📦 Codebase Health
-- **Type Hints**: Estesa copertura dei type hints a tutti i nuovi moduli per migliore dev experience e sicurezza.
-- **Logging Contestuale**: Migliorato il logging per includere contesto specifico del modulo attivo.
+- **Type Hints**: Extended type hint coverage to all new modules for better dev experience and safety.
+- **Contextual Logging**: Improved logging to include specific context of the active module.
 
-## 🚀 v20260122.1 - Indicatori di Progresso e Migrazione Google GenAI
+## 🚀 v20260122.1 - Real-time Progress Indicators & Google GenAI Migration
 
-### ✨ Nuove Funzionalità
-- **Indicatori di Progresso Real-time**: Aggiunti aggiornamenti durante elaborazione audio con barre di progresso visive
-- **Migliorato Layout UI**: Messaggi di progresso ora usano formato multi-linea con passaggi di progresso
-- **Migliorata Gestione Errori**: Messaggi specifici di timeout e errore per ogni fase di elaborazione
-- **Intestazione Elegante**: Nuovo design del messaggio di completamento con formattazione professionale
+### ✨ New Features
+- **Real-time Progress Indicators**: Added updates during audio processing with visual progress bars.
+- **Improved UI Layout**: Progress messages now use a multi-line format with progress steps.
+- **Improved Error Handling**: Specific timeout and error messages for each processing phase.
+- **Elegant Header**: New design for the completion message with professional formatting.
 
-### 🔧 Miglioramenti Tecnici  
-- **Migrazione Google GenAI**: Migrato da `google-generativeai` deprecato al nuovo SDK `google-genai`
-- **Gestione Timeout**: Aggiunta gestione timeout specifici per fase (download: 30s, conversione: 60s, trascrizione: 120s, raffinamento: 90s)
-- **Cleanup Migliorato**: Gestione robusta dei file temporanei e cleanup file remoti
+### 🔧 Technical Improvements  
+- **Google GenAI Migration**: Migrated from deprecated `google-generativeai` to the new `google-genai` SDK.
+- **Timeout Management**: Added phase-specific timeout management (download: 30s, conversion: 60s, transcription: 120s, refinement: 90s).
+- **Improved Cleanup**: Robust management of temporary files and remote file cleanup.
 
-### 📦 Dipendenze
-- Aggiornato `google-generativeai>=0.3.0` → `google-genai>=1.0.0`
-- Modello Gemini di default aggiornato a `gemini-2.0-flash`
+### 📦 Dependencies
+- Updated `google-generativeai>=0.3.0` → `google-genai>=1.0.0`
+- Default Gemini model updated to `gemini-2.0-flash`
 
-### 📚 Documentazione
-- Documentazione tecnica per migrazione Google GenAI SDK integrata in CHANGELOG.md
-- Documentazione completa breaking changes e benefici della migrazione
+### 📚 Documentation
+- Technical documentation for Google GenAI SDK migration integrated into CHANGELOG.md.
+- Complete documentation of breaking changes and migration benefits.
 
 ### 🐛 Bug Fixes
-- Risolti potenziali memory leak in cleanup file
-- Migliorato recovery errori per fallimenti API
+- Resolved potential memory leaks in file cleanup.
+- Improved error recovery for API failures.
 
 ---
 
-### 🔧 Note Tecniche per Sviluppatori
+### 🔧 Technical Notes for Developers
 
-#### Migrazione Google GenAI SDK (v20260122.1)
+#### Google GenAI SDK Migration (v20260122.1)
 **Breaking Changes:**
-- Installare `google-genai>=1.0.0` invece di `google-generativeai>=0.3.0`
-- Il vecchio package verrà dismesso il 31 Agosto 2025
+- Install `google-genai>=1.0.0` instead of `google-generativeai>=0.3.0`
+- The old package will be decommissioned on August 31, 2025
 
 **Code Examples:**
 ```python
-# Vecchio SDK (deprecato)
+# Old SDK (deprecated)
 import google.generativeai as genai
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel(model_name)
 response = model.generate_content(content)
 
-# Nuovo SDK (attuale)
+# New SDK (current)
 import google.genai as genai
 client = genai.Client(api_key=api_key)
 response = client.models.generate_content(model=model_name, contents=content)
 ```
 
 **Migration Checklist:**
-- [x] Aggiornato requirements.txt
-- [x] Modificato providers.py con nuovo SDK
-- [x] Testato con gemini-2.0-flash
-- [x] Gestione errori migliorata
+- [x] Updated requirements.txt
+- [x] Modified providers.py with new SDK
+- [x] Tested with gemini-2.0-flash
+- [x] Improved error handling
 
-**Note Implementazione:**
-- Il codice providers.py contiene esempi completi di migrazione
-- Commenti dettagliati per ogni cambiamento critico
-- Gestione robusta di upload/download file remoti
-- Gestione gracefully dei failure durante progress updates
+**Implementation Notes:**
+- `providers.py` contains full migration examples
+- Detailed comments for every critical change
+- Robust handling of remote file upload/download
+- Graceful failure handling during progress updates
 
-## 🚀 v20260122 - Gestione Configurazione Centralizzata
+## 🚀 v20260122 - Centralized Configuration Management
 
-### 📖 Introduzione Generale
-**Architettura completamente riprogettata** per migliorare l'affidabilità, la manutenibilità e l'esperienza per gli sviluppatori. Il precedente sistema frammentato (con variabili d'ambiente sparse in più file) causava errori a runtime e rendeva difficile il debug. Ora tutta la configurazione è centralizzata con validazione completa all'avvio, garantendo che il bot non parta mai con configurazioni incomplete o errate.
+### 📖 General Introduction
+**Completely redesigned architecture** to improve reliability, maintainability, and developer experience. The previous fragmented system (with environment variables scattered across multiple files) caused runtime errors and made debugging difficult. Now all configuration is centralized with full startup validation, ensuring the bot never starts with incomplete or incorrect configurations.
 
-### ✨ Nuove Funzionalità Principali
-- **Sistema di Configurazione Centralizzata**: **Architettura completamente riprogettata** con classe `Config` che gestisce in modo unificato tutte le impostazioni (token API, provider selection, percorsi file, prompt personalizzati), eliminando il rischio di configurazioni incoerenti tra diversi componenti.
+### ✨ Key New Features
+- **Centralized Configuration System**: **Completely redesigned architecture** with `Config` class unifiedly managing all settings (API tokens, provider selection, file paths, custom prompts), eliminating the risk of inconsistent configurations between different components.
 
-- **Gestione Errori Robusta**: **Architettura completamente riprogettata** con gerarchia di eccezioni custom (`ConfigError`, `MissingRequiredConfig`, `InvalidConfig`, `ExternalDependencyError`) per fornire messaggi di errore specifici e istruzioni chiare su come risolvere i problemi di configurazione.
+- **Robust Error Handling**: **Completely redesigned architecture** with custom exception hierarchy (`ConfigError`, `MissingRequiredConfig`, `InvalidConfig`, `ExternalDependencyError`) to provide specific error messages and clear instructions on how to resolve configuration issues.
 
-- **Validazione Pre-Avvio Fail-Fast**: **Architettura completamente riprogettata** con validazione di tutte le configurazioni essenziali prima di iniziare il polling, impedendo crash durante l'operazione a causa di dipendenze mancanti (come FFmpeg) o token invalidi.
+- **Fail-Fast Pre-Startup Validation**: **Completely redesigned architecture** with validation of all essential configurations before starting polling, preventing crashes during operation due to missing dependencies (like FFmpeg) or invalid tokens.
 
-- **Prompt Management Centralizzato**: **Architettura completamente riprogettata** con gestione centralizzata dei template di sistema e di raffinamento, inclusa validazione automatica del placeholder `{raw_text}`, evitando errori di configurazione dei prompt personalizzati.
+- **Centralized Prompt Management**: **Completely redesigned architecture** with centralized management of system and refinement templates, including automatic validation of the `{raw_text}` placeholder, avoiding custom prompt configuration errors.
 
-### 🔧 Miglioramenti Tecnici
-- **Dependency Injection Migliorata**: **Architettura completamente riprogettata** con provider LLM che ora ricevono i prompt tramite iniezione delle dipendenze, migliorando la testabilità e separando le responsabilità.
+### 🔧 Technical Improvements
+- **Improved Dependency Injection**: **Completely redesigned architecture** with LLM providers now receiving prompts via dependency injection, improving testability and separating responsibilities.
 
-- **Code Organization Ristrutturata**: **Architettura completamente riprogettata** spostando tutta la logica di configurazione dal file principale a moduli dedicati (`config.py`, `exceptions.py`), rendendo il codice più manutenibile e leggibile.
+- **Restructured Code Organization**: **Completely redesigned architecture** by moving all configuration logic from the main file to dedicated modules (`config.py`, `exceptions.py`), making the code more maintainable and readable.
 
-- **Validazione Dipendenze Esterne**: **Architettura completamente riprogettata** con check automatico per FFmpeg con timeout e gestione specifica degli errori di dipendenze esterne.
+- **External Dependency Validation**: **Completely redesigned architecture** with automatic check for FFmpeg with timeout and specific external dependency error handling.
 
-- **Error Messages Esplicativi**: **Architettura completamente riprogettata** con tutti i messaggi di errore che ora includono istruzioni specifiche su come risolvere il problema (es. link per ottenere token da BotFather).
+- **Explanatory Error Messages**: **Completely redesigned architecture** with all error messages now including specific instructions on how to resolve the problem (e.g., link to get token from BotFather).
 
-### 📦 Aggiornamenti Dipendenze
-- Aggiunto `python-dotenv>=1.0.0` per caricare automaticamente le variabili d'ambiente dal file `.env`, migliorando l'esperienza di sviluppo.
+### 📦 Dependency Updates
+- Added `python-dotenv>=1.0.0` to automatically load environment variables from the `.env` file, improving the development experience.
 
-### 🐛 Correzioni Bug
-- **Fix Tipo Trascrizione**: Corretto errore di battitura nel template di raffinamento ("inaccurate" → "inaccurate"), migliorando la qualità della documentazione interna.
+### 🐛 Bug Fixes
+- **Transcription Type Fix**: Corrected typo in refinement template, improving internal documentation quality.
 
-### ⚠️ Note Importanti per Utenti
-- **Compatibilità Assicurata**: I file `.env` esistenti continuano a funzionare senza modifiche, garantendo una migrazione trasparente per gli utenti attuali.
+### ⚠️ Important Notes for Users
+- **Assured Compatibility**: Existing `.env` files continue to work without changes, ensuring transparent migration for current users.
 
-- **Nessun Breaking Change**: L'architettura interna è cambiata ma l'API pubblica e le modalità di configurazione rimangono compatibili con il precedente sistema.
+- **No Breaking Changes**: Internal architecture has changed but the public API and configuration methods remain compatible with the previous system.
 
-- **Migliorata Diagnostica**: Ora è molto più facile identificare e risolvere problemi di configurazione grazie agli errori specifici e alle istruzioni passo-passo fornite automaticamente.
+- **Improved Diagnostics**: It is now much easier to identify and resolve configuration issues thanks to specific errors and step-by-step instructions provided automatically.
 
 ## v20260120 - Specialized System Prompt
-### Modificato
-- `PROMPT_SYSTEM` default sostituito con un prompt specializzato per trascrizione audio.
-- Aggiornato esempio in `README.md` per riflettere il nuovo prompt system di default.
+### Changed
+- Default `PROMPT_SYSTEM` replaced with a specialized prompt for audio transcription.
+- Updated example in `README.md` to reflect the new default system prompt.
 
 ## v20260119.3 - Configurable Prompts & README Revision
-### Aggiunto
-- Supporto per la configurazione dei prompt tramite variabili d'ambiente `PROMPT_SYSTEM` e `PROMPT_REFINE_TEMPLATE`.
-- Migliorato il prompt di default per ridurre commenti introduttivi da Gemini ("Ecco il testo rielaborato...").
+### Added
+- Support for prompt configuration via environment variables `PROMPT_SYSTEM` and `PROMPT_REFINE_TEMPLATE`.
+- Improved default prompt to reduce introductory comments from Gemini ("Here is the reworked text...").
 
-### Modificato
-- Completamente revisionato `README.md` per riflettere l'architettura multi-provider, i modelli configurabili e le nuove funzionalità.
+### Changed
+- Completely revised `README.md` to reflect multi-provider architecture, configurable models, and new features.
 
 ## v20260119.2 - Google Gemini Implementation & Configurable Models
-### Aggiunto
-- Supporto nativo per **Google Gemini** per trascrizione e rielaborazione.
-- Supporto per la configurazione del modello LLM tramite variabile d'ambiente `LLM_MODEL`.
-- Possibilità di utilizzare vari modelli senza modificare il codice.
-- Dipendenza `google-generativeai`.
+### Added
+- Native support for **Google Gemini** for transcription and refinement.
+- Support for LLM model configuration via `LLM_MODEL` environment variable.
+- Ability to use various models without modifying code.
+- Dependency `google-generativeai`.
 
-### Risolto
-- Risolto un bug dove l'header del messaggio Telegram mostrava sempre "GPT-4o mini" invece del modello realmente utilizzato.
+### Fixed
+- Fixed a bug where the Telegram message header always showed "GPT-4o mini" instead of the actually used model.
 
 ## v20260119.1 - Provider Abstraction
-### Aggiunto
-- Supporto multi-provider per LLM (Provider Agnostic).
-- Configurazione `LLM_PROVIDER` in `.env`.
+### Added
+- Multi-provider support for LLM (Provider Agnostic).
+- `LLM_PROVIDER` configuration in `.env`.
 
 ## v20260119 - Refactoring, Fixes & Optimization
-### Aggiunto
-- Suddivisione automatica dei messaggi lunghi (>4096 caratteri) per evitare errori di invio Telegram.
-- File `bot/constants.py` per centralizzare testi, prompt e configurazioni.
+### Added
+- Automatic splitting of long messages (>4096 characters) to avoid Telegram sending errors.
+- `bot/constants.py` file to centralize texts, prompts, and configurations.
 
-### Modificato
-- Aumentato il limite di token OpenAI a 4096 (precedentemente 1024) per supportare la trascrizione di audio più lunghi (15-20 min).
-- Aggiornate dipendenze in `requirements.txt`: `openai>=1.0.0`.
-- Aggiornato `bot/utils.py` per utilizzare la sintassi del nuovo client OpenAI v1.
+### Changed
+- Increased OpenAI token limit to 4096 (previously 1024) to support transcription of longer audio (15-20 min).
+- Updated dependencies in `requirements.txt`: `openai>=1.0.0`.
+- Updated `bot/utils.py` to use new OpenAI v1 client syntax.
 
-### Rimosso
-- Libreria `pydub` (non utilizzata nel codice).
+### Removed
+- `pydub` library (unused in code).
 
-### Risolto
-- **Critico**: Leak di spazio su disco. I file temporanei `.ogg` e `.mp3` ora vengono cancellati automaticamente dopo l'uso.
+### Fixed
+- **Critical**: Disk space leak. Temporary `.ogg` and `.mp3` files are now automatically deleted after use.
 
-## [1.0.0] - Versione Iniziale
-- Funzionalità base di trascrizione audio (Vocali e File Audio).
-- Integrazione OpenAI Whisper + GPT-4o-mini.
-- Sistema di whitelist (Admin, User, Group).
-
+## [1.0.0] - Initial Version
+- Basic audio transcription functionality (Voice Notes and Audio Files).
+- OpenAI Whisper + GPT-4o-mini integration.
+- Whitelist system (Admin, User, Group).
