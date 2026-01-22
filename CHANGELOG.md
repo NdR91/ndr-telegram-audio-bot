@@ -5,6 +5,32 @@ Tutti i cambiamenti significativi al progetto saranno documentati in questo file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 🚀 v20260122.1 - Indicatori di Progresso e Migrazione Google GenAI
+
+### ✨ Nuove Funzionalità
+- **Indicatori di Progresso Real-time**: Aggiunti aggiornamenti durante elaborazione audio con barre di progresso visive
+- **Migliorato Layout UI**: Messaggi di progresso ora usano formato multi-linea con passaggi di progresso
+- **Migliorata Gestione Errori**: Messaggi specifici di timeout e errore per ogni fase di elaborazione
+- **Intestazione Elegante**: Nuovo design del messaggio di completamento con formattazione professionale
+
+### 🔧 Miglioramenti Tecnici  
+- **Migrazione Google GenAI**: Migrato da `google-generativeai` deprecato al nuovo SDK `google-genai`
+- **Gestione Timeout**: Aggiunta gestione timeout specifici per fase (download: 30s, conversione: 60s, trascrizione: 120s, raffinamento: 90s)
+- **Cleanup Migliorato**: Gestione robusta dei file temporanei e cleanup file remoti
+
+### 📦 Dipendenze
+- Aggiornato `google-generativeai>=0.3.0` → `google-genai>=1.0.0`
+- Modello Gemini di default aggiornato a `gemini-2.0-flash`
+
+### 📚 Documentazione
+- Aggiunto `MIGRATION_GUIDE.md` per riferimento futuro e migrazione SDK
+- Documentazione completa breaking changes e benefici della migrazione
+
+### 🐛 Bug Fixes
+- Risolti potenziali memory leak in cleanup file
+- Migliorato recovery errori per fallimenti API
+- Gestione gracefully dei failure durante progress updates
+
 ## 🚀 v20260122 - Gestione Configurazione Centralizzata
 
 ### 📖 Introduzione Generale
