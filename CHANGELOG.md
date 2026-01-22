@@ -29,6 +29,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🐛 Bug Fixes
 - Risolti potenziali memory leak in cleanup file
 - Migliorato recovery errori per fallimenti API
+
+---
+
+### 🔧 Note Tecniche per Sviluppatori
+
+#### Migrazione Google GenAI SDK (v20260122.1)
+**Breaking Changes:**
+- Installare `google-genai>=1.0.0` invece di `google-generativeai>=0.3.0`
+- Il vecchio package verrà dismesso il 31 Agosto 2025
+
+**Code Examples:**
+```python
+# Vecchio SDK (deprecato)
+import google.generativeai as genai
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel(model_name)
+response = model.generate_content(content)
+
+# Nuovo SDK (attuale)
+import google.genai as genai
+client = genai.Client(api_key=api_key)
+response = client.models.generate_content(model=model_name, contents=content)
+```
+
+**Migration Checklist:**
+- [x] Aggiornato requirements.txt
+- [x] Modificato providers.py con nuovo SDK
+- [x] Testato con gemini-2.0-flash
+- [x] Gestione errori migliorata
+
+**Note Implementazione:**
+- Il codice providers.py contiene esempi completi di migrazione
+- Commenti dettagliati per ogni cambiamento critico
+- Gestione robusta di upload/download file remoti
 - Gestione gracefully dei failure durante progress updates
 
 ## 🚀 v20260122 - Gestione Configurazione Centralizzata
