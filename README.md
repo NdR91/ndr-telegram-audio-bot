@@ -179,6 +179,17 @@ Create a file named `authorized.json` in the root directory. This controls who c
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
+## 🗺️ Roadmap
+
+- [x] Concurrent processing (v20260123.1)
+- [x] Rate limiting system (v20260123)
+- [x] Enhanced error handling (v20260123)
+- [x] Centralized configuration (v20260122)
+- [ ] Request queue after 6 concurrent limit
+- [ ] Multilingual support (UI + auto-detect)
+- [ ] Health checks endpoint (monitoring)
+- [ ] Circuit breaker (API failure recovery)
+
 ## 📄 License
 
 This project is licensed under the MIT License – see the [LICENSE](./LICENSE) file for details.
