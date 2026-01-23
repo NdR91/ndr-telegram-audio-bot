@@ -11,7 +11,7 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.decorators.auth import restricted
+from bot.decorators.auth import restricted, admin_only
 from bot import constants as c
 
 logger = logging.getLogger(__name__)
@@ -32,18 +32,6 @@ class WhitelistManager:
         self.config = config
         self.authorized_data = config.authorized_data
         self.authorized_file = config.authorized_file
-    
-    def validate_admin_access(self, user_id: int) -> bool:
-        """
-        Validate if user has admin access.
-        
-        Args:
-            user_id: User ID to validate
-            
-        Returns:
-            True if user is admin, False otherwise
-        """
-        return user_id in self.authorized_data.get('admin', [])
     
     def parse_user_id(self, args) -> Optional[int]:
         """
@@ -136,7 +124,7 @@ def init_whitelist_manager(config) -> None:
     _whitelist_manager = WhitelistManager(config)
 
 
-@restricted
+@admin_only
 async def whitelist_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
                                   action: str, target_type: str) -> None:
     """
@@ -148,13 +136,9 @@ async def whitelist_command_handler(update: Update, context: ContextTypes.DEFAUL
         action: 'add' or 'remove'
         target_type: 'users' or 'groups'
     """
-    # Initialize manager and validate admin access
+    # Initialize manager
     manager = get_whitelist_manager()
     user_id = update.effective_user.id
-    
-    if not manager.validate_admin_access(user_id):
-        await update.message.reply_text(c.MSG_ONLY_ADMIN)
-        return
     
     # Parse target ID
     target_id = manager.parse_user_id(context.args)

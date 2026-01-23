@@ -9,13 +9,25 @@ import asyncio
 from typing import List
 
 from telegram import BotCommand
-from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 from bot.handlers.commands import start, whoami, help_command
 from bot.handlers.admin import adduser, removeuser, addgroup, removegroup
 from bot.handlers.audio import handle_audio
 
 logger = logging.getLogger(__name__)
+
+
+async def cleanup_rate_limiter_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Background job to clean up expired rate limit entries."""
+    from bot.handlers.audio import get_rate_limiter
+    try:
+        limiter = get_rate_limiter()
+        # cleanup_expired is synchronous, which is fine as it's fast
+        limiter.cleanup_expired()
+        logger.debug("Rate limiter cleanup completed")
+    except Exception as e:
+        logger.error(f"Error in rate limiter cleanup job: {e}")
 
 
 def create_application(token: str, config) -> Application:
@@ -49,6 +61,12 @@ def create_application(token: str, config) -> Application:
     
     # Setup bot commands menu
     setup_bot_commands(app, token)
+    
+    # Setup background jobs
+    if app.job_queue:
+        # Run cleanup every hour (3600s), starting after 1 minute (60s)
+        app.job_queue.run_repeating(cleanup_rate_limiter_job, interval=3600, first=60)
+        logger.info("Rate limiter cleanup job scheduled")
     
     return app
 

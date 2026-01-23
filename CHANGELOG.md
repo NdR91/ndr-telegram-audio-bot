@@ -5,6 +5,38 @@ All significant changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 🚀 v20260124.1 - Rate Limiting & Admin Security Fixes
+
+### 🐛 Bug Fixes
+
+#### Critical Fixes
+1. **Rate Limiter Memory Leak** (`bot/core/app.py:21-30`)
+   - *Issue*: The `cleanup_expired()` method existed but was never called, causing `_active_requests`, `_last_request_time`, and `_global_count` maps to grow indefinitely, leading to memory exhaustion over time.
+   - *Fix*: Added background job `cleanup_rate_limiter_job()` that executes `cleanup_expired()` every hour (3600s), starting 60 seconds after bot launch. The job uses Telegram's `JobQueue` to run periodically.
+   - *Impact*: Prevents memory leaks in long-running bot instances.
+
+2. **Authorization Logic Duplication & Redundancy** (`bot/handlers/admin.py:127-141`)
+   - *Issue*: Admin commands used both `@restricted` decorator AND redundant `validate_admin_access()` check inside the handler, creating:
+     - Duplicate authorization logic (violating DRY principle)
+     - Potential for future bugs if the two checks diverge
+     - Unnecessary complexity
+   - *Fix*: 
+     - Added new `@admin_only` decorator in `bot/decorators/auth.py:50-79` that specifically checks admin access
+     - Applied `@admin_only` to `whitelist_command_handler()` instead of `@restricted`
+     - Removed `validate_admin_access()` call from the handler (now the decorator handles everything)
+   - *Impact*: Cleaner, more maintainable authorization code. Eliminates risk of authorization logic divergence.
+
+### 🔧 Technical Improvements
+- **Background Job Scheduling**: Proper use of Telegram's `JobQueue` for periodic maintenance tasks
+- **Authorization Simplification**: Single source of truth for admin access control
+
+### 📦 Codebase Health
+- **Reduced Complexity**: Eliminated duplicate authorization checks
+- **Prevented Memory Leaks**: Added proper cleanup for rate limiter state
+- **Improved Maintainability**: Clearer separation of concerns between general authorization (`@restricted`) and admin-only access (`@admin_only`)
+
+---
+
 ## 🚀 v20260124 - Concurrent Processing Enabled
 
 ### ⚡ Concurrency & Performance

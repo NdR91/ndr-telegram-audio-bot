@@ -45,3 +45,35 @@ def restricted(func: Callable) -> Callable:
         await update.message.reply_text(c.MSG_UNAUTHORIZED)
     
     return wrapped
+
+
+def admin_only(func: Callable) -> Callable:
+    """
+    Decorator to restrict access to admins only.
+    
+    Args:
+        func: The async function to wrap
+        
+    Returns:
+        Wrapped function that checks admin authorization before execution
+    """
+    @wraps(func)
+    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        # Import here to avoid circular imports
+        from bot import constants as c
+        
+        # Get user ID
+        user_id = update.effective_user.id
+        
+        # Get config from bot_data
+        config = context.bot_data['config']
+        
+        # Check admin authorization
+        if user_id in config.authorized_data.get('admin', []):
+            return await func(update, context, *args, **kwargs)
+        
+        # User not authorized as admin
+        logger.warning(f"Unauthorized admin access attempt - User: {user_id}")
+        await update.message.reply_text(c.MSG_ONLY_ADMIN)
+    
+    return wrapped
