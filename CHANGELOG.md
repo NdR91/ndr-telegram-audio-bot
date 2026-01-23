@@ -5,6 +5,55 @@ All significant changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 🚀 v20260124 - Concurrent Processing Enabled
+
+### ⚡ Concurrency & Performance
+**Real Concurrency** (`bot/core/app.py:42`):
+Added `concurrent_updates=True` to Telegram ApplicationBuilder. This enables
+true parallel message processing using a thread pool, allowing multiple users
+to process audio simultaneously.
+
+**How It Works**:
+- **Before** (`concurrent_updates=False`, default): Messages processed sequentially (1 at a time)
+- **After** (`concurrent_updates=True`): Messages processed in parallel via thread pool
+- **Rate Limiting Impact**: Rate limiter now enforces real concurrency limits (not just delays)
+
+**Technical Details**:
+- Telegram Bot Framework uses default sequential processing (`concurrent_updates=False`)
+- This means messages are queued internally and processed one-by-one
+- Rate limiter existed but was only delaying messages, not preventing concurrency
+- With `concurrent_updates=True`, bot processes N messages simultaneously (N = thread pool size)
+- Rate limiter now actually enforces the limits (2 per-user, 6 global)
+
+**Example Scenario**:
+```
+Pre-v20260124 (Sequential):
+User A: [Audio 1...90s] → [Audio 2...90s] → [Audio 3...90s]
+Result: Always 1 request at a time
+
+Post-v20260124 (Concurrent):
+┌─────────────────────────────────────────────────────────────┐
+│                    RATE LIMITER STATE                        │
+├─────────────────────────────────────────────────────────────┤
+│ Global Counter: [█][█][█][ ] [ ] [ ]  (3/6 used)            │
+│ Per-User A:     [█][█]        (2/2 used)                    │
+│ Per-User B:     [█]           (1/2 used)                    │
+│ Per-User C:     [█]           (1/2 used)                    │
+└─────────────────────────────────────────────────────────────┘
+
+- User A: Audio 1 + Audio 2 → In processing (2/2 max)
+- User B: Audio 3 → In processing (1/2)
+- User C: Audio 4 → BLOCKED (User A has max, but global still has 3 slots free)
+- Result: Real concurrency, rate limiter effective
+```
+
+### ⚠️ Important Notes for Users
+- **Performance**: Higher throughput for multi-user scenarios
+- **Resources**: Slightly increased CPU/memory usage (thread pool overhead)
+- **Upgrade Path**: Restart required (no config changes)
+
+---
+
 ## 🚀 v20260123 - Code Hardening & Stability Improvements
 
 ### 🔧 Code Hardening

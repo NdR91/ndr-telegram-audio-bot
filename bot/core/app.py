@@ -38,7 +38,8 @@ def create_application(token: str, config) -> Application:
     init_rate_limiter(config)
     
     # Build application
-    app = ApplicationBuilder().token(token).build()
+    # Enable concurrent updates to allow parallel processing of messages
+    app = ApplicationBuilder().token(token).concurrent_updates(True).build()
     
     # Store config in bot_data for global access (singleton pattern)
     app.bot_data['config'] = config
