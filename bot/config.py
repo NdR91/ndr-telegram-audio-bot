@@ -36,6 +36,7 @@ class Config:
         self.model_name = self._get_model_name()
         self.authorized_file = self._validate_authorized_file_path()
         self.audio_dir = self._validate_audio_dir()
+        self.rate_limit_config = self._load_rate_limit_config()
         self.prompts = self._load_prompts()
         self.authorized_data = self._load_authorized_data()
         self._validate_ffmpeg()
@@ -127,6 +128,18 @@ class Config:
             )
         
         return dir_path
+    
+    def _load_rate_limit_config(self) -> Dict[str, int]:
+        """Load rate limit configuration from env or defaults."""
+        from bot import constants as c
+        defaults = c.RATE_LIMIT_DEFAULTS
+        
+        return {
+            "max_per_user": int(os.getenv('RATE_LIMIT_PER_USER', str(defaults["max_per_user"]))),
+            "cooldown_seconds": int(os.getenv('RATE_LIMIT_COOLDOWN', str(defaults["cooldown_seconds"]))),
+            "max_concurrent_global": int(os.getenv('RATE_LIMIT_GLOBAL', str(defaults["max_concurrent_global"]))),
+            "max_file_size_mb": int(os.getenv('RATE_LIMIT_FILE_SIZE', str(defaults["max_file_size_mb"])))
+        }
     
     def _load_prompts(self) -> Dict[str, str]:
         """Load and validate prompt templates."""

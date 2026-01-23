@@ -11,11 +11,8 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
-# Restore original import system for critical modules
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
 from bot.decorators.auth import restricted
-import constants as c
+from bot import constants as c
 
 logger = logging.getLogger(__name__)
 

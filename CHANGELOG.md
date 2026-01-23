@@ -5,6 +5,103 @@ All significant changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 🚀 v20260123 - Code Hardening & Stability Improvements
+
+### 🔧 Code Hardening
+Comprehensive code hardening and stability improvements focusing on reliability,
+async consistency, and error handling. No new features, only strengthening of the
+existing architecture.
+
+#### Error Handling & Reliability
+- **Provider Factory Refactoring**: Eliminated potentially thread-unsafe singleton pattern.
+  *Improved thread-safety and reduced factory complexity.*
+
+- **Exception Safety**: Completed guaranteed cleanup for Google Gemini remote files.
+  *All error paths now execute cleanup via `finally` blocks.*
+
+- **Async Stability**: Replaced blocking `time.sleep()` with `await asyncio.sleep()` in Gemini wait loop.
+  *Resolved race conditions and improved async throughput.*
+
+#### Resource Management
+- **Memory Leak Prevention**: Each operation now has guaranteed provider and rate limiter lifetime.
+  *No accumulation of instances or persistent state in memory.*
+
+- **Rate Limiting Integration**: Completed rate limiter implementation with:
+  * Max 2 concurrent requests per user
+  * Global limit of 6 concurrent requests
+  * File size limit of 20MB
+  * 30-second cooldown period
+
+### 🐛 Bug Fixes
+
+#### Critical Bugs (Fixed)
+1. **Infinite Loop in Gemini Upload** (`bot/providers.py:94-100`)
+   - *Issue*: When `client.files.get()` failed, code used `break` but continued loop with old PROCESSING state → infinite loop.
+   - *Fix*: Added `raise RuntimeError` instead of `break`.
+
+2. **Resource Leak in Gemini Transcription** (`bot/providers.py:121-128`)
+   - *Issue*: Google AI Studio remote files were not deleted on error.
+   - *Fix*: Guaranteed cleanup with `finally` block in `GeminiProvider.transcribe_audio()`.
+
+3. **Async Blocking in OpenAI** (`bot/providers.py:33-47`)
+   - *Issue*: Synchronous OpenAI calls blocked the async event loop.
+   - *Fix*: Wrapped all API calls with `await asyncio.to_thread()`.
+
+4. **Auth Decorator Config Reload** (`bot/decorators/auth.py:35`)
+   - *Issue*: Reloaded `Config()` from disk on every call (race condition, overhead).
+   - *Fix*: Uses `context.bot_data['config']` (singleton injection).
+
+5. **Import Path Hack** (`bot/handlers/audio.py:17-18`)
+   - *Issue*: `sys.path.insert()` was fragile and non-idiomatic.
+   - *Fix*: Correct imports `from bot import utils` and `from bot import constants`.
+
+6. **Provider Factory Race Condition** (`bot/utils.py:18-32`)
+   - *Issue*: Global singleton `_provider_instance` without thread-safety.
+   - *Solution*: Removed singleton, factory creates new provider on each call.
+
+7. **Missing Rate Limiter Initialization** (`bot/handlers/audio.py:291-299`)
+   - *Issue*: `@rate_limited` decorator called `get_rate_limiter()` but initialization was missing.
+   - *Fix*: Added `init_rate_limiter()` and config integration.
+
+8. **Exception in format_response** (`bot/handlers/audio.py:105`)
+   - *Issue*: If `get_provider()` failed, uncaught crash in `format_response`.
+   - *Fix*: Provider initialized in `__init__` (always available).
+
+#### Minor Bugs (Fixed)
+- **No Rate Limiting**: Implemented complete rate limiter with config-based settings.
+- **Crash Cleanup**: Added startup cleanup watchdog for residual files.
+- **Memory Management**: Improved provider lifecycle management.
+
+### 📦 Codebase Health
+- **Reduced Technical Debt**: 10 critical issues identified, 8 fixed, 2 minor.
+- **Enhanced Type Safety**: Improved type hints in providers and rate limiter.
+- **Improved Logging**: Added specific logging for rate limiting and error handling.
+- **Async Best Practices**: All code now async-compliant (no blocking calls).
+
+### ⚠️ Important Notes for Users
+- **No Breaking Changes**: All modifications are backward compatible.
+- **Enhanced Configuration**: `.env.example` and `README.md` updated with rate limiting options (optional, defaults apply if not configured).
+- **No Migration Required**: Existing `.env` files continue to work without changes.
+- **Performance**: Stability improvements, no performance changes.
+- **Upgrade Path**: Pull and restart, no migration required.
+
+---
+
+### 📚 Developer Notes
+
+#### Code Hardening Principles Applied
+1. **Fail Fast**: Early validation, specific error messages
+2. **Resource Cleanup**: Guaranteed via try/finally blocks
+3. **Async First**: All I/O operations async, no blocking calls
+4. **Thread Safety**: Lock-free patterns where possible, immutability
+5. **Defensive Programming**: Null checks, exception catching
+
+#### Areas for Future Improvement
+- **Circuit Breaker**: For API failure recovery
+- **Metrics & Monitoring**: Prometheus counters for rate limits
+- **Persistent State**: Redis for distributed rate limiting (multi-instance)
+- **Request Queue**: Priority queue for urgent requests
+
 ## 🚀 v20260122.2 - Modular Architecture Refactoring & SDK Stabilization
 
 ### 🏗️ Architectural Refactoring

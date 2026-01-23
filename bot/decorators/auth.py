@@ -25,15 +25,14 @@ def restricted(func: Callable) -> Callable:
     @wraps(func)
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         # Import here to avoid circular imports
-        from bot.config import Config
         from bot import constants as c
         
         # Get user and chat IDs
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
         
-        # Get config (lazy loading to avoid circular imports)
-        config = Config()
+        # Get config from bot_data (injected in create_application)
+        config = context.bot_data['config']
         
         # Check authorization
         if (user_id in config.authorized_data.get('admin', []) or

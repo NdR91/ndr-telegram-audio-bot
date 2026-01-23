@@ -11,12 +11,9 @@ from typing import List
 from telegram import BotCommand
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, filters
 
-# Restore original import system for critical modules
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-from handlers.commands import start, whoami, help_command
-from handlers.admin import adduser, removeuser, addgroup, removegroup
-from handlers.audio import handle_audio
+from bot.handlers.commands import start, whoami, help_command
+from bot.handlers.admin import adduser, removeuser, addgroup, removegroup
+from bot.handlers.audio import handle_audio
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +30,18 @@ def create_application(token: str, config) -> Application:
         Configured Application instance
     """
     # Initialize global managers
-    from handlers.admin import init_whitelist_manager
-    from handlers.audio import init_audio_processor
+    from bot.handlers.admin import init_whitelist_manager
+    from bot.handlers.audio import init_audio_processor, init_rate_limiter
     
     init_whitelist_manager(config)
     init_audio_processor(config)
+    init_rate_limiter(config)
     
     # Build application
     app = ApplicationBuilder().token(token).build()
+    
+    # Store config in bot_data for global access (singleton pattern)
+    app.bot_data['config'] = config
     
     # Register handlers
     register_handlers(app)

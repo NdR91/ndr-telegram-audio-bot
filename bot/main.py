@@ -18,6 +18,7 @@ sys.path.insert(0, project_root)
 from bot.config import Config
 from bot.exceptions import ConfigError
 from bot.core.app import create_application, run_application
+from bot import utils
 
 # Configure logging
 logging.basicConfig(
@@ -60,6 +61,9 @@ def main() -> None:
     try:
         # Initialize configuration
         config = initialize_configuration()
+        
+        # Cleanup temporary audio files from previous runs
+        utils.cleanup_audio_directory(config.audio_dir)
         
         # Create and setup application
         logger.info("Creating Telegram application...")

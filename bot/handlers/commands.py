@@ -9,10 +9,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-# Restore original import system for critical modules
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-import constants as c
+from bot import constants as c
 
 logger = logging.getLogger(__name__)
 

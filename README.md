@@ -20,6 +20,7 @@ An advanced Telegram bot that transcribes voice notes and audio files, processes
 - **Smart Refinement**: Corrects errors, adds punctuation, and formats transcribed text using configurable LLMs.
 - **Long Message Handling**: Automatically splits responses that exceed Telegram's 4096-character limit.
 - **Access Control**: Integrated whitelist to authorize individual users (admin/user) or specific groups.
+- **Rate Limiting**: Configurable per-user and global limits to prevent abuse and manage server load.
 - **Auto Cleanup**: Temporary audio files are deleted immediately after processing to save disk space.
 - **Configurable Prompts**: Customize bot behavior without touching the code.
 
@@ -100,6 +101,15 @@ TELEGRAM_TOKEN=your_token_here
   LLM_MODEL=gemini-2.0-flash  # Optional: override model
   ```
 
+**Rate Limiting (Optional):**
+Customize request limits to manage server load and prevent abuse.
+  ```bash
+  RATE_LIMIT_PER_USER=2          # Max concurrent requests per user
+  RATE_LIMIT_COOLDOWN=30         # Cooldown in seconds after hitting limit
+  RATE_LIMIT_GLOBAL=6            # Max global concurrent requests
+  RATE_LIMIT_FILE_SIZE=20        # Max file size in MB (Telegram limit is 20MB)
+  ```
+
 ### Access Control (`authorized.json`)
 
 Create a file named `authorized.json` in the root directory. This controls who can use the bot.
@@ -131,12 +141,17 @@ Create a file named `authorized.json` in the root directory. This controls who c
 - `/addgroup <id>` - Authorize a group.
 - `/removegroup <id>` - Remove a group.
 
+**Note**: Rate limiting configuration is managed via `.env` file.
+
 ## 🔧 Troubleshooting
 
 - **`FFmpeg is not installed`**: Ensure FFmpeg is installed and accessible via command line (`ffmpeg -version`).
 - **`TELEGRAM_TOKEN is required`**: Verify your `.env` file exists and is correctly formatted.
 - **409 Conflict**: The bot is already running elsewhere. Stop other instances.
 - **Transcription hangs**: Check your API quota (OpenAI/Gemini).
+- **`File troppo grande`**: File exceeds the configured limit (default 20MB). Send a smaller file.
+- **`Il bot è occupato`**: Global rate limit reached. Wait a moment and try again.
+- **`Attendi ancora Xs`**: Per-user rate limit reached. Wait for cooldown to expire.
 
 ## 📦 Project Structure
 
@@ -145,13 +160,14 @@ Create a file named `authorized.json` in the root directory. This controls who c
 ├── audio_files/          # Temporary storage (auto-cleaned)
 ├── bot/
 │   ├── core/             # Application builder & setup
-│   ├── decorators/       # Authentication & timeouts
-│   ├── handlers/         # Telegram commands logic (audio, admin)
+│   ├── decorators/       # Authentication, timeouts & rate limiting
+│   ├── handlers/         # Telegram commands logic (audio, admin, commands)
 │   ├── ui/               # Progress bars & feedback
 │   ├── config.py         # Centralized configuration
 │   ├── constants.py      # Messages & prompts
 │   ├── main.py           # Entry point
 │   ├── providers.py      # LLM interfaces (OpenAI/Gemini)
+│   ├── rate_limiter.py   # Rate limiting system
 │   └── utils.py          # FFmpeg & helpers
 ├── .env.example          # Environment variables template
 ├── authorized.json       # Access control list (not committed)

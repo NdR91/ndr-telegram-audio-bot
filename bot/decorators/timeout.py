@@ -12,6 +12,37 @@ logger = logging.getLogger(__name__)
 T = TypeVar('T')
 
 
+def execute_with_timeout(stage_name: str, awaitable: Awaitable[T], default_timeout: int = 60) -> Awaitable[T]:
+    """
+    Execute an awaitable with stage-specific timeout.
+    
+    Args:
+        stage_name: Name of the stage for timeout lookup in constants
+        awaitable: The coroutine to await
+        default_timeout: Default timeout in seconds if not found
+        
+    Returns:
+        Result of the awaitable
+        
+    Raises:
+        TimeoutError: If execution exceeds timeout
+    """
+    # Import here to avoid circular imports
+    from bot import constants as c
+    
+    # Get timeout for this stage
+    timeout_seconds = c.PROGRESS_TIMEOUTS.get(stage_name, default_timeout)
+    
+    async def _runner():
+        try:
+            logger.debug(f"Starting {stage_name} with timeout: {timeout_seconds}s")
+            return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout in {stage_name} after {timeout_seconds}s")
+            raise TimeoutError(f"Timeout in {stage_name}")
+            
+    return _runner()
+
 def timeout_handler(stage_name: str, default_timeout: int = 60) -> Callable:
     """
     Decorator for timeout handling with stage-specific timeouts.
