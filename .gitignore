@@ -6,6 +6,9 @@ __pycache__/
 .env
 authorized.json
 
+# opencode files
+.sisyphus/
+
 # Temporary Files
 audio_files/
 ___backup versioni/

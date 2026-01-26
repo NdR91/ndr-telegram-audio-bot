@@ -1,20 +1,50 @@
-import subprocess
 import logging
 import os
 import glob
+import asyncio
+from asyncio.subprocess import PIPE
+from typing import Iterable
+
 from bot.providers import OpenAIProvider, GeminiProvider, LLMProvider
 
 logger = logging.getLogger(__name__)
 
-def convert_to_mp3(src_path: str, dst_path: str) -> None:
-    logger.info(f"Convert {src_path} → {dst_path}")
+async def convert_to_mp3(src_path: str, dst_path: str) -> None:
+    logger.info(f"Convert {src_path} -> {dst_path}")
+
+    process = await asyncio.create_subprocess_exec(
+        "ffmpeg",
+        "-y",
+        "-i",
+        src_path,
+        "-vn",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-b:a",
+        "192k",
+        dst_path,
+        stdout=PIPE,
+        stderr=PIPE,
+    )
+
     try:
-        subprocess.run(
-            ['ffmpeg','-y','-i',src_path,'-vn','-ar','44100','-ac','2','-b:a','192k',dst_path],
-            check=True, capture_output=True, text=True
-        )
-    except subprocess.CalledProcessError as e:
-        logger.error(f"FFmpeg error: {e.stderr}")
+        stdout, stderr = await process.communicate()
+    except asyncio.CancelledError:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await process.communicate()
+        except Exception:
+            pass
+        raise
+
+    if process.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace") if stderr else ""
+        logger.error(f"FFmpeg error: {err}")
         raise RuntimeError("Errore conversione audio")
 
 def create_provider(config) -> LLMProvider:
@@ -38,19 +68,50 @@ def cleanup_audio_directory(dir_path: str) -> None:
     Clean up all files in the audio directory on startup.
     This ensures no leftover files from previous crashed runs consume disk space.
     """
+    if os.getenv("AUDIO_CLEANUP_ON_STARTUP", "1").strip().lower() in {"0", "false", "no"}:
+        logger.info("Startup audio cleanup disabled (AUDIO_CLEANUP_ON_STARTUP=0)")
+        return
+
     if not os.path.exists(dir_path):
         return
-        
-    logger.info(f"Cleaning up audio directory: {dir_path}")
+
+    abs_dir_path = os.path.abspath(dir_path)
+    if abs_dir_path in {"/", os.path.expanduser("~")}:
+        logger.warning(f"Refusing to cleanup dangerous audio directory: {abs_dir_path}")
+        return
+
+    if os.path.basename(abs_dir_path) != "audio_files":
+        logger.warning(
+            "Refusing to cleanup audio directory with unexpected basename: "
+            f"{abs_dir_path} (expected basename: audio_files)"
+        )
+        return
+
+    logger.info(f"Cleaning up audio directory: {abs_dir_path}")
+
+    allowed_exts: set[str] = {
+        ".aac",
+        ".flac",
+        ".m4a",
+        ".mp3",
+        ".mp4",
+        ".ogg",
+        ".opus",
+        ".wav",
+        ".webm",
+    }
+
     try:
-        # Remove all files in the directory
-        files = glob.glob(os.path.join(dir_path, "*"))
+        # Remove only known audio file types in the directory
+        files: Iterable[str] = glob.glob(os.path.join(abs_dir_path, "*"))
         count = 0
         for f in files:
-            if os.path.isfile(f):
+            if os.path.isfile(f) and not os.path.islink(f):
                 try:
-                    os.remove(f)
-                    count += 1
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in allowed_exts:
+                        os.remove(f)
+                        count += 1
                 except Exception as e:
                     logger.warning(f"Failed to delete {f}: {e}")
         

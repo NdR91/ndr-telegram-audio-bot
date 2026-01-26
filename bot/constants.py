@@ -67,7 +67,7 @@ PROGRESS_TIMEOUTS = {
     "refine": 90         # 90 secondi max
 }
 
-MSG_COMPLETION_HEADER = "📝 **Trascrizione Completata**\n🤖 Modello: {model_name}"
+MSG_COMPLETION_HEADER = "📝 Trascrizione Completata\n🤖 Modello: {model_name}"
 
 # Success Messages
 def msg_user_added(uid): return f"✅ Utente {uid} aggiunto."

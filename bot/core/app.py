@@ -5,7 +5,6 @@ Core application setup and configuration.
 import sys
 import os
 import logging
-import asyncio
 from typing import List
 
 from telegram import BotCommand
@@ -23,8 +22,7 @@ async def cleanup_rate_limiter_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     from bot.handlers.audio import get_rate_limiter
     try:
         limiter = get_rate_limiter()
-        # cleanup_expired is synchronous, which is fine as it's fast
-        limiter.cleanup_expired()
+        await limiter.cleanup_expired_async()
         logger.debug("Rate limiter cleanup completed")
     except Exception as e:
         logger.error(f"Error in rate limiter cleanup job: {e}")
@@ -49,18 +47,39 @@ def create_application(token: str, config) -> Application:
     init_audio_processor(config)
     init_rate_limiter(config)
     
+    async def _post_init(application: Application) -> None:
+        """Set bot commands menu during application startup."""
+        commands: List[BotCommand] = [
+            BotCommand("start", "Messaggio di benvenuto"),
+            BotCommand("whoami", "Mostra user_id e chat_id"),
+            BotCommand("help", "Mostra la lista dei comandi"),
+            BotCommand("adduser", "Aggiunge un utente (admin only)"),
+            BotCommand("removeuser", "Rimuove un utente (admin only)"),
+            BotCommand("addgroup", "Autorizza un gruppo (admin only)"),
+            BotCommand("removegroup", "Rimuove un gruppo (admin only)"),
+        ]
+
+        try:
+            await application.bot.set_my_commands(commands)
+            logger.info("Bot commands menu setup completed")
+        except Exception as e:
+            logger.error(f"Failed to setup bot commands: {e}")
+
     # Build application
     # Enable concurrent updates to allow parallel processing of messages
-    app = ApplicationBuilder().token(token).concurrent_updates(True).build()
+    app = (
+        ApplicationBuilder()
+        .token(token)
+        .concurrent_updates(True)
+        .post_init(_post_init)
+        .build()
+    )
     
     # Store config in bot_data for global access (singleton pattern)
     app.bot_data['config'] = config
     
     # Register handlers
     register_handlers(app)
-    
-    # Setup bot commands menu
-    setup_bot_commands(app, token)
     
     # Setup background jobs
     if app.job_queue:
@@ -92,34 +111,6 @@ def register_handlers(app: Application) -> None:
         filters.VOICE | filters.AUDIO | filters.Document.AUDIO, 
         handle_audio
     ))
-
-
-def setup_bot_commands(app: Application, token: str) -> None:
-    """
-    Setup bot commands menu in Telegram client.
-    
-    Args:
-        app: Application instance
-        token: Bot token for commands setup
-    """
-    commands: List[BotCommand] = [
-        BotCommand("start", "Messaggio di benvenuto"),
-        BotCommand("whoami", "Mostra user_id e chat_id"),
-        BotCommand("help", "Mostra la lista dei comandi"),
-        BotCommand("adduser", "Aggiunge un utente (admin only)"),
-        BotCommand("removeuser", "Rimuove un utente (admin only)"),
-        BotCommand("addgroup", "Autorizza un gruppo (admin only)"),
-        BotCommand("removegroup", "Rimuove un gruppo (admin only)"),
-    ]
-    
-    try:
-        # Run the coroutine synchronously to set commands
-        asyncio.get_event_loop().run_until_complete(
-            app.bot.set_my_commands(commands)
-        )
-        logger.info("Bot commands menu setup completed")
-    except Exception as e:
-        logger.error(f"Failed to setup bot commands: {e}")
 
 
 def run_application(app: Application) -> None:

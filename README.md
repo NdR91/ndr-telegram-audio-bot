@@ -107,8 +107,15 @@ Customize request limits to manage server load and prevent abuse.
   RATE_LIMIT_PER_USER=2          # Max concurrent requests per user
   RATE_LIMIT_COOLDOWN=30         # Cooldown in seconds after hitting limit
   RATE_LIMIT_GLOBAL=6            # Max global concurrent requests
-  RATE_LIMIT_FILE_SIZE=20        # Max file size in MB (Telegram limit is 20MB)
-  ```
+   RATE_LIMIT_FILE_SIZE=20        # Max file size in MB (Telegram limit is 20MB)
+   ```
+
+**Audio Cleanup (Optional):**
+Cleanup dei file temporanei in `AUDIO_DIR` all'avvio (default ON).
+```bash
+AUDIO_CLEANUP_ON_STARTUP=1
+```
+Imposta `0` per disabilitare.
 
 ### Access Control (`authorized.json`)
 

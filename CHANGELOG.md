@@ -5,6 +5,42 @@ All significant changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 🚀 v20250126 - Hardening & Operational Safety
+
+### 🐛 Bug Fixes
+
+#### Critical Fixes
+1. **Temporary File Collision Under Concurrency** (`bot/handlers/audio.py:59-72`, `bot/handlers/audio.py:165-168`)
+   - *Issue*: Temporary files were named only with `file_unique_id`, so re-sending the same Telegram file (or concurrent processing) could overwrite in-flight files.
+   - *Fix*: File names now include `chat_id` + `message_id` + `file_unique_id` to guarantee per-request uniqueness.
+   - *Impact*: Eliminates cross-request overwrites and cleanup races.
+
+2. **FFmpeg Timeout Did Not Stop Conversion** (`bot/utils.py:9-45`, `bot/handlers/audio.py:81-88`)
+   - *Issue*: Conversion ran in a thread and `asyncio.wait_for()` only cancelled the await; FFmpeg could keep running.
+   - *Fix*: Conversion now uses `asyncio.create_subprocess_exec()` and kills FFmpeg on cancellation.
+   - *Impact*: Prevents runaway FFmpeg processes and reduces resource leaks.
+
+3. **Telegram Markdown Send Failures** (`bot/handlers/audio.py:113-132`, `bot/constants.py:70`)
+   - *Issue*: `parse_mode="Markdown"` could break when LLM output contained special characters.
+   - *Fix*: Responses are sent as plain text (no parse mode); completion header is no longer Markdown.
+   - *Impact*: More robust delivery of arbitrary LLM text.
+
+4. **Rate Limit Cooldown Not Enforced + Cleanup Race** (`bot/rate_limiter.py:9-77`, `bot/core/app.py:21-30`)
+   - *Issue*: Cooldown config existed but wasn't applied; periodic cleanup mutated state without a lock.
+   - *Fix*: Added per-user rejection cooldown tracking, async cleanup under lock, and updated the scheduled job to `await` cleanup.
+   - *Impact*: Rate limiting now matches documented behavior and is safer under concurrency.
+
+### 🔧 Technical Improvements
+- **Bot Command Setup (Async-Safe)** (`bot/core/app.py`) - moved command registration to `ApplicationBuilder().post_init(...)` instead of `run_until_complete`.
+- **Provider Timeouts** (`bot/providers.py`) - OpenAI uses SDK timeouts (`with_options(timeout=...)`, `max_retries=0`); Gemini calls are wrapped with `asyncio.wait_for()`.
+- **Safer Startup Cleanup** (`bot/utils.py`, `.env.example`, `README.md`) - cleanup is guarded (refuses dangerous paths, only deletes known audio extensions) and can be disabled with `AUDIO_CLEANUP_ON_STARTUP=0`.
+- **Sensitive Logging Guardrails** (`bot/providers.py`, `.env.example`) - logs show only preview+length; full text only with `LOG_SENSITIVE_TEXT=1` (DEBUG).
+
+### 📦 Dependencies
+- **Pinned Dependencies** (`requirements.txt`) - switched to compatible pins (`~=`) to reduce dependency drift.
+
+---
+
 ## 🚀 v20260124.1 - Rate Limiting & Admin Security Fixes
 
 ### 🐛 Bug Fixes

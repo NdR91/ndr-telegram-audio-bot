@@ -56,7 +56,9 @@ class AudioProcessor:
         
         return None, None
     
-    def generate_file_paths(self, unique_id: str, ext: str) -> tuple[str, str]:
+    def generate_file_paths(
+        self, chat_id: int, message_id: int, unique_id: str, ext: str
+    ) -> tuple[str, str]:
         """
         Generate file paths for temporary audio files.
         
@@ -67,8 +69,9 @@ class AudioProcessor:
         Returns:
             Tuple of (ogg_path, mp3_path)
         """
-        ogg_path = os.path.join(self.config.audio_dir, f"{unique_id}.{ext}")
-        mp3_path = os.path.join(self.config.audio_dir, f"{unique_id}.mp3")
+        prefix = f"{chat_id}_{message_id}_{unique_id}"
+        ogg_path = os.path.join(self.config.audio_dir, f"{prefix}.{ext}")
+        mp3_path = os.path.join(self.config.audio_dir, f"{prefix}.mp3")
         return ogg_path, mp3_path
     
     async def download_audio(self, file_obj, file_path: str) -> None:
@@ -80,10 +83,9 @@ class AudioProcessor:
     
     async def convert_audio(self, ogg_path: str, mp3_path: str) -> None:
         """Convert audio to MP3 with timeout protection."""
-        # Run blocking conversion in thread to allow timeout to work
         await execute_with_timeout(
             "convert",
-            asyncio.to_thread(utils.convert_to_mp3, ogg_path, mp3_path)
+            utils.convert_to_mp3(ogg_path, mp3_path)
         )
     
     async def transcribe_audio(self, mp3_path: str) -> str:
@@ -114,21 +116,20 @@ class AudioProcessor:
                           chat_id: int, ack_msg, full_text: str) -> None:
         """Send response, handling message length limits."""
         if len(full_text) <= c.MAX_MESSAGE_LENGTH:
-            await ack_msg.edit_text(full_text, parse_mode="Markdown")
+            await ack_msg.edit_text(full_text)
         else:
             # Split into chunks
             chunks = [full_text[i:i+c.MAX_MESSAGE_LENGTH] 
                      for i in range(0, len(full_text), c.MAX_MESSAGE_LENGTH)]
             
             # Edit original message with first chunk
-            await ack_msg.edit_text(chunks[0], parse_mode="Markdown")
+            await ack_msg.edit_text(chunks[0])
             
             # Send remaining chunks as new messages
             for chunk in chunks[1:]:
                 await context.bot.send_message(
                     chat_id=chat_id, 
-                    text=chunk, 
-                    parse_mode="Markdown"
+                    text=chunk
                 )
     
     def cleanup_files(self, ogg_path: str, mp3_path: str) -> None:
@@ -163,7 +164,9 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     # Generate file paths
     unique_id = message.effective_attachment.file_unique_id
-    ogg_path, mp3_path = processor.generate_file_paths(unique_id, ext)
+    ogg_path, mp3_path = processor.generate_file_paths(
+        message.chat_id, message.message_id, unique_id, ext
+    )
     
     # Initial progress message
     total_stages = len(c.PROGRESS_STAGES)
@@ -297,5 +300,3 @@ def init_rate_limiter(config) -> None:
         max_global=config.rate_limit_config["max_concurrent_global"],
         max_file_size_mb=config.rate_limit_config["max_file_size_mb"]
     )
-
-
