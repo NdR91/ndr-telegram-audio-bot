@@ -11,17 +11,19 @@ from telegram import BotCommand
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 from bot.handlers.commands import start, whoami, help_command
-from bot.handlers.admin import adduser, removeuser, addgroup, removegroup
-from bot.handlers.audio import handle_audio
+from bot.handlers.admin import WhitelistManager, adduser, removeuser, addgroup, removegroup
+from bot.handlers.audio import AudioProcessor, handle_audio
+from bot.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
 
 async def cleanup_rate_limiter_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Background job to clean up expired rate limit entries."""
-    from bot.handlers.audio import get_rate_limiter
     try:
-        limiter = get_rate_limiter()
+        limiter = context.application.bot_data.get('rate_limiter')
+        if limiter is None:
+            raise RuntimeError("RateLimiter not initialized")
         await limiter.cleanup_expired_async()
         logger.debug("Rate limiter cleanup completed")
     except Exception as e:
@@ -39,14 +41,6 @@ def create_application(token: str, config) -> Application:
     Returns:
         Configured Application instance
     """
-    # Initialize global managers
-    from bot.handlers.admin import init_whitelist_manager
-    from bot.handlers.audio import init_audio_processor, init_rate_limiter
-    
-    init_whitelist_manager(config)
-    init_audio_processor(config)
-    init_rate_limiter(config)
-    
     async def _post_init(application: Application) -> None:
         """Set bot commands menu during application startup."""
         commands: List[BotCommand] = [
@@ -77,6 +71,17 @@ def create_application(token: str, config) -> Application:
     
     # Store config in bot_data for global access (singleton pattern)
     app.bot_data['config'] = config
+    app.bot_data['whitelist_manager'] = WhitelistManager(config)
+    app.bot_data['audio_processor'] = AudioProcessor(config)
+    app.bot_data['rate_limiter'] = RateLimiter(
+        max_per_user=config.rate_limit_config["max_per_user"],
+        cooldown=config.rate_limit_config["cooldown_seconds"],
+        max_global=config.rate_limit_config["max_concurrent_global"],
+        max_file_size_mb=config.rate_limit_config["max_file_size_mb"],
+        queue_enabled=config.rate_limit_config["queue_enabled"],
+        max_queue_size=config.rate_limit_config["max_queue_size"],
+        max_queued_per_user=config.rate_limit_config["max_queued_per_user"],
+    )
     
     # Register handlers
     register_handlers(app)

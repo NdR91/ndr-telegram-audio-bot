@@ -5,6 +5,8 @@ import asyncio
 from asyncio.subprocess import PIPE
 from typing import Iterable
 
+from bot import constants as c
+from bot.exceptions import ConvertError
 from bot.providers import OpenAIProvider, GeminiProvider, LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -45,20 +47,21 @@ async def convert_to_mp3(src_path: str, dst_path: str) -> None:
     if process.returncode != 0:
         err = stderr.decode("utf-8", errors="replace") if stderr else ""
         logger.error(f"FFmpeg error: {err}")
-        raise RuntimeError("Errore conversione audio")
+        raise ConvertError("Errore conversione audio", c.MSG_ERROR_CONVERT)
 
 def create_provider(config) -> LLMProvider:
     """Factory function to create the configured LLM provider."""
     provider_name = config.provider_name
-    model_name = config.model_name
     api_key = config.get_api_key(provider_name)
     prompts = config.prompts
     
     if provider_name == 'openai':
-        logger.info(f"Initializing OpenAI Provider (model: {model_name or 'default'})")
+        model_name = config.model_name or "gpt-4o-mini"
+        logger.info(f"Initializing OpenAI Provider (model: {model_name})")
         return OpenAIProvider(api_key, model_name, prompts)
     elif provider_name == 'gemini':
-        logger.info(f"Initializing Gemini Provider (model: {model_name or 'default'})")
+        model_name = config.model_name or "gemini-2.0-flash"
+        logger.info(f"Initializing Gemini Provider (model: {model_name})")
         return GeminiProvider(api_key, model_name, prompts)
     else:
         raise ValueError(f"Provider sconosciuto: {provider_name}")

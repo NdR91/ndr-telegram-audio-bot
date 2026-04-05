@@ -13,9 +13,9 @@ def rate_limited(func):
     """
     @wraps(func)
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        # Get rate limiter instance
-        from bot.handlers.audio import get_rate_limiter
-        limiter = get_rate_limiter()
+        limiter = context.bot_data.get('rate_limiter')
+        if limiter is None:
+            raise RuntimeError("RateLimiter not initialized")
         
         # Get user info
         user_id = update.effective_user.id if update.effective_user else 0
@@ -31,12 +31,15 @@ def rate_limited(func):
             elif message.document:
                 file_size_mb = (message.document.file_size or 0) / (1024 * 1024)
         
-        # Check limits
-        allowed, msg = await limiter.check_limit(user_id, file_size_mb)
-        
-        if not allowed:
-            await message.reply_text(msg)
+        admission = await limiter.request_admission(user_id, file_size_mb)
+
+        if not admission.allowed:
+            await message.reply_text(admission.message)
             return
+
+        if admission.queued:
+            await message.reply_text(admission.message)
+            await limiter.wait_for_queue_turn(admission.queue_entry)
         
         try:
             # Execute the function

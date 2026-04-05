@@ -3,18 +3,27 @@ Administrative command handlers for whitelist management.
 """
 
 import json
-import sys
 import os
 import logging
+import asyncio
+import tempfile
 from typing import Optional
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.decorators.auth import restricted, admin_only
+from bot.decorators.auth import admin_only
 from bot import constants as c
 
 logger = logging.getLogger(__name__)
+
+
+def get_whitelist_manager(context: ContextTypes.DEFAULT_TYPE) -> "WhitelistManager":
+    """Get the application-scoped whitelist manager instance."""
+    manager = context.bot_data.get('whitelist_manager')
+    if manager is None:
+        raise RuntimeError("WhitelistManager not initialized")
+    return manager
 
 
 class WhitelistManager:
@@ -32,6 +41,7 @@ class WhitelistManager:
         self.config = config
         self.authorized_data = config.authorized_data
         self.authorized_file = config.authorized_file
+        self._lock = asyncio.Lock()
     
     def parse_user_id(self, args) -> Optional[int]:
         """
@@ -96,32 +106,51 @@ class WhitelistManager:
         return True, f"Removed {target_id} from {target_type}"
     
     def save_changes(self) -> None:
-        """Save whitelist changes to file."""
+        """Save whitelist changes to file atomically."""
+        directory = os.path.dirname(os.path.abspath(self.authorized_file)) or '.'
+        temp_path = None
+
         try:
-            with open(self.authorized_file, 'w') as f:
+            with tempfile.NamedTemporaryFile(
+                'w',
+                dir=directory,
+                delete=False,
+                encoding='utf-8'
+            ) as f:
+                temp_path = f.name
                 json.dump(self.authorized_data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(temp_path, self.authorized_file)
             logger.info("Whitelist changes saved successfully")
         except Exception as e:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    logger.warning(f"Failed to remove temporary whitelist file: {temp_path}")
             logger.error(f"Failed to save whitelist changes: {e}")
             raise RuntimeError("Failed to save changes")
 
+    async def apply_whitelist_change(
+        self,
+        action: str,
+        target_type: str,
+        target_id: int,
+    ) -> tuple[bool, str]:
+        """Apply and persist a whitelist change under a shared lock."""
+        async with self._lock:
+            if action == 'add':
+                success, message = self.add_to_whitelist(target_type, target_id)
+            else:
+                success, message = self.remove_from_whitelist(target_type, target_id)
 
-# Global whitelist manager instance (will be initialized in main.py)
-_whitelist_manager = None
+            if not success:
+                return success, message
 
-
-def get_whitelist_manager() -> WhitelistManager:
-    """Get the global whitelist manager instance."""
-    global _whitelist_manager
-    if _whitelist_manager is None:
-        raise RuntimeError("WhitelistManager not initialized")
-    return _whitelist_manager
-
-
-def init_whitelist_manager(config) -> None:
-    """Initialize the global whitelist manager."""
-    global _whitelist_manager
-    _whitelist_manager = WhitelistManager(config)
+            self.save_changes()
+            return success, message
 
 
 @admin_only
@@ -137,7 +166,7 @@ async def whitelist_command_handler(update: Update, context: ContextTypes.DEFAUL
         target_type: 'users' or 'groups'
     """
     # Initialize manager
-    manager = get_whitelist_manager()
+    manager = get_whitelist_manager(context)
     user_id = update.effective_user.id
     
     # Parse target ID
@@ -154,18 +183,16 @@ async def whitelist_command_handler(update: Update, context: ContextTypes.DEFAUL
     
     # Perform operation
     try:
-        if action == 'add':
-            success, message = manager.add_to_whitelist(target_type, target_id)
-        else:  # remove
-            success, message = manager.remove_from_whitelist(target_type, target_id)
+        success, message = await manager.apply_whitelist_change(
+            action,
+            target_type,
+            target_id,
+        )
         
         if not success:
             await update.message.reply_text(message)
             return
-        
-        # Save changes and respond
-        manager.save_changes()
-        
+
         # Send appropriate success message
         if target_type == 'users':
             if action == 'add':

@@ -138,7 +138,10 @@ class Config:
             "max_per_user": int(os.getenv('RATE_LIMIT_PER_USER', str(defaults["max_per_user"]))),
             "cooldown_seconds": int(os.getenv('RATE_LIMIT_COOLDOWN', str(defaults["cooldown_seconds"]))),
             "max_concurrent_global": int(os.getenv('RATE_LIMIT_GLOBAL', str(defaults["max_concurrent_global"]))),
-            "max_file_size_mb": int(os.getenv('RATE_LIMIT_FILE_SIZE', str(defaults["max_file_size_mb"])))
+            "max_file_size_mb": int(os.getenv('RATE_LIMIT_FILE_SIZE', str(defaults["max_file_size_mb"]))),
+            "queue_enabled": os.getenv('RATE_LIMIT_QUEUE_ENABLED', str(defaults["queue_enabled"])).strip().lower() not in {'0', 'false', 'no'},
+            "max_queue_size": int(os.getenv('RATE_LIMIT_QUEUE_SIZE', str(defaults["max_queue_size"]))),
+            "max_queued_per_user": int(os.getenv('RATE_LIMIT_QUEUE_PER_USER', str(defaults["max_queued_per_user"]))),
         }
     
     def _load_prompts(self) -> Dict[str, str]:

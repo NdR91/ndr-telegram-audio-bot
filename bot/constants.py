@@ -95,6 +95,9 @@ DEFAULT_PROMPT_REFINE_TEMPLATE = (
 MSG_CONCURRENT_LIMIT = "⏳ Troppe richieste simultanee. Max {max_concurrent} audio alla volta."
 MSG_COOLDOWN = "⏳ Attendi ancora {seconds}s prima di inviare un altro audio."
 MSG_GLOBAL_LIMIT = "⏳ Il bot è occupato. Riprova tra qualche secondo."
+MSG_QUEUE_ACCEPTED = "⏳ Il bot è occupato. Richiesta accodata (posizione {position})."
+MSG_QUEUE_FULL = "⏳ Coda piena. Riprova tra poco."
+MSG_ALREADY_QUEUED = "⏳ Hai già una richiesta in coda. Attendi il tuo turno."
 MSG_FILE_TOO_LARGE = "❌ File troppo grande. Max {max_size}MB."
 
 # Rate limit defaults
@@ -102,7 +105,10 @@ RATE_LIMIT_DEFAULTS = {
     "max_per_user": 2,
     "cooldown_seconds": 30,
     "max_concurrent_global": 6,
-    "max_file_size_mb": 20  # Telegram Bot API limit is 20MB
+    "max_file_size_mb": 20,  # Telegram Bot API limit is 20MB
+    "queue_enabled": 1,
+    "max_queue_size": 10,
+    "max_queued_per_user": 1,
 }
 
 # Configuration

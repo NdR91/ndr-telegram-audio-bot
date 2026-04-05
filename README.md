@@ -49,12 +49,18 @@ The easiest way to run the bot is using Docker Compose.
 
 3. **Configure permissions**:
    Create an `authorized.json` file (see [Configuration](#-configuration) below).
+   Docker Compose mounts this file at runtime; it is not baked into the image.
 
 4. **Start the bot**:
    ```bash
    docker-compose up -d --build
    ```
    View logs with `docker-compose logs -f`.
+
+**Docker hardening notes:**
+- The container now runs as a non-root user.
+- `authorized.json` is mounted read-only at runtime.
+- `.dockerignore` excludes local secrets, virtualenvs, tests, OpenCode context, and temp files from the build context.
 
 ### 🛠️ Manual Installation (Local)
 
@@ -104,11 +110,14 @@ TELEGRAM_TOKEN=your_token_here
 **Rate Limiting (Optional):**
 Customize request limits to manage server load and prevent abuse.
   ```bash
-  RATE_LIMIT_PER_USER=2          # Max concurrent requests per user
-  RATE_LIMIT_COOLDOWN=30         # Cooldown in seconds after hitting limit
-  RATE_LIMIT_GLOBAL=6            # Max global concurrent requests
-   RATE_LIMIT_FILE_SIZE=20        # Max file size in MB (Telegram limit is 20MB)
-   ```
+   RATE_LIMIT_PER_USER=2          # Max concurrent requests per user
+   RATE_LIMIT_COOLDOWN=30         # Cooldown in seconds after hitting limit
+   RATE_LIMIT_GLOBAL=6            # Max global concurrent requests
+    RATE_LIMIT_FILE_SIZE=20        # Max file size in MB (Telegram limit is 20MB)
+    RATE_LIMIT_QUEUE_ENABLED=1     # Queue requests when global slots are full
+    RATE_LIMIT_QUEUE_SIZE=10       # Max queued requests across all users
+    RATE_LIMIT_QUEUE_PER_USER=1    # Max queued requests per user
+    ```
 
 **Audio Cleanup (Optional):**
 Cleanup dei file temporanei in `AUDIO_DIR` all'avvio (default ON).
@@ -117,9 +126,18 @@ AUDIO_CLEANUP_ON_STARTUP=1
 ```
 Imposta `0` per disabilitare.
 
+**Logging Privacy (Optional):**
+By default, transcript/refined text content is hidden from logs and only metadata such as length is emitted.
+```bash
+LOG_SENSITIVE_TEXT=0
+```
+Set `1` only for temporary debugging sessions if you explicitly want full transcript/refined text in DEBUG logs.
+
 ### Access Control (`authorized.json`)
 
 Create a file named `authorized.json` in the root directory. This controls who can use the bot.
+For Docker deployments, keep it on the host and mount it at runtime rather than copying it into the image.
+In Docker Compose, this file is mounted read-only into the container.
 
 **Note**: To find your ID, start the bot and run `/whoami`.
 
@@ -150,6 +168,11 @@ Create a file named `authorized.json` in the root directory. This controls who c
 
 **Note**: Rate limiting configuration is managed via `.env` file.
 
+## Tests
+
+- Run the full suite: `pytest tests`
+- Run a single test: `pytest tests/test_config.py::test_config_loads_defaults_and_normalizes_ids`
+
 ## 🔧 Troubleshooting
 
 - **`FFmpeg is not installed`**: Ensure FFmpeg is installed and accessible via command line (`ffmpeg -version`).
@@ -158,7 +181,21 @@ Create a file named `authorized.json` in the root directory. This controls who c
 - **Transcription hangs**: Check your API quota (OpenAI/Gemini).
 - **`File troppo grande`**: File exceeds the configured limit (default 20MB). Send a smaller file.
 - **`Il bot è occupato`**: Global rate limit reached. Wait a moment and try again.
+- **`Richiesta accodata`**: The bot accepted your audio into the waiting queue because all active slots are busy.
 - **`Attendi ancora Xs`**: Per-user rate limit reached. Wait for cooldown to expire.
+
+## 🐳 Docker Runtime Notes
+
+- Rebuild and redeploy after Docker/runtime changes:
+  ```bash
+  docker-compose up -d --build
+  ```
+- Follow logs:
+  ```bash
+  docker-compose logs -f
+  ```
+- `authorized.json` must exist on the host before startup because it is bind-mounted read-only.
+- `audio_files/` remains writable because it is a bind-mounted working directory for temporary audio artifacts.
 
 ## 📦 Project Structure
 

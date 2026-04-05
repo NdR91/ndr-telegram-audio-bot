@@ -5,6 +5,64 @@ All significant changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Bug Fixes
+- **Provider default model fallback** (`bot/utils.py`)
+  - *Issue*: `create_provider()` passed `config.model_name` even when unset, overriding provider constructor defaults with `None`.
+  - *Fix*: The provider factory now applies the correct OpenAI/Gemini default model when `LLM_MODEL` is absent.
+  - *Impact*: Provider initialization now matches documented behavior and avoids invalid model configuration.
+
+- **Docker image no longer copies `authorized.json`** (`Dockerfile`, `README.md`)
+  - *Issue*: The Docker build baked runtime authorization data into the image with `COPY authorized.json .`.
+  - *Fix*: `authorized.json` is now expected only as a runtime-mounted file; the image no longer copies it during build.
+  - *Impact*: Better secret/config hygiene and more portable images.
+
+- **Whitelist updates are now serialized and saved atomically** (`bot/handlers/admin.py`)
+  - *Issue*: Admin whitelist changes could race under concurrent updates, and direct file writes risked partial/corrupt `authorized.json` contents.
+  - *Fix*: Added a shared async lock around whitelist mutations and switched persistence to temp-file + `os.replace()` atomic writes.
+  - *Impact*: Concurrent admin commands are safer and authorization data is more resilient to interrupted writes.
+
+- **AppleDouble repository artifacts cleaned up** (`._*`, `.__*`)
+  - *Issue*: macOS metadata files polluted the repository tree and context files, creating noise and confusion during review/navigation.
+  - *Fix*: Removed AppleDouble artifacts from the tracked workspace while preserving the real project and `.opencode` files.
+  - *Impact*: Cleaner repository state and less tooling/review noise.
+
+- **Transcript logging privacy hardened** (`bot/providers.py`, `bot/main.py`, `.env.example`, `README.md`)
+  - *Issue*: Default debug logging still included transcript/refined text previews, which could leak user content into logs.
+  - *Fix*: Logs now hide transcript/refined content by default and emit only metadata unless `LOG_SENSITIVE_TEXT=1` is explicitly enabled; startup also warns when sensitive logging is enabled.
+  - *Impact*: Better privacy by default while preserving an explicit opt-in path for deep debugging.
+
+- **Minimal pytest suite added for core logic** (`tests/`, `requirements.txt`, `README.md`)
+  - *Issue*: The repository had no automated regression checks for configuration, rate limiting, whitelist persistence, or provider factory defaults.
+  - *Fix*: Added focused pytest coverage for `Config`, `RateLimiter`, `WhitelistManager`, and provider factory behavior, plus documented how to run the suite.
+  - *Impact*: Higher confidence in critical local logic and a foundation for future test coverage.
+
+- **Audio pipeline now uses typed stage exceptions** (`bot/exceptions.py`, `bot/decorators/timeout.py`, `bot/handlers/audio.py`, `bot/providers.py`, `bot/utils.py`)
+  - *Issue*: Handler error responses depended on parsing exception strings, which was fragile and easy to break during refactors.
+  - *Fix*: Introduced typed timeout/stage exceptions with user-facing messages attached, and updated the pipeline to catch those directly instead of string matching.
+  - *Impact*: More reliable error handling and safer future refactors of the audio pipeline.
+
+- **Application services moved off module globals** (`bot/core/app.py`, `bot/handlers/audio.py`, `bot/handlers/admin.py`, `bot/decorators/rate_limit.py`)
+  - *Issue*: Audio processor, rate limiter, and whitelist manager were stored in module-level globals, making tests and lifecycle wiring more fragile.
+  - *Fix*: These services are now created in `create_application()` and stored in `app.bot_data`, with handlers/decorators reading them from context instead of module globals.
+  - *Impact*: Cleaner dependency injection, less hidden state, and easier testing.
+
+- **Docker/runtime hardening improved** (`Dockerfile`, `docker-compose.yml`, `.dockerignore`, `README.md`)
+  - *Issue*: The container still ran as root, build context included unnecessary local artifacts, and runtime mounts lacked extra hardening.
+  - *Fix*: The image now runs as a non-root user, Compose mounts `authorized.json` read-only with `no-new-privileges`, and `.dockerignore` excludes secrets, temp files, tests, and local tooling context.
+  - *Impact*: Smaller/cleaner build context and safer default container runtime posture.
+
+- **Operational observability improved** (`bot/handlers/audio.py`, `bot/providers.py`, `bot/decorators/timeout.py`, `tests/test_audio_errors.py`)
+  - *Issue*: Pipeline logs made it hard to understand per-stage latency and provider-specific failures in production.
+  - *Fix*: Added stage duration logs, pipeline summary logs, and provider/stage failure metadata without exposing transcript content.
+  - *Impact*: Easier production diagnosis for slow requests and provider issues.
+
+- **Global-limit request queue added** (`bot/rate_limiter.py`, `bot/decorators/rate_limit.py`, `bot/config.py`, `bot/constants.py`)
+  - *Issue*: Requests beyond the global concurrency limit were rejected immediately, creating unnecessary retry churn for users.
+  - *Fix*: Added an optional FIFO queue with bounded size and per-user queue caps; queued requests now wait for the next available global slot instead of being dropped immediately.
+  - *Impact*: Better UX under load while preserving per-user concurrency protection and queue safety bounds.
+
 ## 🚀 v20250126 - Hardening & Operational Safety
 
 ### 🐛 Bug Fixes

@@ -6,7 +6,23 @@ import openai
 from openai import OpenAI
 import google.genai as genai
 
+from bot import constants as c
+from bot.exceptions import RefineError, RefineTimeout, TranscribeError, TranscribeTimeout
+
 logger = logging.getLogger(__name__)
+
+
+def _log_provider_failure(provider_name: str, operation: str, error: Exception) -> None:
+    logger.error(
+        "Provider operation failed | provider=%s operation=%s error=%s",
+        provider_name,
+        operation,
+        error.__class__.__name__,
+    )
+
+
+def _allow_sensitive_logging() -> bool:
+    return os.getenv("LOG_SENSITIVE_TEXT", "0").strip().lower() in {"1", "true", "yes"}
 
 
 def _log_text_preview(label: str, text: str | None) -> None:
@@ -15,15 +31,11 @@ def _log_text_preview(label: str, text: str | None) -> None:
         return
 
     text_len = len(text)
-    allow_full = os.getenv("LOG_SENSITIVE_TEXT", "0").strip().lower() in {"1", "true", "yes"}
-    if allow_full:
+    if _allow_sensitive_logging():
         logger.debug(f"{label} ({text_len} chars): {text}")
         return
 
-    preview = text[:120]
-    if text_len > 120:
-        preview = preview + "..."
-    logger.debug(f"{label} ({text_len} chars): {preview}")
+    logger.debug(f"{label} ({text_len} chars): <hidden>")
 
 class LLMProvider(ABC):
     """Abstract Base Class for LLM Providers."""
@@ -69,7 +81,11 @@ class OpenAIProvider(LLMProvider):
         try:
             transcription = await asyncio.to_thread(_sync_transcribe)
         except openai.APITimeoutError as e:
-            raise TimeoutError("Timeout in transcribe") from e
+            _log_provider_failure("openai", "transcribe", e)
+            raise TranscribeTimeout("Timeout in transcribe", c.MSG_TIMEOUT_TRANSCRIBE) from e
+        except Exception as e:
+            _log_provider_failure("openai", "transcribe", e)
+            raise TranscribeError(f"OpenAI transcription failed: {e}", c.MSG_ERROR_TRANSCRIBE) from e
         text = transcription.text
         _log_text_preview("Raw text", text)
         return text
@@ -98,7 +114,11 @@ class OpenAIProvider(LLMProvider):
         try:
             resp = await asyncio.to_thread(_sync_completion)
         except openai.APITimeoutError as e:
-            raise TimeoutError("Timeout in refine") from e
+            _log_provider_failure("openai", "refine", e)
+            raise RefineTimeout("Timeout in refine", c.MSG_TIMEOUT_REFINE) from e
+        except Exception as e:
+            _log_provider_failure("openai", "refine", e)
+            raise RefineError(f"OpenAI refinement failed: {e}", c.MSG_ERROR_REFINE) from e
         response_content = resp.choices[0].message.content
         out = response_content.strip() if response_content else ""
         _log_text_preview("Refined text", out)
@@ -133,32 +153,32 @@ class GeminiProvider(LLMProvider):
                     timeout=timeout_seconds,
                 )
             except asyncio.TimeoutError as e:
-                raise TimeoutError("Timeout in transcribe") from e
+                raise TranscribeTimeout("Timeout in transcribe", c.MSG_TIMEOUT_TRANSCRIBE) from e
         
         audio_file = None
         try:
             # Carica il file su Google AI Studio con nuovo SDK
             try:
                 audio_file = await _call(self.client.files.upload, upload_timeout, file=file_path)
-            except TimeoutError:
+            except TranscribeTimeout:
                 raise
             except Exception as e:
-                logger.error(f"Failed to upload audio file: {e}")
-                raise RuntimeError(f"Google AI File Upload failed: {e}")
+                _log_provider_failure("gemini", "upload_audio", e)
+                raise TranscribeError(f"Google AI File Upload failed: {e}", c.MSG_ERROR_TRANSCRIBE)
             
             # Attendi che il file sia processato (stato ACTIVE)
             while audio_file.state == "PROCESSING":
                 await asyncio.sleep(1)
                 try:
                     audio_file = await _call(self.client.files.get, poll_timeout, audio_file.name)
-                except TimeoutError:
+                except TranscribeTimeout:
                     raise
                 except Exception as e:
-                    logger.error(f"Failed to get file status: {e}")
-                    raise RuntimeError(f"Failed to check file status: {e}")
+                    _log_provider_failure("gemini", "check_upload_status", e)
+                    raise TranscribeError(f"Failed to check file status: {e}", c.MSG_ERROR_TRANSCRIBE)
 
             if audio_file.state == "FAILED":
-                raise RuntimeError("Google AI File Upload failed.")
+                raise TranscribeError("Google AI File Upload failed.", c.MSG_ERROR_TRANSCRIBE)
 
             # Richiedi la trascrizione con nuovo SDK
             prompt = "Transcribe this audio file accurately. Output only text."
@@ -169,11 +189,11 @@ class GeminiProvider(LLMProvider):
                     model=self.model_name,
                     contents=[prompt, audio_file],
                 )
-            except TimeoutError:
+            except TranscribeTimeout:
                 raise
             except Exception as e:
-                logger.error(f"Failed to generate transcription: {e}")
-                raise RuntimeError(f"Google AI Transcription failed: {e}")
+                _log_provider_failure("gemini", "transcribe", e)
+                raise TranscribeError(f"Google AI Transcription failed: {e}", c.MSG_ERROR_TRANSCRIBE)
             
             text = response.text
             _log_text_preview("Gemini Raw text", text)
@@ -209,10 +229,11 @@ class GeminiProvider(LLMProvider):
                 timeout=refine_timeout,
             )
         except asyncio.TimeoutError as e:
-            raise TimeoutError("Timeout in refine") from e
+            _log_provider_failure("gemini", "refine", e)
+            raise RefineTimeout("Timeout in refine", c.MSG_TIMEOUT_REFINE) from e
         except Exception as e:
-            logger.error(f"Failed to refine text: {e}")
-            raise RuntimeError(f"Google AI Refinement failed: {e}")
+            _log_provider_failure("gemini", "refine", e)
+            raise RefineError(f"Google AI Refinement failed: {e}", c.MSG_ERROR_REFINE)
         
         out = response.text.strip()
         _log_text_preview("Gemini Refined text", out)

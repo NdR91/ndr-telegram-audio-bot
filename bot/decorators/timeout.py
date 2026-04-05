@@ -7,9 +7,23 @@ import logging
 from functools import wraps
 from typing import Callable, Any, TypeVar, Awaitable
 
+from bot import constants as c
+from bot.exceptions import ConvertTimeout, DownloadTimeout, RefineTimeout, TranscribeTimeout
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
+
+TIMEOUT_EXCEPTIONS = {
+    "download": DownloadTimeout,
+    "convert": ConvertTimeout,
+    "transcribe": TranscribeTimeout,
+    "refine": RefineTimeout,
+}
+
+
+def _get_timeout_exception(stage_name: str):
+    return TIMEOUT_EXCEPTIONS.get(stage_name, RefineTimeout)
 
 
 def execute_with_timeout(stage_name: str, awaitable: Awaitable[T], default_timeout: int = 60) -> Awaitable[T]:
@@ -27,9 +41,6 @@ def execute_with_timeout(stage_name: str, awaitable: Awaitable[T], default_timeo
     Raises:
         TimeoutError: If execution exceeds timeout
     """
-    # Import here to avoid circular imports
-    from bot import constants as c
-    
     # Get timeout for this stage
     timeout_seconds = c.PROGRESS_TIMEOUTS.get(stage_name, default_timeout)
     
@@ -38,8 +49,11 @@ def execute_with_timeout(stage_name: str, awaitable: Awaitable[T], default_timeo
             logger.debug(f"Starting {stage_name} with timeout: {timeout_seconds}s")
             return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
         except asyncio.TimeoutError:
-            logger.error(f"Timeout in {stage_name} after {timeout_seconds}s")
-            raise TimeoutError(f"Timeout in {stage_name}")
+            logger.error("Stage timeout | stage=%s timeout_seconds=%s", stage_name, timeout_seconds)
+            raise _get_timeout_exception(stage_name)(
+                f"Timeout in {stage_name}",
+                getattr(c, f"MSG_TIMEOUT_{stage_name.upper()}", c.MSG_ERROR_INTERNAL),
+            )
             
     return _runner()
 
@@ -57,9 +71,6 @@ def timeout_handler(stage_name: str, default_timeout: int = 60) -> Callable:
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @wraps(func)
         async def wrapper(*args, **kwargs) -> T:
-            # Import here to avoid circular imports
-            from bot import constants as c
-            
             # Get timeout for this stage
             timeout_seconds = c.PROGRESS_TIMEOUTS.get(stage_name, default_timeout)
             
@@ -67,8 +78,11 @@ def timeout_handler(stage_name: str, default_timeout: int = 60) -> Callable:
                 logger.debug(f"Starting {stage_name} with timeout: {timeout_seconds}s")
                 return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout_seconds)
             except asyncio.TimeoutError:
-                logger.error(f"Timeout in {stage_name} after {timeout_seconds}s")
-                raise TimeoutError(f"Timeout in {stage_name}")
+                logger.error("Stage timeout | stage=%s timeout_seconds=%s", stage_name, timeout_seconds)
+                raise _get_timeout_exception(stage_name)(
+                    f"Timeout in {stage_name}",
+                    getattr(c, f"MSG_TIMEOUT_{stage_name.upper()}", c.MSG_ERROR_INTERNAL),
+                )
         
         return wrapper
     return decorator

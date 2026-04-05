@@ -29,6 +29,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _warn_if_sensitive_logging_enabled() -> None:
+    enabled = os.getenv("LOG_SENSITIVE_TEXT", "0").strip().lower() in {"1", "true", "yes"}
+    if enabled:
+        logger.warning(
+            "Sensitive transcript logging is enabled via LOG_SENSITIVE_TEXT. "
+            "Transcribed and refined text may be written to DEBUG logs."
+        )
+
+
 def initialize_configuration() -> Config:
     """
     Initialize and validate bot configuration.
@@ -45,6 +54,7 @@ def initialize_configuration() -> Config:
         config = Config()
         logger.info("Configuration loaded successfully")
         logger.info(f"Provider: {config.provider_name}, Model: {config.model_name or 'default'}")
+        _warn_if_sensitive_logging_enabled()
         return config
         
     except (ConfigError, RuntimeError) as e:

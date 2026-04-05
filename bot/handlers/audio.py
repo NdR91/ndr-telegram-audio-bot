@@ -6,6 +6,7 @@ import os
 import sys
 import logging
 import asyncio
+import time
 from typing import Optional
 
 from telegram import Update
@@ -14,12 +15,42 @@ from telegram.ext import ContextTypes
 from bot.decorators.auth import restricted
 from bot.decorators.timeout import execute_with_timeout
 from bot.decorators.rate_limit import rate_limited
+from bot.exceptions import AudioPipelineError, AudioPipelineStageError, AudioPipelineTimeout, DownloadError
 from bot.ui.progress import update_progress, get_progress_message, clear_progress_cache
 from bot import utils
 from bot import constants as c
-from bot.rate_limiter import RateLimiter
-
 logger = logging.getLogger(__name__)
+
+
+def _elapsed_ms(start_time: float) -> int:
+    return int((time.monotonic() - start_time) * 1000)
+
+
+def _log_stage_success(user_id: int, stage_name: str, start_time: float) -> None:
+    logger.info(
+        "Audio stage completed | user_id=%s stage=%s duration_ms=%s",
+        user_id,
+        stage_name,
+        _elapsed_ms(start_time),
+    )
+
+
+def _log_pipeline_summary(user_id: int, provider_name: str, total_start_time: float, status: str) -> None:
+    logger.info(
+        "Audio pipeline finished | user_id=%s provider=%s status=%s duration_ms=%s",
+        user_id,
+        provider_name,
+        status,
+        _elapsed_ms(total_start_time),
+    )
+
+
+def get_audio_processor(context: ContextTypes.DEFAULT_TYPE) -> "AudioProcessor":
+    """Get the application-scoped audio processor instance."""
+    processor = context.bot_data.get('audio_processor')
+    if processor is None:
+        raise RuntimeError("AudioProcessor not initialized")
+    return processor
 
 
 class AudioProcessor:
@@ -32,6 +63,10 @@ class AudioProcessor:
         self.config = config
         # Initialize provider once at startup (Dependency Injection / Singleton)
         self.provider = utils.create_provider(config)
+
+    @property
+    def provider_name(self) -> str:
+        return self.config.provider_name
     
     async def determine_file_type(self, message) -> tuple[Optional[str], Optional[str]]:
         """
@@ -76,10 +111,15 @@ class AudioProcessor:
     
     async def download_audio(self, file_obj, file_path: str) -> None:
         """Download audio file with timeout protection."""
-        await execute_with_timeout(
-            "download", 
-            file_obj.download_to_drive(file_path)
-        )
+        try:
+            await execute_with_timeout(
+                "download",
+                file_obj.download_to_drive(file_path)
+            )
+        except AudioPipelineTimeout:
+            raise
+        except Exception as e:
+            raise DownloadError(f"Download failed: {e}", c.MSG_ERROR_DOWNLOAD) from e
     
     async def convert_audio(self, ogg_path: str, mp3_path: str) -> None:
         """Convert audio to MP3 with timeout protection."""
@@ -154,7 +194,9 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         context: Telegram context object
     """
     message = update.message
-    processor = get_audio_processor()
+    processor = get_audio_processor(context)
+    user_id = message.from_user.id
+    total_start_time = time.monotonic()
     
     # Determine file type and get file object
     file_obj, ext = await processor.determine_file_type(message)
@@ -179,28 +221,36 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             context, message.chat_id, ack_msg.message_id,
             get_progress_message(c.MSG_PROGRESS_DOWNLOAD, 1, total_stages)
         )
+        stage_start_time = time.monotonic()
         await processor.download_audio(file_obj, ogg_path)
+        _log_stage_success(user_id, "download", stage_start_time)
         
         # Stage 2: Convert to MP3
         await update_progress(
             context, message.chat_id, ack_msg.message_id,
             get_progress_message(c.MSG_PROGRESS_CONVERT, 2, total_stages)
         )
+        stage_start_time = time.monotonic()
         await processor.convert_audio(ogg_path, mp3_path)
+        _log_stage_success(user_id, "convert", stage_start_time)
         
         # Stage 3: Transcribe
         await update_progress(
             context, message.chat_id, ack_msg.message_id,
             get_progress_message(c.MSG_PROGRESS_TRANSCRIBE, 3, total_stages)
         )
+        stage_start_time = time.monotonic()
         raw_text = await processor.transcribe_audio(mp3_path)
+        _log_stage_success(user_id, "transcribe", stage_start_time)
         
         # Stage 4: Refine text
         await update_progress(
             context, message.chat_id, ack_msg.message_id,
             get_progress_message(c.MSG_PROGRESS_REFINE, 4, total_stages)
         )
+        stage_start_time = time.monotonic()
         final_text = await processor.refine_text(raw_text)
+        _log_stage_success(user_id, "refine", stage_start_time)
         
         # Final: Send response
         await update_progress(
@@ -209,19 +259,44 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         
         full_text = processor.format_response(final_text)
+        stage_start_time = time.monotonic()
         await processor.send_response(context, message.chat_id, ack_msg, full_text)
+        _log_stage_success(user_id, "send_response", stage_start_time)
         
-        logger.info(f"Audio processing completed for user {message.from_user.id}")
+        _log_pipeline_summary(user_id, processor.provider_name, total_start_time, "success")
         
-    except TimeoutError as e:
-        logger.error(f"Timeout during processing: {e}")
-        error_msg = _get_timeout_message(str(e))
-        await ack_msg.edit_text(error_msg)
+    except AudioPipelineTimeout as e:
+        logger.error(
+            "Audio pipeline timeout | user_id=%s provider=%s error=%s duration_ms=%s",
+            user_id,
+            processor.provider_name,
+            e.__class__.__name__,
+            _elapsed_ms(total_start_time),
+        )
+        await ack_msg.edit_text(e.user_message)
+        _log_pipeline_summary(user_id, processor.provider_name, total_start_time, "timeout")
         
+    except AudioPipelineStageError as e:
+        logger.error(
+            "Audio pipeline stage error | user_id=%s provider=%s error=%s duration_ms=%s",
+            user_id,
+            processor.provider_name,
+            e.__class__.__name__,
+            _elapsed_ms(total_start_time),
+        )
+        await ack_msg.edit_text(e.user_message)
+        _log_pipeline_summary(user_id, processor.provider_name, total_start_time, "stage_error")
+
     except Exception as e:
-        logger.error(f"Error in audio processing pipeline: {e}")
-        error_msg = _get_error_message(str(e))
-        await ack_msg.edit_text(error_msg)
+        logger.error(
+            "Audio pipeline unexpected error | user_id=%s provider=%s error=%s duration_ms=%s",
+            user_id,
+            processor.provider_name,
+            e.__class__.__name__,
+            _elapsed_ms(total_start_time),
+        )
+        await ack_msg.edit_text(c.MSG_ERROR_INTERNAL)
+        _log_pipeline_summary(user_id, processor.provider_name, total_start_time, "unexpected_error")
         
     finally:
         # Always cleanup temporary files
@@ -229,74 +304,3 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         
         # Clean up progress cache for this message
         clear_progress_cache(message.chat_id, ack_msg.message_id)
-
-
-def _get_timeout_message(error_str: str) -> str:
-    """Get appropriate timeout error message based on error content."""
-    if "download" in error_str.lower():
-        return c.MSG_TIMEOUT_DOWNLOAD
-    elif "convert" in error_str.lower():
-        return c.MSG_TIMEOUT_CONVERT
-    elif "transcribe" in error_str.lower():
-        return c.MSG_TIMEOUT_TRANSCRIBE
-    elif "refine" in error_str.lower():
-        return c.MSG_TIMEOUT_REFINE
-    else:
-        return c.MSG_ERROR_INTERNAL
-
-
-def _get_error_message(error_str: str) -> str:
-    """Get appropriate error message based on error content."""
-    error_str_lower = error_str.lower()
-    
-    if "download" in error_str_lower:
-        return c.MSG_ERROR_DOWNLOAD
-    elif "ffmpeg" in error_str_lower or "convert" in error_str_lower:
-        return c.MSG_ERROR_CONVERT
-    elif "transcri" in error_str_lower:
-        return c.MSG_ERROR_TRANSCRIBE
-    elif "refine" in error_str_lower:
-        return c.MSG_ERROR_REFINE
-    else:
-        return c.MSG_ERROR_INTERNAL
-
-
-# Global processor instance (will be initialized in main.py)
-_audio_processor = None
-
-
-def get_audio_processor() -> AudioProcessor:
-    """Get the global audio processor instance."""
-    global _audio_processor
-    if _audio_processor is None:
-        raise RuntimeError("AudioProcessor not initialized")
-    return _audio_processor
-
-
-def init_audio_processor(config) -> None:
-    """Initialize the global audio processor."""
-    global _audio_processor
-    _audio_processor = AudioProcessor(config)
-
-
-# Global rate limiter instance
-_rate_limiter = None
-
-
-def get_rate_limiter() -> RateLimiter:
-    """Get the global rate limiter instance."""
-    global _rate_limiter
-    if _rate_limiter is None:
-        raise RuntimeError("RateLimiter not initialized")
-    return _rate_limiter
-
-
-def init_rate_limiter(config) -> None:
-    """Initialize the global rate limiter."""
-    global _rate_limiter
-    _rate_limiter = RateLimiter(
-        max_per_user=config.rate_limit_config["max_per_user"],
-        cooldown=config.rate_limit_config["cooldown_seconds"],
-        max_global=config.rate_limit_config["max_concurrent_global"],
-        max_file_size_mb=config.rate_limit_config["max_file_size_mb"]
-    )

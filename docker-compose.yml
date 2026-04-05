@@ -2,9 +2,12 @@ services:
   bot:
     build: .
     container_name: telegram-audio-bot
+    init: true
     env_file:
       - .env
     volumes:
       - ./audio_files:/app/audio_files
-      - ./authorized.json:/app/authorized.json
+      - ./authorized.json:/app/authorized.json:ro
     restart: always
+    security_opt:
+      - no-new-privileges:true
