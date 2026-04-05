@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 from bot import constants as c
 from bot.decorators.timeout import execute_with_timeout
-from bot.exceptions import ConvertError, DownloadError, DownloadTimeout
+from bot.exceptions import ConvertError, DownloadError, DownloadTimeout, ProviderCircuitOpen, TranscribeError
 from bot.handlers.audio import AudioProcessor, _elapsed_ms
 
 
@@ -95,3 +95,28 @@ async def test_openai_provider_failure_logging_uses_safe_metadata(monkeypatch):
         await provider.transcribe_audio(__file__)
 
     assert logger_mock.error.called
+
+
+@pytest.mark.asyncio
+async def test_resilient_provider_opens_circuit_after_threshold():
+    from bot.providers import ResilientProvider
+
+    class FailingProvider:
+        model_name = "test"
+
+        async def transcribe_audio(self, file_path: str) -> str:
+            raise TranscribeError("boom", c.MSG_ERROR_TRANSCRIBE)
+
+        async def refine_text(self, raw_text: str) -> str:
+            return raw_text
+
+    provider = ResilientProvider(FailingProvider(), provider_name="openai", failure_threshold=2, cooldown_seconds=60)
+
+    with pytest.raises(TranscribeError):
+        await provider.transcribe_audio("a")
+    with pytest.raises(TranscribeError):
+        await provider.transcribe_audio("a")
+    with pytest.raises(ProviderCircuitOpen) as exc_info:
+        await provider.transcribe_audio("a")
+
+    assert exc_info.value.user_message == c.MSG_PROVIDER_TEMPORARILY_UNAVAILABLE

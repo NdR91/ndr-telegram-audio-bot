@@ -77,3 +77,7 @@ class TranscribeError(AudioPipelineStageError):
 
 class RefineError(AudioPipelineStageError):
     """Raised when refinement fails."""
+
+
+class ProviderCircuitOpen(AudioPipelineStageError):
+    """Raised when the provider circuit breaker is open."""

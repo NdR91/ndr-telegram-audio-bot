@@ -1,17 +1,13 @@
-"""
-Administrative command handlers for whitelist management.
-"""
+"""Administrative command handlers for whitelist management."""
 
-import json
-import os
 import logging
 import asyncio
-import tempfile
 from typing import Optional
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from bot.auth_store import SQLiteWhitelistStore
 from bot.decorators.auth import admin_only
 from bot import constants as c
 
@@ -39,8 +35,9 @@ class WhitelistManager:
             config: Bot configuration object
         """
         self.config = config
-        self.authorized_data = config.authorized_data
-        self.authorized_file = config.authorized_file
+        self.store = SQLiteWhitelistStore(config.authorized_db)
+        self.authorized_data = self.store.bootstrap_if_empty(config.authorized_data)
+        self.config.authorized_data = self.authorized_data
         self._lock = asyncio.Lock()
     
     def parse_user_id(self, args) -> Optional[int]:
@@ -106,30 +103,11 @@ class WhitelistManager:
         return True, f"Removed {target_id} from {target_type}"
     
     def save_changes(self) -> None:
-        """Save whitelist changes to file atomically."""
-        directory = os.path.dirname(os.path.abspath(self.authorized_file)) or '.'
-        temp_path = None
-
+        """Save whitelist changes to SQLite."""
         try:
-            with tempfile.NamedTemporaryFile(
-                'w',
-                dir=directory,
-                delete=False,
-                encoding='utf-8'
-            ) as f:
-                temp_path = f.name
-                json.dump(self.authorized_data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-
-            os.replace(temp_path, self.authorized_file)
+            self.store.replace_authorized_data(self.authorized_data)
             logger.info("Whitelist changes saved successfully")
         except Exception as e:
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except OSError:
-                    logger.warning(f"Failed to remove temporary whitelist file: {temp_path}")
             logger.error(f"Failed to save whitelist changes: {e}")
             raise RuntimeError("Failed to save changes")
 

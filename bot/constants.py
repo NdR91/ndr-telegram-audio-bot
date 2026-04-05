@@ -51,6 +51,7 @@ MSG_ERROR_DOWNLOAD = "❌ Errore nel download audio"
 MSG_ERROR_CONVERT = "❌ Errore conversione MP3"
 MSG_ERROR_TRANSCRIBE = "❌ Errore trascrizione audio"
 MSG_ERROR_REFINE = "❌ Errore rielaborazione testo"
+MSG_PROVIDER_TEMPORARILY_UNAVAILABLE = "⏳ Il provider AI è temporaneamente non disponibile. Riprova tra poco."
 
 # Progress configuration
 PROGRESS_STAGES = [
@@ -109,6 +110,12 @@ RATE_LIMIT_DEFAULTS = {
     "queue_enabled": 1,
     "max_queue_size": 10,
     "max_queued_per_user": 1,
+}
+
+PROVIDER_RESILIENCE_DEFAULTS = {
+    "enabled": 1,
+    "failure_threshold": 3,
+    "cooldown_seconds": 60,
 }
 
 # Configuration

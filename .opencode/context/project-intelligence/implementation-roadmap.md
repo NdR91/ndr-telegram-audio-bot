@@ -1,4 +1,4 @@
-<!-- Context: project-intelligence/implementation-roadmap | Priority: high | Version: 2.2 | Updated: 2026-04-05 -->
+<!-- Context: project-intelligence/implementation-roadmap | Priority: high | Version: 2.4 | Updated: 2026-04-05 -->
 
 # Implementation Roadmap
 
@@ -27,8 +27,8 @@
 | P2-3 | P2 | Improve Docker/runtime hardening | Done | Added non-root container, .dockerignore, read-only auth mount, and runtime docs |
 | P2-4 | P2 | Add operational observability | Done | Added stage timings, pipeline summaries, and provider failure metadata logs |
 | P3-1 | P3 | Evaluate queue beyond global concurrency limit | Done | Added bounded FIFO queue with per-user queue caps and config toggles |
-| P3-2 | P3 | Evaluate stronger whitelist persistence | Deferred | Consider SQLite if complexity grows |
-| P3-3 | P3 | Add provider resilience/circuit breaker | Deferred | Future reliability enhancement |
+| P3-2 | P3 | Evaluate stronger whitelist persistence | Done | Replaced mutable JSON persistence with SQLite bootstrap + runtime store |
+| P3-3 | P3 | Add provider resilience/circuit breaker | Done | Added configurable circuit breaker wrapper with failure threshold and cooldown |
 
 ## Work Packages
 

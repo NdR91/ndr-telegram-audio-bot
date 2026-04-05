@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 🚀 v20260405 - Production Hardening, Queueing & Resilience
+
 ### Bug Fixes
 - **Provider default model fallback** (`bot/utils.py`)
   - *Issue*: `create_provider()` passed `config.model_name` even when unset, overriding provider constructor defaults with `None`.
@@ -62,6 +64,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - *Issue*: Requests beyond the global concurrency limit were rejected immediately, creating unnecessary retry churn for users.
   - *Fix*: Added an optional FIFO queue with bounded size and per-user queue caps; queued requests now wait for the next available global slot instead of being dropped immediately.
   - *Impact*: Better UX under load while preserving per-user concurrency protection and queue safety bounds.
+
+- **Whitelist persistence moved to SQLite** (`bot/auth_store.py`, `bot/handlers/admin.py`, `bot/decorators/auth.py`, `bot/config.py`)
+  - *Issue*: `authorized.json` was fragile as the live persistence layer and conflicted with hardened read-only Docker mounts.
+  - *Fix*: Added a SQLite-backed whitelist store, using `authorized.json` only as bootstrap input; admin changes now persist to `AUTHORIZED_DB`.
+  - *Impact*: More robust persistence, safer container semantics, and cleaner separation between bootstrap config and mutable runtime state.
+
+- **Provider circuit breaker added** (`bot/providers.py`, `bot/utils.py`, `bot/config.py`, `bot/exceptions.py`)
+  - *Issue*: Repeated provider failures could keep hammering an unhealthy upstream and produce noisy repeated failures for users.
+  - *Fix*: Added an optional circuit-breaker wrapper with failure threshold and cooldown settings; when open, it fails fast with a user-safe message.
+  - *Impact*: Better resilience during provider incidents and less wasted upstream traffic.
 
 ## 🚀 v20250126 - Hardening & Operational Safety
 

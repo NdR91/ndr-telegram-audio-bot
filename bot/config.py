@@ -35,8 +35,10 @@ class Config:
         self.api_keys = self._validate_api_keys()
         self.model_name = self._get_model_name()
         self.authorized_file = self._validate_authorized_file_path()
+        self.authorized_db = self._get_authorized_db_path()
         self.audio_dir = self._validate_audio_dir()
         self.rate_limit_config = self._load_rate_limit_config()
+        self.provider_resilience_config = self._load_provider_resilience_config()
         self.prompts = self._load_prompts()
         self.authorized_data = self._load_authorized_data()
         self._validate_ffmpeg()
@@ -107,6 +109,10 @@ class Config:
             )
         
         return file_path
+
+    def _get_authorized_db_path(self) -> str:
+        """Get SQLite path for persistent authorization storage."""
+        return os.getenv('AUTHORIZED_DB', os.path.join('audio_files', 'authorized.sqlite3'))
     
     def _validate_audio_dir(self) -> str:
         """Validate audio directory exists or can be created."""
@@ -142,6 +148,17 @@ class Config:
             "queue_enabled": os.getenv('RATE_LIMIT_QUEUE_ENABLED', str(defaults["queue_enabled"])).strip().lower() not in {'0', 'false', 'no'},
             "max_queue_size": int(os.getenv('RATE_LIMIT_QUEUE_SIZE', str(defaults["max_queue_size"]))),
             "max_queued_per_user": int(os.getenv('RATE_LIMIT_QUEUE_PER_USER', str(defaults["max_queued_per_user"]))),
+        }
+
+    def _load_provider_resilience_config(self) -> Dict[str, int | bool]:
+        """Load provider resilience config from env or defaults."""
+        from bot import constants as c
+        defaults = c.PROVIDER_RESILIENCE_DEFAULTS
+
+        return {
+            "enabled": os.getenv('PROVIDER_RESILIENCE_ENABLED', str(defaults["enabled"])).strip().lower() not in {'0', 'false', 'no'},
+            "failure_threshold": int(os.getenv('PROVIDER_RESILIENCE_THRESHOLD', str(defaults["failure_threshold"]))),
+            "cooldown_seconds": int(os.getenv('PROVIDER_RESILIENCE_COOLDOWN', str(defaults["cooldown_seconds"]))),
         }
     
     def _load_prompts(self) -> Dict[str, str]:

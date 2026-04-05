@@ -33,11 +33,13 @@ def restricted(func: Callable) -> Callable:
         
         # Get config from bot_data (injected in create_application)
         config = context.bot_data['config']
+        whitelist_manager = context.bot_data.get('whitelist_manager')
+        authorized_data = whitelist_manager.authorized_data if whitelist_manager else config.authorized_data
         
         # Check authorization
-        if (user_id in config.authorized_data.get('admin', []) or
-            user_id in config.authorized_data.get('users', []) or
-            chat_id in config.authorized_data.get('groups', [])):
+        if (user_id in authorized_data.get('admin', []) or
+            user_id in authorized_data.get('users', []) or
+            chat_id in authorized_data.get('groups', [])):
             return await func(update, context, *args, **kwargs)
         
         # User not authorized
@@ -67,9 +69,11 @@ def admin_only(func: Callable) -> Callable:
         
         # Get config from bot_data
         config = context.bot_data['config']
+        whitelist_manager = context.bot_data.get('whitelist_manager')
+        authorized_data = whitelist_manager.authorized_data if whitelist_manager else config.authorized_data
         
         # Check admin authorization
-        if user_id in config.authorized_data.get('admin', []):
+        if user_id in authorized_data.get('admin', []):
             return await func(update, context, *args, **kwargs)
         
         # User not authorized as admin

@@ -1,4 +1,4 @@
-<!-- Context: project-intelligence/notes | Priority: high | Version: 2.3 | Updated: 2026-04-05 -->
+<!-- Context: project-intelligence/notes | Priority: high | Version: 2.5 | Updated: 2026-04-05 -->
 
 # Living Notes
 
@@ -115,6 +115,16 @@
 - **Resolved**: 2026-04-05
 - **Resolution**: Added a bounded FIFO queue for requests that arrive while all global processing slots are busy, with per-user queue caps and config toggles.
 - **Learnings**: Queueing improves UX under load, but it needs explicit size limits and handoff rules to avoid turning overload into unbounded latency.
+
+### Resolved: SQLite whitelist persistence
+- **Resolved**: 2026-04-05
+- **Resolution**: Migrated mutable whitelist persistence from `authorized.json` to SQLite, keeping the JSON file only as bootstrap input and storing runtime changes in `AUTHORIZED_DB`.
+- **Learnings**: Read-only bootstrap config plus writable runtime state is a cleaner ops model than trying to mutate a mounted JSON file in place.
+
+### Resolved: Provider circuit breaker
+- **Resolved**: 2026-04-05
+- **Resolution**: Added a configurable circuit-breaker wrapper around the provider layer so repeated failures open the circuit temporarily and fail fast with a safe user-facing message.
+- **Learnings**: A small circuit breaker adds meaningful resilience without invasive retry logic, as long as thresholds and cooldowns are configurable.
 
 ## Related Files
 

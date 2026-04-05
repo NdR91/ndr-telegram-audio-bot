@@ -50,6 +50,7 @@ The easiest way to run the bot is using Docker Compose.
 3. **Configure permissions**:
    Create an `authorized.json` file (see [Configuration](#-configuration) below).
    Docker Compose mounts this file at runtime; it is not baked into the image.
+   On first startup, the bot bootstraps a persistent SQLite whitelist database from this file.
 
 4. **Start the bot**:
    ```bash
@@ -119,6 +120,14 @@ Customize request limits to manage server load and prevent abuse.
     RATE_LIMIT_QUEUE_PER_USER=1    # Max queued requests per user
     ```
 
+**Provider Resilience (Optional):**
+Temporary circuit-breaker protection for provider outages.
+```bash
+PROVIDER_RESILIENCE_ENABLED=1
+PROVIDER_RESILIENCE_THRESHOLD=3
+PROVIDER_RESILIENCE_COOLDOWN=60
+```
+
 **Audio Cleanup (Optional):**
 Cleanup dei file temporanei in `AUDIO_DIR` all'avvio (default ON).
 ```bash
@@ -138,6 +147,7 @@ Set `1` only for temporary debugging sessions if you explicitly want full transc
 Create a file named `authorized.json` in the root directory. This controls who can use the bot.
 For Docker deployments, keep it on the host and mount it at runtime rather than copying it into the image.
 In Docker Compose, this file is mounted read-only into the container.
+Admin changes are persisted in a SQLite database (default: `audio_files/authorized.sqlite3`) after the initial bootstrap.
 
 **Note**: To find your ID, start the bot and run `/whoami`.
 
@@ -183,6 +193,7 @@ In Docker Compose, this file is mounted read-only into the container.
 - **`Il bot è occupato`**: Global rate limit reached. Wait a moment and try again.
 - **`Richiesta accodata`**: The bot accepted your audio into the waiting queue because all active slots are busy.
 - **`Attendi ancora Xs`**: Per-user rate limit reached. Wait for cooldown to expire.
+- **Provider temporarily unavailable**: The circuit breaker opened after repeated provider failures; wait for the cooldown window and retry.
 
 ## 🐳 Docker Runtime Notes
 
@@ -195,6 +206,7 @@ In Docker Compose, this file is mounted read-only into the container.
   docker-compose logs -f
   ```
 - `authorized.json` must exist on the host before startup because it is bind-mounted read-only.
+- The bot persists whitelist changes in `AUTHORIZED_DB` (default: `audio_files/authorized.sqlite3`), which stays writable via the existing `audio_files/` volume.
 - `audio_files/` remains writable because it is a bind-mounted working directory for temporary audio artifacts.
 
 ## 📦 Project Structure

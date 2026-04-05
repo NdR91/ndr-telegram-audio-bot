@@ -7,7 +7,7 @@ from typing import Iterable
 
 from bot import constants as c
 from bot.exceptions import ConvertError
-from bot.providers import OpenAIProvider, GeminiProvider, LLMProvider
+from bot.providers import OpenAIProvider, GeminiProvider, LLMProvider, ResilientProvider
 
 logger = logging.getLogger(__name__)
 
@@ -58,13 +58,23 @@ def create_provider(config) -> LLMProvider:
     if provider_name == 'openai':
         model_name = config.model_name or "gpt-4o-mini"
         logger.info(f"Initializing OpenAI Provider (model: {model_name})")
-        return OpenAIProvider(api_key, model_name, prompts)
+        provider = OpenAIProvider(api_key, model_name, prompts)
     elif provider_name == 'gemini':
         model_name = config.model_name or "gemini-2.0-flash"
         logger.info(f"Initializing Gemini Provider (model: {model_name})")
-        return GeminiProvider(api_key, model_name, prompts)
+        provider = GeminiProvider(api_key, model_name, prompts)
     else:
         raise ValueError(f"Provider sconosciuto: {provider_name}")
+
+    resilience = getattr(config, "provider_resilience_config", {})
+    if resilience.get("enabled", True):
+        return ResilientProvider(
+            provider,
+            provider_name=provider_name,
+            failure_threshold=resilience.get("failure_threshold", 3),
+            cooldown_seconds=resilience.get("cooldown_seconds", 60),
+        )
+    return provider
 
 def cleanup_audio_directory(dir_path: str) -> None:
     """

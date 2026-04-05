@@ -22,7 +22,7 @@ def test_create_provider_uses_openai_default_model(monkeypatch):
 
     provider = utils.create_provider(config)
 
-    assert isinstance(provider, DummyProvider)
+    assert provider.__class__.__name__ == "ResilientProvider"
     assert captured["api_key"] == "openai-key"
     assert captured["model_name"] == "gpt-4o-mini"
 
@@ -40,3 +40,22 @@ def test_cleanup_audio_directory_removes_only_allowed_audio_files(monkeypatch, t
 
     assert keep_file.exists()
     assert not delete_file.exists()
+
+
+def test_create_provider_wraps_provider_with_resilience(monkeypatch):
+    class DummyProvider:
+        def __init__(self, api_key, model_name, prompts):
+            self.model_name = model_name
+
+    monkeypatch.setattr(utils, "OpenAIProvider", DummyProvider)
+    config = SimpleNamespace(
+        provider_name="openai",
+        model_name=None,
+        prompts={"system": "s", "refine_template": "{raw_text}"},
+        provider_resilience_config={"enabled": True, "failure_threshold": 2, "cooldown_seconds": 30},
+        get_api_key=lambda provider: "openai-key",
+    )
+
+    provider = utils.create_provider(config)
+
+    assert provider.__class__.__name__ == "ResilientProvider"

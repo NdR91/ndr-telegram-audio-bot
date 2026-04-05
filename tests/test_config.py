@@ -33,6 +33,7 @@ def test_config_loads_defaults_and_normalizes_ids(monkeypatch, tmp_path):
     assert config.model_name is None
     assert config.authorized_data["admin"] == [123]
     assert config.authorized_data["users"] == [456]
+    assert config.authorized_db == "audio_files/authorized.sqlite3"
     assert audio_dir.exists()
 
 

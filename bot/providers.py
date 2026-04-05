@@ -2,12 +2,13 @@ import logging
 import asyncio
 from abc import ABC, abstractmethod
 import os
+import time
 import openai
 from openai import OpenAI
 import google.genai as genai
 
 from bot import constants as c
-from bot.exceptions import RefineError, RefineTimeout, TranscribeError, TranscribeTimeout
+from bot.exceptions import ProviderCircuitOpen, RefineError, RefineTimeout, TranscribeError, TranscribeTimeout
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,67 @@ class LLMProvider(ABC):
     async def refine_text(self, raw_text: str) -> str:
         """Refines the text using an LLM."""
         pass
+
+
+class ResilientProvider(LLMProvider):
+    """Circuit-breaker wrapper around an LLM provider."""
+
+    def __init__(self, provider: LLMProvider, provider_name: str, failure_threshold: int, cooldown_seconds: int):
+        self.provider = provider
+        self.provider_name = provider_name
+        self.failure_threshold = max(1, failure_threshold)
+        self.cooldown_seconds = max(1, cooldown_seconds)
+        self._failure_count = 0
+        self._opened_at = 0.0
+
+    @property
+    def model_name(self) -> str:
+        return getattr(self.provider, "model_name", "unknown")
+
+    def _check_circuit(self) -> None:
+        if self._opened_at <= 0:
+            return
+        elapsed = time.monotonic() - self._opened_at
+        if elapsed >= self.cooldown_seconds:
+            self._opened_at = 0.0
+            return
+        raise ProviderCircuitOpen(
+            f"Provider circuit open for {self.provider_name}",
+            c.MSG_PROVIDER_TEMPORARILY_UNAVAILABLE,
+        )
+
+    def _record_success(self) -> None:
+        self._failure_count = 0
+        self._opened_at = 0.0
+
+    def _record_failure(self) -> None:
+        self._failure_count += 1
+        if self._failure_count >= self.failure_threshold:
+            self._opened_at = time.monotonic()
+            logger.warning(
+                "Provider circuit opened | provider=%s failure_count=%s cooldown_seconds=%s",
+                self.provider_name,
+                self._failure_count,
+                self.cooldown_seconds,
+            )
+
+    async def _call(self, operation_name: str, operation, *args):
+        self._check_circuit()
+        try:
+            result = await operation(*args)
+        except ProviderCircuitOpen:
+            raise
+        except Exception:
+            self._record_failure()
+            raise
+        self._record_success()
+        return result
+
+    async def transcribe_audio(self, file_path: str) -> str:
+        return await self._call("transcribe", self.provider.transcribe_audio, file_path)
+
+    async def refine_text(self, raw_text: str) -> str:
+        return await self._call("refine", self.provider.refine_text, raw_text)
 
 class OpenAIProvider(LLMProvider):
     """OpenAI Implementation."""
