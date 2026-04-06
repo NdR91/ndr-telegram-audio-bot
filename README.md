@@ -15,14 +15,15 @@ An advanced Telegram bot that transcribes voice notes and audio files, processes
 
 ## ✨ Features
 
-- **Multi-Provider LLM**: Native support for **OpenAI** (Whisper + GPT) and **Google Gemini** (multimodal).
-- **Audio Transcription**: Supports Telegram voice notes and audio files (mp3, ogg, wav, etc.) via FFmpeg.
-- **Smart Refinement**: Corrects errors, adds punctuation, and formats transcribed text using configurable LLMs.
-- **Long Message Handling**: Automatically splits responses that exceed Telegram's 4096-character limit.
-- **Access Control**: Integrated whitelist to authorize individual users (admin/user) or specific groups.
-- **Rate Limiting**: Configurable per-user and global limits to prevent abuse and manage server load.
-- **Auto Cleanup**: Temporary audio files are deleted immediately after processing to save disk space.
-- **Configurable Prompts**: Customize bot behavior without touching the code.
+- **Multi-Provider Architecture**: Native support for **OpenAI** and **Google Gemini**, with a provider-agnostic abstraction designed to keep adding more providers over time.
+- **Audio Transcription Pipeline**: Handles Telegram voice notes and audio/document uploads, converts them with FFmpeg when needed, and cleans up temporary files automatically.
+- **Readable Text Refinement**: Corrects transcription errors, adds punctuation, and improves readability through configurable prompts and LLM-backed rewriting.
+- **True Refine Streaming**: Supports provider-level refine streaming with both **OpenAI** and **Gemini**, plus Telegram-side progressive delivery where runtime conditions allow it.
+- **Safe Telegram Delivery**: Falls back automatically when draft delivery is not available, when chats are not private, or when the output is too large for the best draft UX path.
+- **Operational Protection**: Includes per-user/global rate limiting, bounded request queueing, provider circuit breaker logic, and privacy-conscious logging defaults.
+- **Persistent Access Control**: Uses `authorized.json` as bootstrap input and persists live whitelist changes in SQLite for safer runtime management.
+- **Container-Friendly Deployment**: Dockerized runtime with non-root execution, read-only bootstrap auth file, and a hardened build context.
+- **Tested Core Logic**: Includes automated tests for configuration, rate limiting, persistence, delivery behavior, and streaming/refinement paths.
 
 ## 🚀 Getting Started
 
@@ -272,17 +273,6 @@ Admin changes are persisted in a SQLite database (default: `audio_files/authoriz
 ## 📝 Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
-
-## 🗺️ Roadmap
-
-- [x] Concurrent processing (v20260123.1)
-- [x] Rate limiting system (v20260123)
-- [x] Enhanced error handling (v20260123)
-- [x] Centralized configuration (v20260122)
-- [ ] Request queue after 6 concurrent limit
-- [ ] Multilingual support (UI + auto-detect)
-- [ ] Health checks endpoint (monitoring)
-- [ ] Circuit breaker (API failure recovery)
 
 ## 📄 License
 
