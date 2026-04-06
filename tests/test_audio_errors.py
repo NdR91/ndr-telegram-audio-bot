@@ -1,6 +1,7 @@
 import pytest
 import asyncio
 from unittest.mock import Mock
+from types import SimpleNamespace
 
 from bot import constants as c
 from bot.decorators.timeout import execute_with_timeout
@@ -120,3 +121,31 @@ async def test_resilient_provider_opens_circuit_after_threshold():
         await provider.transcribe_audio("a")
 
     assert exc_info.value.user_message == c.MSG_PROVIDER_TEMPORARILY_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+async def test_gemini_remote_cleanup_uses_keyword_name(monkeypatch):
+    from bot import providers
+
+    deleted = []
+
+    class DummyFiles:
+        def upload(self, file):
+            return SimpleNamespace(name="remote-file", state="ACTIVE")
+
+        def delete(self, *, name):
+            deleted.append(name)
+
+    class DummyModels:
+        def generate_content(self, **kwargs):
+            return SimpleNamespace(text="transcribed text")
+
+    provider = providers.GeminiProvider.__new__(providers.GeminiProvider)
+    provider.client = SimpleNamespace(files=DummyFiles(), models=DummyModels())
+    provider.model_name = "gemini-test"
+    provider.prompts = {"system": "s", "refine_template": "{raw_text}"}
+
+    result = await provider.transcribe_audio(__file__)
+
+    assert result == "transcribed text"
+    assert deleted == ["remote-file"]

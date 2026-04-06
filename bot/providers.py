@@ -266,7 +266,7 @@ class GeminiProvider(LLMProvider):
             if audio_file:
                 try:
                     await asyncio.wait_for(
-                        asyncio.to_thread(self.client.files.delete, audio_file.name),
+                        asyncio.to_thread(self.client.files.delete, name=audio_file.name),
                         timeout=cleanup_timeout,
                     )
                     logger.debug(f"Remote file {audio_file.name} deleted successfully")

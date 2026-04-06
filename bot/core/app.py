@@ -14,6 +14,7 @@ from bot.handlers.commands import start, whoami, help_command
 from bot.handlers.admin import WhitelistManager, adduser, removeuser, addgroup, removegroup
 from bot.handlers.audio import AudioProcessor, handle_audio
 from bot.rate_limiter import RateLimiter
+from bot.ui.streaming import TelegramDeliveryAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,9 @@ def create_application(token: str, config) -> Application:
     app.bot_data['config'] = config
     app.bot_data['whitelist_manager'] = WhitelistManager(config)
     app.bot_data['audio_processor'] = AudioProcessor(config)
+    app.bot_data['delivery_adapter'] = TelegramDeliveryAdapter(
+        progressive_enabled=config.telegram_progressive_output_config["enabled"],
+    )
     app.bot_data['rate_limiter'] = RateLimiter(
         max_per_user=config.rate_limit_config["max_per_user"],
         cooldown=config.rate_limit_config["cooldown_seconds"],

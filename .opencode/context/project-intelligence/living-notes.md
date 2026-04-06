@@ -1,4 +1,4 @@
-<!-- Context: project-intelligence/notes | Priority: high | Version: 2.5 | Updated: 2026-04-05 -->
+<!-- Context: project-intelligence/notes | Priority: high | Version: 2.7 | Updated: 2026-04-05 -->
 
 # Living Notes
 
@@ -8,7 +8,7 @@
 
 - **Purpose**: Capture current state, problems, and open questions
 - **Update**: When roadmap status changes or new risks are discovered
-- **Delivery Plan**: See `implementation-roadmap.md`
+- **Delivery Plan**: See `implementation-roadmap.md` and `telegram-progressive-output-roadmap.md`
 
 ## Current State
 
@@ -26,8 +26,7 @@
 
 | Question | Stakeholders | Status | Next Action |
 |----------|--------------|--------|-------------|
-| What is the safest upgrade path from PTB 20.x to 22.7+ for draft streaming? | Maintainer | Open | Review PTB breaking changes before implementation |
-| Should whitelist storage stay JSON or move to SQLite later? | Maintainer | Open | Reassess after admin/concurrency fixes |
+| How should progressive output coexist with the current progress-message UX? | Maintainer | Open | Design TG-2 adapter boundary before implementation |
 
 ## Known Issues
 
@@ -52,7 +51,7 @@
 | Project | Goal | Owner | Timeline |
 |---------|------|-------|----------|
 | Core hardening | Close P0 safety/correctness gaps | Maintainer + agents | Next working sessions |
-| Progressive Telegram UX | Evaluate and adopt `sendMessageDraft` safely | Maintainer + agents | After hardening |
+| Progressive Telegram UX | Implement `sendMessageDraft` path with adapter and fallback | Maintainer + agents | Next feature project |
 
 ## Archive (Resolved Items)
 
@@ -129,5 +128,6 @@
 ## Related Files
 
 - `implementation-roadmap.md` - Persistent roadmap and fix status
+- `telegram-progressive-output-roadmap.md` - Dedicated roadmap for future Telegram streaming work
 - `decisions-log.md` - Past decisions that inform current state
 - `technical-domain.md` - Technical context for current state

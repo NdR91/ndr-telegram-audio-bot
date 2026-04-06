@@ -19,6 +19,7 @@ def test_config_loads_defaults_and_normalizes_ids(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_KEY", "key")
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("TELEGRAM_DRAFT_STREAMING", raising=False)
     monkeypatch.setenv("AUTHORIZED_FILE", str(authorized_file))
     monkeypatch.setenv("AUDIO_DIR", str(audio_dir))
     monkeypatch.setattr(
@@ -34,6 +35,7 @@ def test_config_loads_defaults_and_normalizes_ids(monkeypatch, tmp_path):
     assert config.authorized_data["admin"] == [123]
     assert config.authorized_data["users"] == [456]
     assert config.authorized_db == "audio_files/authorized.sqlite3"
+    assert config.telegram_progressive_output_config["enabled"] is False
     assert audio_dir.exists()
 
 

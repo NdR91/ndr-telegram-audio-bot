@@ -53,6 +53,13 @@ def get_audio_processor(context: ContextTypes.DEFAULT_TYPE) -> "AudioProcessor":
     return processor
 
 
+def get_delivery_adapter(context: ContextTypes.DEFAULT_TYPE):
+    adapter = context.bot_data.get('delivery_adapter')
+    if adapter is None:
+        raise RuntimeError("TelegramDeliveryAdapter not initialized")
+    return adapter
+
+
 class AudioProcessor:
     """
     Handles audio file processing pipeline.
@@ -155,22 +162,8 @@ class AudioProcessor:
     async def send_response(self, context: ContextTypes.DEFAULT_TYPE, 
                           chat_id: int, ack_msg, full_text: str) -> None:
         """Send response, handling message length limits."""
-        if len(full_text) <= c.MAX_MESSAGE_LENGTH:
-            await ack_msg.edit_text(full_text)
-        else:
-            # Split into chunks
-            chunks = [full_text[i:i+c.MAX_MESSAGE_LENGTH] 
-                     for i in range(0, len(full_text), c.MAX_MESSAGE_LENGTH)]
-            
-            # Edit original message with first chunk
-            await ack_msg.edit_text(chunks[0])
-            
-            # Send remaining chunks as new messages
-            for chunk in chunks[1:]:
-                await context.bot.send_message(
-                    chat_id=chat_id, 
-                    text=chunk
-                )
+        delivery_adapter = get_delivery_adapter(context)
+        await delivery_adapter.send_final_response(context, chat_id, ack_msg, full_text)
     
     def cleanup_files(self, ogg_path: str, mp3_path: str) -> None:
         """Clean up temporary audio files."""

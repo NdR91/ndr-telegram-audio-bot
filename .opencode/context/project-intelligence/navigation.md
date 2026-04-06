@@ -1,4 +1,4 @@
-<!-- Context: project-intelligence/nav | Priority: high | Version: 1.1 | Updated: 2026-04-05 -->
+<!-- Context: project-intelligence/nav | Priority: high | Version: 1.2 | Updated: 2026-04-05 -->
 
 # Project Intelligence
 
@@ -14,7 +14,8 @@
 ├── business-tech-bridge.md    # How business needs map to solutions
 ├── decisions-log.md           # Major decisions with rationale
 ├── living-notes.md            # Active issues, debt, open questions
-└── implementation-roadmap.md  # Persistent roadmap and delivery status
+├── implementation-roadmap.md  # Persistent roadmap and delivery status
+└── telegram-progressive-output-roadmap.md  # Future streaming feature roadmap
 ```
 
 ## Quick Routes
@@ -27,6 +28,7 @@
 | Know the context | `decisions-log.md` | Why decisions were made |
 | Current state | `living-notes.md` | Active issues and open questions |
 | Delivery plan | `implementation-roadmap.md` | Persistent roadmap, priorities, status |
+| Streaming feature plan | `telegram-progressive-output-roadmap.md` | Progressive output implementation roadmap |
 | All of the above | Read all files in order | Full project intelligence |
 
 ## Usage
@@ -41,6 +43,7 @@
 - Technical focus → `technical-domain.md`
 - Decision context → `decisions-log.md`
 - Delivery status → `implementation-roadmap.md`
+- Streaming roadmap → `telegram-progressive-output-roadmap.md`
 
 ## Maintenance
 

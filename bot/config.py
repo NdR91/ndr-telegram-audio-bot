@@ -39,6 +39,7 @@ class Config:
         self.audio_dir = self._validate_audio_dir()
         self.rate_limit_config = self._load_rate_limit_config()
         self.provider_resilience_config = self._load_provider_resilience_config()
+        self.telegram_progressive_output_config = self._load_telegram_progressive_output_config()
         self.prompts = self._load_prompts()
         self.authorized_data = self._load_authorized_data()
         self._validate_ffmpeg()
@@ -159,6 +160,15 @@ class Config:
             "enabled": os.getenv('PROVIDER_RESILIENCE_ENABLED', str(defaults["enabled"])).strip().lower() not in {'0', 'false', 'no'},
             "failure_threshold": int(os.getenv('PROVIDER_RESILIENCE_THRESHOLD', str(defaults["failure_threshold"]))),
             "cooldown_seconds": int(os.getenv('PROVIDER_RESILIENCE_COOLDOWN', str(defaults["cooldown_seconds"]))),
+        }
+
+    def _load_telegram_progressive_output_config(self) -> Dict[str, bool]:
+        """Load Telegram progressive output feature flags."""
+        from bot import constants as c
+        defaults = c.TELEGRAM_PROGRESSIVE_OUTPUT_DEFAULTS
+
+        return {
+            "enabled": os.getenv('TELEGRAM_DRAFT_STREAMING', str(defaults["enabled"])).strip().lower() not in {'0', 'false', 'no'},
         }
     
     def _load_prompts(self) -> Dict[str, str]:

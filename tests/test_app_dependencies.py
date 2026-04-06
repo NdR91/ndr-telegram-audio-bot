@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from bot.handlers.admin import get_whitelist_manager
-from bot.handlers.audio import AudioProcessor, get_audio_processor
+from bot.handlers.audio import AudioProcessor, get_audio_processor, get_delivery_adapter
 
 
 def test_get_audio_processor_reads_from_bot_data():
@@ -25,3 +25,10 @@ def test_get_audio_processor_raises_when_missing():
 
     with pytest.raises(RuntimeError):
         get_audio_processor(context)
+
+
+def test_get_delivery_adapter_reads_from_bot_data():
+    adapter = object()
+    context = SimpleNamespace(bot_data={"delivery_adapter": adapter})
+
+    assert get_delivery_adapter(context) is adapter

@@ -75,6 +75,7 @@ The easiest way to run the bot is using Docker Compose.
    source venv/bin/activate
    pip install -r requirements.txt
    ```
+   The pinned PTB dependency includes the `job-queue` extra, so scheduled maintenance jobs work without extra manual installs.
 
 3. **Configuration**:
    Copy `.env.example` to `.env` and configure your keys. Create `authorized.json`.
@@ -127,6 +128,18 @@ PROVIDER_RESILIENCE_ENABLED=1
 PROVIDER_RESILIENCE_THRESHOLD=3
 PROVIDER_RESILIENCE_COOLDOWN=60
 ```
+
+**Telegram Draft Streaming (Optional):**
+Kill switch for the future progressive-output path.
+```bash
+TELEGRAM_DRAFT_STREAMING=0
+```
+When enabled, the bot can stream the **final response progressively** via Telegram drafts, but only when all of these conditions are true:
+- the chat is a **private chat**
+- Telegram draft support is available in the runtime SDK/API path
+- the final response fits in a **single Telegram message**
+
+If any of those conditions is not met, the bot automatically falls back to the classic response flow (`edit_text` + extra chunk messages when needed).
 
 **Audio Cleanup (Optional):**
 Cleanup dei file temporanei in `AUDIO_DIR` all'avvio (default ON).
@@ -194,6 +207,18 @@ Admin changes are persisted in a SQLite database (default: `audio_files/authoriz
 - **`Richiesta accodata`**: The bot accepted your audio into the waiting queue because all active slots are busy.
 - **`Attendi ancora Xs`**: Per-user rate limit reached. Wait for cooldown to expire.
 - **Provider temporarily unavailable**: The circuit breaker opened after repeated provider failures; wait for the cooldown window and retry.
+
+### Telegram Draft Streaming Behavior
+
+- The current implementation does **not** stream tokens directly from the provider.
+- It first computes the final text, then reveals that final text progressively in Telegram drafts.
+- The durable final answer is still written back as a normal message at the end.
+- Long responses still use the classic multi-message split flow.
+- Recommended rollout:
+  1. keep `TELEGRAM_DRAFT_STREAMING=0`
+  2. deploy and verify normal behavior
+  3. enable the flag only for private-chat testing
+  4. monitor logs and UX before broader use
 
 ## 🐳 Docker Runtime Notes
 

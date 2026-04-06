@@ -118,5 +118,9 @@ PROVIDER_RESILIENCE_DEFAULTS = {
     "cooldown_seconds": 60,
 }
 
+TELEGRAM_PROGRESSIVE_OUTPUT_DEFAULTS = {
+    "enabled": 0,
+}
+
 # Configuration
 MAX_MESSAGE_LENGTH = 4000

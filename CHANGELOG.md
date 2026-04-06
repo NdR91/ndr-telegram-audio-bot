@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Technical Improvements
+- **PTB upgraded for future draft streaming support** (`requirements.txt`, `README.md`)
+  - *Issue*: The repository was pinned to PTB 20.x, which does not expose `send_message_draft()` and did not include the `job-queue` extra by default.
+  - *Fix*: Upgraded to `python-telegram-bot[job-queue]~=22.7` and documented the bundled job-queue support.
+  - *Impact*: Removes the runtime JobQueue warning and prepares the codebase for Telegram draft streaming implementation.
+
+- **Telegram delivery adapter introduced** (`bot/ui/streaming.py`, `bot/core/app.py`, `bot/handlers/audio.py`)
+  - *Issue*: Final response delivery was embedded directly in the audio handler, leaving no clean boundary for future `sendMessageDraft` support.
+  - *Fix*: Added an application-scoped delivery adapter that centralizes final response delivery and draft capability checks while preserving current fallback behavior.
+  - *Impact*: Streaming work can now evolve behind a dedicated adapter instead of being spread across the audio pipeline.
+
+- **Draft streaming feature flag added** (`bot/config.py`, `bot/ui/streaming.py`, `.env.example`, `README.md`)
+  - *Issue*: The new progressive-output path needs a safe rollout and fast kill-switch before it is enabled in production.
+  - *Fix*: Added `TELEGRAM_DRAFT_STREAMING` as an explicit feature flag, defaulting to off.
+  - *Impact*: Future streaming rollout can be enabled deliberately and disabled quickly if needed.
+
+- **Progressive final-text delivery added** (`bot/ui/streaming.py`)
+  - *Issue*: The adapter existed, but final responses still used only the classic edit/send fallback path.
+  - *Fix*: When the feature flag is enabled, the bot supports drafts, the chat is private, and the response fits a single message, the adapter now streams cumulative draft updates before finalizing the durable message.
+  - *Impact*: First usable progressive Telegram UX is available with a safe fallback for all unsupported cases.
+
+- **Streaming integration refined and expanded test coverage** (`bot/ui/streaming.py`, `tests/test_streaming.py`)
+  - *Issue*: The first draft-streaming pass still needed clearer behavioral guarantees around long messages, final ack replacement, and multi-update draft flows.
+  - *Fix*: Documented the adapter's final-message replacement behavior, kept long texts on the fallback path, and expanded tests for realistic draft/fallback cases.
+  - *Impact*: Safer integration between the current progress UI and the new progressive-output path.
+
+- **Streaming rollout/operator docs finalized** (`README.md`, `.env.example`, streaming roadmap)
+  - *Issue*: The streaming implementation needed explicit documentation about what is already supported versus what is deferred.
+  - *Fix*: Documented the private-chat/single-message constraints, fallback behavior, rollout guidance, and clarified that current streaming is progressive final-text delivery rather than provider token streaming.
+  - *Impact*: Clearer operational expectations and easier rollout/testing.
+
 ## 🚀 v20260405 - Production Hardening, Queueing & Resilience
 
 ### Bug Fixes
