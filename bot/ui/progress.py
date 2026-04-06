@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 _progress_cache: Dict[str, str] = {}
 
 
+def remember_progress_message(chat_id: int, message_id: int, status_text: str) -> None:
+    """Seed the progress cache with the initial message content."""
+    cache_key = f"{chat_id}:{message_id}"
+    _progress_cache[cache_key] = status_text
+
+
 async def update_progress(context: ContextTypes.DEFAULT_TYPE, 
                          chat_id: int, 
                          message_id: int, 

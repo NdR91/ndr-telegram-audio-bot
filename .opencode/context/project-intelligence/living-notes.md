@@ -1,4 +1,4 @@
-<!-- Context: project-intelligence/notes | Priority: high | Version: 2.7 | Updated: 2026-04-05 -->
+<!-- Context: project-intelligence/notes | Priority: high | Version: 2.8 | Updated: 2026-04-06 -->
 
 # Living Notes
 
@@ -8,7 +8,7 @@
 
 - **Purpose**: Capture current state, problems, and open questions
 - **Update**: When roadmap status changes or new risks are discovered
-- **Delivery Plan**: See `implementation-roadmap.md` and `telegram-progressive-output-roadmap.md`
+- **Delivery Plan**: See `implementation-roadmap.md`, `telegram-progressive-output-roadmap.md`, and `refine-streaming-roadmap.md`
 
 ## Current State
 
@@ -26,7 +26,7 @@
 
 | Question | Stakeholders | Status | Next Action |
 |----------|--------------|--------|-------------|
-| How should progressive output coexist with the current progress-message UX? | Maintainer | Open | Design TG-2 adapter boundary before implementation |
+| How should true refine streaming remain provider-agnostic while OpenAI is likely implemented first? | Maintainer | Open | Follow the provider-capability model in `refine-streaming-roadmap.md` |
 
 ## Known Issues
 
@@ -51,7 +51,8 @@
 | Project | Goal | Owner | Timeline |
 |---------|------|-------|----------|
 | Core hardening | Close P0 safety/correctness gaps | Maintainer + agents | Next working sessions |
-| Progressive Telegram UX | Implement `sendMessageDraft` path with adapter and fallback | Maintainer + agents | Next feature project |
+| Progressive Telegram UX | Stabilize and maintain current draft-based delivery | Maintainer + agents | Active |
+| True refine streaming | Add provider-level refine streaming without becoming OpenAI-only | Maintainer + agents | Future feature project |
 
 ## Archive (Resolved Items)
 
@@ -129,5 +130,6 @@
 
 - `implementation-roadmap.md` - Persistent roadmap and fix status
 - `telegram-progressive-output-roadmap.md` - Dedicated roadmap for future Telegram streaming work
+- `refine-streaming-roadmap.md` - Dedicated roadmap for true provider-level refine streaming
 - `decisions-log.md` - Past decisions that inform current state
 - `technical-domain.md` - Technical context for current state

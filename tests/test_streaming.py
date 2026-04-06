@@ -216,3 +216,89 @@ async def test_send_message_draft_returns_false_when_unavailable():
     result = await adapter.send_message_draft(context, chat_id=1, draft_id=1, text="hello")
 
     assert result is False
+
+
+def test_start_progressive_response_uses_drafts_when_supported():
+    adapter = TelegramDeliveryAdapter(progressive_enabled=True)
+    ack = SimpleNamespace(message_id=77, chat=SimpleNamespace(type="private"))
+    context = SimpleNamespace(bot=SimpleNamespace(send_message_draft=lambda **kwargs: True))
+
+    session = adapter.start_progressive_response(context, chat_id=1, ack_msg=ack)
+
+    assert session.use_drafts is True
+    assert session.draft_id == 77
+
+
+@pytest.mark.asyncio
+async def test_push_progressive_delta_marks_overflow_and_stops_drafts():
+    adapter = TelegramDeliveryAdapter(progressive_enabled=True)
+    draft_calls = []
+    ack = SimpleNamespace(message_id=77, chat=SimpleNamespace(type="private"))
+
+    class DummyBot:
+        async def send_message_draft(self, **kwargs):
+            draft_calls.append(kwargs)
+            return True
+
+    context = SimpleNamespace(bot=DummyBot())
+    session = adapter.start_progressive_response(context, chat_id=1, ack_msg=ack)
+
+    await adapter.push_progressive_delta(context, session, "a" * 4000)
+    await adapter.push_progressive_delta(context, session, "b")
+
+    assert len(draft_calls) == 1
+    assert session.overflowed is True
+
+
+@pytest.mark.asyncio
+async def test_finalize_progressive_response_falls_back_to_edit_for_non_draft_session():
+    adapter = TelegramDeliveryAdapter(progressive_enabled=False)
+    sent_messages = []
+
+    class DummyAck:
+        def __init__(self):
+            self.edited = []
+
+        async def edit_text(self, text):
+            self.edited.append(text)
+
+    class DummyBot:
+        async def send_message(self, chat_id, text):
+            sent_messages.append((chat_id, text))
+
+    ack = DummyAck()
+    session = SimpleNamespace(chat_id=1, ack_msg=ack, use_drafts=False, draft_id=None, accumulated_text="", overflowed=False)
+    context = SimpleNamespace(bot=DummyBot())
+
+    await adapter.finalize_progressive_response(context, session, "abcdefgh")
+
+    assert ack.edited == ["abcdefgh"]
+    assert sent_messages == []
+
+
+@pytest.mark.asyncio
+async def test_finalize_progressive_response_splits_long_text_for_draft_session():
+    adapter = TelegramDeliveryAdapter(progressive_enabled=True)
+    sent_messages = []
+
+    class DummyAck:
+        def __init__(self):
+            self.deleted = 0
+
+        async def delete(self):
+            self.deleted += 1
+
+    class DummyBot:
+        async def send_message(self, chat_id, text):
+            sent_messages.append((chat_id, text))
+
+    ack = DummyAck()
+    session = SimpleNamespace(chat_id=1, ack_msg=ack, use_drafts=True, draft_id=77, accumulated_text="", overflowed=True)
+    context = SimpleNamespace(bot=DummyBot())
+
+    await adapter.finalize_progressive_response(context, session, "a" * 5000)
+
+    assert len(sent_messages) == 2
+    assert len(sent_messages[0][1]) == 4000
+    assert len(sent_messages[1][1]) == 1000
+    assert ack.deleted == 1

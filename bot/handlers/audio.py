@@ -16,7 +16,8 @@ from bot.decorators.auth import restricted
 from bot.decorators.timeout import execute_with_timeout
 from bot.decorators.rate_limit import rate_limited
 from bot.exceptions import AudioPipelineError, AudioPipelineStageError, AudioPipelineTimeout, DownloadError
-from bot.ui.progress import update_progress, get_progress_message, clear_progress_cache
+from bot.providers import RefineStreamEvent
+from bot.ui.progress import update_progress, get_progress_message, clear_progress_cache, remember_progress_message
 from bot import utils
 from bot import constants as c
 logger = logging.getLogger(__name__)
@@ -148,6 +149,30 @@ class AudioProcessor:
             "refine",
             self.provider.refine_text(raw_text)
         )
+
+    async def stream_refine_text(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        chat_id: int,
+        ack_msg,
+        raw_text: str,
+    ) -> str:
+        delivery_adapter = get_delivery_adapter(context)
+        session = delivery_adapter.start_progressive_response(context, chat_id, ack_msg)
+        final_text = ""
+
+        async for event in self.provider.stream_refine_text(raw_text):
+            if event.type == "delta":
+                await delivery_adapter.push_progressive_delta(context, session, event.text)
+            elif event.type == "done":
+                final_text = event.text
+
+        if not final_text:
+            final_text = session.accumulated_text
+
+        full_text = self.format_response(final_text)
+        await delivery_adapter.finalize_progressive_response(context, session, full_text)
+        return final_text
     
     def format_response(self, final_text: str) -> str:
         """Format final response text with header."""
@@ -190,6 +215,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     processor = get_audio_processor(context)
     user_id = message.from_user.id
     total_start_time = time.monotonic()
+    streamed_refine_delivery = False
     
     # Determine file type and get file object
     file_obj, ext = await processor.determine_file_type(message)
@@ -207,6 +233,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     total_stages = len(c.PROGRESS_STAGES)
     initial_progress = get_progress_message(c.MSG_PROGRESS_DOWNLOAD, 1, total_stages)
     ack_msg = await message.reply_text(initial_progress)
+    remember_progress_message(message.chat_id, ack_msg.message_id, initial_progress)
     
     try:
         # Stage 1: Download
@@ -242,19 +269,25 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             get_progress_message(c.MSG_PROGRESS_REFINE, 4, total_stages)
         )
         stage_start_time = time.monotonic()
-        final_text = await processor.refine_text(raw_text)
+        delivery_adapter = get_delivery_adapter(context)
+        if getattr(processor.provider, "supports_refine_streaming", False) and delivery_adapter.supports_live_refine_streaming(context, ack_msg):
+            final_text = await processor.stream_refine_text(context, message.chat_id, ack_msg, raw_text)
+            streamed_refine_delivery = True
+        else:
+            final_text = await processor.refine_text(raw_text)
         _log_stage_success(user_id, "refine", stage_start_time)
-        
-        # Final: Send response
-        await update_progress(
-            context, message.chat_id, ack_msg.message_id,
-            get_progress_message(c.MSG_PROGRESS_FINALIZING, 4, total_stages)
-        )
-        
-        full_text = processor.format_response(final_text)
-        stage_start_time = time.monotonic()
-        await processor.send_response(context, message.chat_id, ack_msg, full_text)
-        _log_stage_success(user_id, "send_response", stage_start_time)
+
+        if not streamed_refine_delivery:
+            # Final: Send response
+            await update_progress(
+                context, message.chat_id, ack_msg.message_id,
+                get_progress_message(c.MSG_PROGRESS_FINALIZING, 4, total_stages)
+            )
+
+            full_text = processor.format_response(final_text)
+            stage_start_time = time.monotonic()
+            await processor.send_response(context, message.chat_id, ack_msg, full_text)
+            _log_stage_success(user_id, "send_response", stage_start_time)
         
         _log_pipeline_summary(user_id, processor.provider_name, total_start_time, "success")
         
@@ -266,7 +299,8 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             e.__class__.__name__,
             _elapsed_ms(total_start_time),
         )
-        await ack_msg.edit_text(e.user_message)
+        if not streamed_refine_delivery:
+            await ack_msg.edit_text(e.user_message)
         _log_pipeline_summary(user_id, processor.provider_name, total_start_time, "timeout")
         
     except AudioPipelineStageError as e:
@@ -277,7 +311,8 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             e.__class__.__name__,
             _elapsed_ms(total_start_time),
         )
-        await ack_msg.edit_text(e.user_message)
+        if not streamed_refine_delivery:
+            await ack_msg.edit_text(e.user_message)
         _log_pipeline_summary(user_id, processor.provider_name, total_start_time, "stage_error")
 
     except Exception as e:
@@ -288,7 +323,8 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             e.__class__.__name__,
             _elapsed_ms(total_start_time),
         )
-        await ack_msg.edit_text(c.MSG_ERROR_INTERNAL)
+        if not streamed_refine_delivery:
+            await ack_msg.edit_text(c.MSG_ERROR_INTERNAL)
         _log_pipeline_summary(user_id, processor.provider_name, total_start_time, "unexpected_error")
         
     finally:

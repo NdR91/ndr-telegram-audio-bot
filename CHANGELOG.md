@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Technical Improvements
+- **Refine-streaming hardening and rollout docs added** (`README.md`, `.env.example`, `tests/test_audio_errors.py`, `tests/test_streaming.py`)
+  - *Issue*: The new refine streaming path still needed stronger edge-case coverage and explicit operator-facing guidance.
+  - *Fix*: Added tests for missing `done` events, draft/fallback finalization behavior, and circuit-reset semantics; documented the current multi-provider refine streaming status and rollout expectations.
+  - *Impact*: Safer production rollout and clearer operator understanding of what is live versus gated.
+
+- **Gemini refine streaming added** (`bot/providers.py`, `tests/test_audio_errors.py`)
+  - *Issue*: The refine streaming architecture remained OpenAI-first until a second provider implementation was added.
+  - *Fix*: Added Gemini refine streaming under the same `RefineStreamEvent` contract, preserving provider-agnostic orchestration and fallback behavior.
+  - *Impact*: The repository now supports true refine streaming across both current providers.
+
+- **True refine-stream orchestration added** (`bot/handlers/audio.py`, `bot/ui/streaming.py`, `tests/test_streaming.py`, `tests/test_audio_errors.py`)
+  - *Issue*: OpenAI refine streaming existed at the provider layer, but the audio pipeline and Telegram adapter still assumed precomputed final text.
+  - *Fix*: Added delta-driven refine orchestration in the audio pipeline and extended the delivery adapter with progressive-response session methods for true provider-fed streaming.
+  - *Impact*: The repository can now consume real provider refine deltas end-to-end instead of only simulating streaming from a full final result.
+
+- **OpenAI Responses API refine streaming added** (`bot/providers.py`, `tests/test_audio_errors.py`)
+  - *Issue*: The provider layer was structurally ready for refine streaming, but no real provider implementation existed yet.
+  - *Fix*: Added OpenAI refine streaming using the Responses API with normalized `RefineStreamEvent` output, timeout/error mapping, and completion handling.
+  - *Impact*: The repository now has its first true provider-level refine streaming implementation while keeping the architecture multi-provider.
+
+- **Provider-agnostic refine streaming contract introduced** (`bot/providers.py`, `tests/test_utils.py`, `tests/test_audio_errors.py`)
+  - *Issue*: Providers only exposed full-result refine methods, which blocked true provider-level streaming work.
+  - *Fix*: Added a normalized `RefineStreamEvent`, explicit refine-streaming capability signaling, and a default fallback streaming interface that preserves compatibility for non-streaming providers.
+  - *Impact*: The provider layer is now structurally ready for true refine streaming without becoming OpenAI-only.
+
 - **PTB upgraded for future draft streaming support** (`requirements.txt`, `README.md`)
   - *Issue*: The repository was pinned to PTB 20.x, which does not expose `send_message_draft()` and did not include the `job-queue` extra by default.
   - *Fix*: Upgraded to `python-telegram-bot[job-queue]~=22.7` and documented the bundled job-queue support.

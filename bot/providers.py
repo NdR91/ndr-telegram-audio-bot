@@ -1,16 +1,25 @@
 import logging
 import asyncio
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 import os
 import time
 import openai
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 import google.genai as genai
 
 from bot import constants as c
 from bot.exceptions import ProviderCircuitOpen, RefineError, RefineTimeout, TranscribeError, TranscribeTimeout
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RefineStreamEvent:
+    """Normalized provider-agnostic refine streaming event."""
+
+    type: str
+    text: str
 
 
 def _log_provider_failure(provider_name: str, operation: str, error: Exception) -> None:
@@ -41,6 +50,8 @@ def _log_text_preview(label: str, text: str | None) -> None:
 class LLMProvider(ABC):
     """Abstract Base Class for LLM Providers."""
 
+    supports_refine_streaming = False
+
     @abstractmethod
     async def transcribe_audio(self, file_path: str) -> str:
         """Transcribes an audio file to text."""
@@ -50,6 +61,16 @@ class LLMProvider(ABC):
     async def refine_text(self, raw_text: str) -> str:
         """Refines the text using an LLM."""
         pass
+
+    async def stream_refine_text(self, raw_text: str):
+        """Yield provider-agnostic refine stream events.
+
+        Default behavior is a compatibility fallback that emits the final result as a
+        single delta followed by done.
+        """
+        refined_text = await self.refine_text(raw_text)
+        yield RefineStreamEvent(type="delta", text=refined_text)
+        yield RefineStreamEvent(type="done", text=refined_text)
 
 
 class ResilientProvider(LLMProvider):
@@ -66,6 +87,10 @@ class ResilientProvider(LLMProvider):
     @property
     def model_name(self) -> str:
         return getattr(self.provider, "model_name", "unknown")
+
+    @property
+    def supports_refine_streaming(self) -> bool:
+        return getattr(self.provider, "supports_refine_streaming", False)
 
     def _check_circuit(self) -> None:
         if self._opened_at <= 0:
@@ -112,11 +137,26 @@ class ResilientProvider(LLMProvider):
     async def refine_text(self, raw_text: str) -> str:
         return await self._call("refine", self.provider.refine_text, raw_text)
 
+    async def stream_refine_text(self, raw_text: str):
+        self._check_circuit()
+        try:
+            async for event in self.provider.stream_refine_text(raw_text):
+                yield event
+        except ProviderCircuitOpen:
+            raise
+        except Exception:
+            self._record_failure()
+            raise
+        self._record_success()
+
 class OpenAIProvider(LLMProvider):
     """OpenAI Implementation."""
 
+    supports_refine_streaming = True
+
     def __init__(self, api_key: str, model_name: str = "gpt-4o-mini", prompts: dict | None = None):
         self.client = OpenAI(api_key=api_key, max_retries=0)
+        self.async_client = AsyncOpenAI(api_key=api_key, max_retries=0)
         self.model_name = model_name
         self.prompts = prompts or {
             'system': "Sei un esperto di trascrizione audio. Correggi errori automatici, aggiungi punteggiatura, mantieni il significato originale e restituisci SOLO il testo corretto senza commenti.",
@@ -186,8 +226,52 @@ class OpenAIProvider(LLMProvider):
         _log_text_preview("Refined text", out)
         return out
 
+    async def stream_refine_text(self, raw_text: str):
+        logger.info("Stream refine text with OpenAI Responses API")
+        prompt = self.prompts['refine_template'].format(raw_text=raw_text)
+        accumulated = []
+        finalized_text = None
+
+        from bot import constants as c
+
+        try:
+            client = self.async_client.with_options(
+                timeout=c.PROGRESS_TIMEOUTS.get("refine", 90),
+                max_retries=0,
+            )
+            stream = await client.responses.create(
+                model=self.model_name,
+                instructions=self.prompts['system'],
+                input=prompt,
+                stream=True,
+            )
+
+            async for event in stream:
+                if event.type == "response.output_text.delta":
+                    accumulated.append(event.delta)
+                    yield RefineStreamEvent(type="delta", text=event.delta)
+                elif event.type == "response.output_text.done":
+                    finalized_text = event.text
+                elif event.type == "error":
+                    raise RefineError("OpenAI streaming refinement failed", c.MSG_ERROR_REFINE)
+                elif event.type == "response.completed":
+                    completed_text = finalized_text if finalized_text is not None else "".join(accumulated)
+                    _log_text_preview("Refined text", completed_text)
+                    yield RefineStreamEvent(type="done", text=completed_text)
+                    return
+        except openai.APITimeoutError as e:
+            _log_provider_failure("openai", "stream_refine", e)
+            raise RefineTimeout("Timeout in refine", c.MSG_TIMEOUT_REFINE) from e
+        except RefineError:
+            raise
+        except Exception as e:
+            _log_provider_failure("openai", "stream_refine", e)
+            raise RefineError(f"OpenAI streaming refinement failed: {e}", c.MSG_ERROR_REFINE) from e
+
 class GeminiProvider(LLMProvider):
     """Google Gemini Implementation using new google-genai SDK."""
+
+    supports_refine_streaming = True
 
     def __init__(self, api_key: str, model_name: str = "gemini-2.0-flash", prompts: dict | None = None):
         self.client = genai.Client(api_key=api_key)
@@ -300,3 +384,37 @@ class GeminiProvider(LLMProvider):
         out = response.text.strip()
         _log_text_preview("Gemini Refined text", out)
         return out
+
+    async def stream_refine_text(self, raw_text: str):
+        logger.info("Stream refine text with Gemini")
+
+        from bot import constants as c
+        refine_timeout = c.PROGRESS_TIMEOUTS.get("refine", 90)
+        full_prompt = f"{self.prompts['system']}\n\n{self.prompts['refine_template'].format(raw_text=raw_text)}"
+
+        def _sync_stream():
+            return self.client.models.generate_content_stream(
+                model=self.model_name,
+                contents=full_prompt,
+            )
+
+        accumulated = []
+        try:
+            stream = await asyncio.wait_for(asyncio.to_thread(_sync_stream), timeout=refine_timeout)
+
+            for chunk in stream:
+                chunk_text = getattr(chunk, "text", None) or ""
+                if not chunk_text:
+                    continue
+                accumulated.append(chunk_text)
+                yield RefineStreamEvent(type="delta", text=chunk_text)
+
+            completed_text = "".join(accumulated).strip()
+            _log_text_preview("Gemini Refined text", completed_text)
+            yield RefineStreamEvent(type="done", text=completed_text)
+        except asyncio.TimeoutError as e:
+            _log_provider_failure("gemini", "stream_refine", e)
+            raise RefineTimeout("Timeout in refine", c.MSG_TIMEOUT_REFINE) from e
+        except Exception as e:
+            _log_provider_failure("gemini", "stream_refine", e)
+            raise RefineError(f"Google AI Streaming Refinement failed: {e}", c.MSG_ERROR_REFINE)

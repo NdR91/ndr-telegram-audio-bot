@@ -1,4 +1,4 @@
-<!-- Context: project-intelligence/nav | Priority: high | Version: 1.2 | Updated: 2026-04-05 -->
+<!-- Context: project-intelligence/nav | Priority: high | Version: 1.3 | Updated: 2026-04-06 -->
 
 # Project Intelligence
 
@@ -15,7 +15,8 @@
 ├── decisions-log.md           # Major decisions with rationale
 ├── living-notes.md            # Active issues, debt, open questions
 ├── implementation-roadmap.md  # Persistent roadmap and delivery status
-└── telegram-progressive-output-roadmap.md  # Future streaming feature roadmap
+├── telegram-progressive-output-roadmap.md  # Future streaming feature roadmap
+└── refine-streaming-roadmap.md  # True provider-level refine streaming roadmap
 ```
 
 ## Quick Routes
@@ -29,6 +30,7 @@
 | Current state | `living-notes.md` | Active issues and open questions |
 | Delivery plan | `implementation-roadmap.md` | Persistent roadmap, priorities, status |
 | Streaming feature plan | `telegram-progressive-output-roadmap.md` | Progressive output implementation roadmap |
+| True refine streaming plan | `refine-streaming-roadmap.md` | Provider-level refine streaming roadmap |
 | All of the above | Read all files in order | Full project intelligence |
 
 ## Usage
@@ -44,6 +46,7 @@
 - Decision context → `decisions-log.md`
 - Delivery status → `implementation-roadmap.md`
 - Streaming roadmap → `telegram-progressive-output-roadmap.md`
+- Refine streaming roadmap → `refine-streaming-roadmap.md`
 
 ## Maintenance
 

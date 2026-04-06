@@ -210,15 +210,28 @@ Admin changes are persisted in a SQLite database (default: `audio_files/authoriz
 
 ### Telegram Draft Streaming Behavior
 
-- The current implementation does **not** stream tokens directly from the provider.
-- It first computes the final text, then reveals that final text progressively in Telegram drafts.
+- The bot can now stream **real refine deltas from the provider** when the provider supports refine streaming.
+- The current Telegram draft UX still has delivery constraints:
+  - private chat only
+  - draft support available at runtime
+  - best experience when the output fits in a single Telegram message
 - The durable final answer is still written back as a normal message at the end.
-- Long responses still use the classic multi-message split flow.
+- Long responses still fall back to the classic multi-message split flow.
 - Recommended rollout:
   1. keep `TELEGRAM_DRAFT_STREAMING=0`
   2. deploy and verify normal behavior
   3. enable the flag only for private-chat testing
   4. monitor logs and UX before broader use
+
+### True Refine Streaming Status
+
+- The bot now supports **provider-level refine streaming**.
+- This means the refine phase can emit real text deltas from the provider instead of waiting for the final full result first.
+- Current provider status:
+  - **OpenAI**: true refine streaming available
+  - **Gemini**: true refine streaming available
+- If provider streaming is unavailable or unsuitable at runtime, the bot still falls back to the classic full-result refine flow.
+- Telegram progressive delivery remains controlled by `TELEGRAM_DRAFT_STREAMING` and still only uses draft UI where the delivery constraints are met.
 
 ## 🐳 Docker Runtime Notes
 

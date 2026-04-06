@@ -1,4 +1,4 @@
-<!-- Context: project-intelligence/decisions | Priority: high | Version: 1.2 | Updated: 2026-04-05 -->
+<!-- Context: project-intelligence/decisions | Priority: high | Version: 1.3 | Updated: 2026-04-06 -->
 
 # Decisions Log
 
@@ -93,6 +93,33 @@ This keeps the repository compatible today while defining a clean path to adopt 
 - **Positive**: Clear migration target; safer rollout; explicit fallback behavior
 - **Negative**: Requires a separate PTB upgrade effort before implementation
 - **Risk**: PTB 20→22 upgrade may touch more than message delivery code
+
+## Decision: Scope true streaming to the refine step and keep the design multi-provider
+
+**Date**: 2026-04-06
+**Status**: Decided
+**Owner**: Maintainer
+
+### Context
+The repository now supports Telegram-side progressive output, but provider methods still return full results. A 360° assessment showed that true provider-level streaming is most practical first on the refine step, and that OpenAI is likely the easiest first implementation path. The maintainer explicitly does not want to become OpenAI-only.
+
+### Decision
+Implement true streaming only for the **refine** phase first, and design it as a **provider-agnostic capability** exposed by the provider layer rather than as OpenAI-specific logic in handlers.
+
+### Rationale
+This preserves the multi-provider architecture, limits complexity compared to transcription streaming, and lets the codebase adopt OpenAI streaming first without locking the design to one vendor.
+
+### Alternatives Considered
+| Alternative | Pros | Cons | Why Rejected? |
+|-------------|------|------|---------------|
+| Stream transcription first | Higher “wow” factor | Much bigger architectural change | Too expensive now |
+| Implement OpenAI-only refine streaming in handlers | Faster initial feature | Damages provider abstraction | Wrong long-term design |
+| Keep only delivery-layer pseudo-streaming | Lowest cost | Not true provider streaming | Insufficient for the goal |
+
+### Impact
+- **Positive**: Clear TG-8 direction; preserves vendor flexibility; lower implementation risk
+- **Negative**: Requires provider-interface evolution and staged rollout
+- **Risk**: OpenAI may land first in practice, creating pressure to postpone Gemini streaming unless explicitly planned
 
 ## Related Files
 

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from bot import utils
+from bot.providers import LLMProvider, RefineStreamEvent
 
 
 def test_create_provider_uses_openai_default_model(monkeypatch):
@@ -59,3 +60,47 @@ def test_create_provider_wraps_provider_with_resilience(monkeypatch):
     provider = utils.create_provider(config)
 
     assert provider.__class__.__name__ == "ResilientProvider"
+
+
+class DummyStreamingProvider(LLMProvider):
+    supports_refine_streaming = True
+
+    async def transcribe_audio(self, file_path: str) -> str:
+        return "raw"
+
+    async def refine_text(self, raw_text: str) -> str:
+        return raw_text.upper()
+
+    async def stream_refine_text(self, raw_text: str):
+        yield RefineStreamEvent(type="delta", text="A")
+        yield RefineStreamEvent(type="done", text="AB")
+
+
+async def _collect_events(provider, raw_text: str):
+    return [event async for event in provider.stream_refine_text(raw_text)]
+
+
+def test_base_provider_fallback_stream_emits_delta_and_done():
+    class FallbackProvider(LLMProvider):
+        async def transcribe_audio(self, file_path: str) -> str:
+            return "raw"
+
+        async def refine_text(self, raw_text: str) -> str:
+            return raw_text.upper()
+
+    import asyncio
+
+    events = asyncio.run(_collect_events(FallbackProvider(), "hello"))
+
+    assert events == [
+        RefineStreamEvent(type="delta", text="HELLO"),
+        RefineStreamEvent(type="done", text="HELLO"),
+    ]
+
+
+def test_resilient_provider_exposes_streaming_capability():
+    from bot.providers import ResilientProvider
+
+    provider = ResilientProvider(DummyStreamingProvider(), provider_name="openai", failure_threshold=2, cooldown_seconds=30)
+
+    assert provider.supports_refine_streaming is True

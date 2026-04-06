@@ -1,6 +1,7 @@
 """Telegram delivery adapter for progressive-output evolution."""
 
 import asyncio
+from dataclasses import dataclass
 
 from telegram.constants import ChatType
 from telegram.ext import ContextTypes
@@ -31,6 +32,16 @@ def build_progressive_draft_updates(text: str, chunk_size: int | None = None) ->
     return progressive_updates
 
 
+@dataclass
+class ProgressiveResponseSession:
+    chat_id: int
+    ack_msg: object
+    use_drafts: bool
+    draft_id: int | None
+    accumulated_text: str = ""
+    overflowed: bool = False
+
+
 class TelegramDeliveryAdapter:
     """Encapsulates Telegram output delivery and future draft support."""
 
@@ -53,6 +64,57 @@ class TelegramDeliveryAdapter:
 
     def supports_native_drafts(self, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return self.progressive_enabled and hasattr(context.bot, "send_message_draft")
+
+    def supports_live_refine_streaming(self, context: ContextTypes.DEFAULT_TYPE, ack_msg) -> bool:
+        return (
+            self.progressive_enabled
+            and getattr(ack_msg.chat, "type", None) == ChatType.PRIVATE
+            and self.supports_native_drafts(context)
+        )
+
+    def start_progressive_response(self, context: ContextTypes.DEFAULT_TYPE, chat_id: int, ack_msg) -> ProgressiveResponseSession:
+        use_drafts = self.supports_live_refine_streaming(context, ack_msg)
+        draft_id = ack_msg.message_id if use_drafts else None
+        return ProgressiveResponseSession(chat_id=chat_id, ack_msg=ack_msg, use_drafts=use_drafts, draft_id=draft_id)
+
+    async def push_progressive_delta(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        session: ProgressiveResponseSession,
+        delta_text: str,
+    ) -> None:
+        session.accumulated_text += delta_text
+        if not session.use_drafts or session.overflowed:
+            return
+        if len(session.accumulated_text) > c.MAX_MESSAGE_LENGTH:
+            session.overflowed = True
+            return
+
+        await self.send_message_draft(
+            context,
+            chat_id=session.chat_id,
+            draft_id=session.draft_id,
+            text=session.accumulated_text,
+        )
+
+    async def finalize_progressive_response(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        session: ProgressiveResponseSession,
+        final_text: str,
+    ) -> None:
+        chunks = split_text_chunks(final_text)
+
+        if session.use_drafts:
+            await context.bot.send_message(chat_id=session.chat_id, text=chunks[0])
+            for chunk in chunks[1:]:
+                await context.bot.send_message(chat_id=session.chat_id, text=chunk)
+            await session.ack_msg.delete()
+            return
+
+        await session.ack_msg.edit_text(chunks[0])
+        for chunk in chunks[1:]:
+            await context.bot.send_message(chat_id=session.chat_id, text=chunk)
 
     async def send_message_draft(
         self,
