@@ -9,9 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added unified application database (A1) with versioned SQLite schema,
+  migration framework, and repository layer for configuration, access control,
+  provider connections, pipeline profiles, preferences, and audit events.
+- Added local secret store (A2) using Fernet authenticated encryption for
+  at-rest credential protection, with automatic master-key generation on first
+  startup and restrictive file permissions (600).
+- Provider credentials are transparently encrypted at rest and decrypted on
+  read when a SecretStore is configured on the DatabaseManager.
+- Added `bot/database/` package containing `DatabaseManager`, `SecretStore`,
+  schema definitions, and a repeatable migration system.
+- Added 61 tests (45 for A1 schema/repository, 16 for A2 secret store)
+  covering schema creation, migration idempotency, CRUD operations,
+  encrypt/decrypt round-trips, cross-instance key compatibility, and
+  transparent credential encryption in the provider repository.
+- Added `APPLICATION_DB` environment variable to configure the unified database
+  path (default: `<audio_dir>/app.sqlite3`).
+- Added `MASTER_KEY_FILE` environment variable to override the master key
+  path (default: `<audio_dir>/.master_key`).
+- Added `cryptography~=38.0` to `requirements.txt` for Fernet encryption.
+- Whitelist data from `authorized.json` is automatically imported into the
+  unified database on first startup (idempotent — empty tables only).
+- The database manager and secret store are exposed via
+  `Application.bot_data['database_manager']` and
+  `Application.bot_data['secret_store']` for use by future configuration and
+  runtime services.
 - Added least-privilege GitHub Actions CI for Python 3.10, 3.11, and 3.12,
   including source compilation, an import smoke test, and the complete pytest
   suite without runtime credentials.
+- Added offline integration tests for the complete decorated audio pipeline,
+  provider and Telegram failures, FIFO queue handoff, resource cleanup, and
+  application startup wiring.
 
 ### Changed
 

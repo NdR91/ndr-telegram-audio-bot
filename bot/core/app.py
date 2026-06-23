@@ -10,6 +10,8 @@ from typing import List
 from telegram import BotCommand
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
+from bot.database import DatabaseManager
+from bot.database.secret_store import SecretStore
 from bot.handlers.commands import start, whoami, help_command
 from bot.handlers.admin import WhitelistManager, adduser, removeuser, addgroup, removegroup
 from bot.handlers.audio import AudioProcessor, handle_audio
@@ -31,13 +33,20 @@ async def cleanup_rate_limiter_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Error in rate limiter cleanup job: {e}")
 
 
-def create_application(token: str, config) -> Application:
+def create_application(
+    token: str,
+    config,
+    database_manager: DatabaseManager | None = None,
+    secret_store: SecretStore | None = None,
+) -> Application:
     """
     Create and configure the Telegram application.
     
     Args:
         token: Telegram bot token
         config: Bot configuration object
+        database_manager: Optional unified database manager (A1).
+        secret_store: Optional secret store for at-rest encryption (A2).
         
     Returns:
         Configured Application instance
@@ -72,6 +81,10 @@ def create_application(token: str, config) -> Application:
     
     # Store config in bot_data for global access (singleton pattern)
     app.bot_data['config'] = config
+    if database_manager is not None:
+        app.bot_data['database_manager'] = database_manager
+    if secret_store is not None:
+        app.bot_data['secret_store'] = secret_store
     app.bot_data['whitelist_manager'] = WhitelistManager(config)
     app.bot_data['audio_processor'] = AudioProcessor(config)
     app.bot_data['delivery_adapter'] = TelegramDeliveryAdapter(

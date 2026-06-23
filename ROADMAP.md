@@ -191,6 +191,12 @@ Before approving an item, consider:
 - Is migration and rollback clear?
 - Can it be tested without real credentials?
 
+Many items include a **Manual verification** section with checkboxes.
+These describe concrete steps you can perform from the frontend (or
+Telegram) to validate the feature once implemented. They are not
+automated tests — they are acceptance walkthroughs for the person
+building or reviewing the feature.
+
 # Phase 0 — Protect the current baseline
 
 This phase creates a safety net before architectural migration.
@@ -218,13 +224,22 @@ Add GitHub Actions for supported Python versions, imports, and
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | Medium |
 
 Cover the complete handler flow, Telegram failures, queue handoff, provider
 errors, and application startup wiring. These tests become migration
 regressions for the new runtime.
+
+**Completed 2026-06-23**
+
+- Added offline integration tests that exercise the complete decorated audio
+  handler from authorization and admission through cleanup.
+- Covered successful processing, provider-stage failures, Telegram delivery
+  failures, FIFO queue handoff, slot release, and temporary-file cleanup.
+- Verified application startup wiring for services, handlers, progressive
+  delivery configuration, whitelist bootstrap, and the maintenance job.
 
 ## B3 — Validate current configuration values
 
@@ -319,6 +334,20 @@ tools must use this service.
 - Every setting has scope, type, default, and validation metadata.
 - Changes that require runtime reload are explicitly signaled.
 
+**Manual verification** (from frontend)
+
+- [ ] Open the administration panel and confirm every setting from `.env` is
+      visible in the settings page (Telegram token, provider, prompts, limits,
+      etc.).
+- [ ] Edit a non-sensitive value, save, reload the page and confirm the value
+      persists.
+- [ ] Enter an invalid value (e.g. a negative rate limit) and confirm the UI
+      shows a clear validation error and does not save.
+- [ ] Edit a secret field (e.g. API key) and confirm it never displays in full
+      after saving — only a placeholder or masked value is shown.
+- [ ] Confirm that a setting labelled "requires restart" correctly warns the
+      user before applying.
+
 ## A4 — Runtime state model
 
 | Field | Value |
@@ -339,6 +368,18 @@ Represent readiness as explicit states:
 The frontend must explain the current state. The bot must not accept audio when
 the pipeline is invalid.
 
+**Manual verification** (from frontend)
+
+- [ ] Start the application on a blank data volume and confirm the frontend
+      shows "setup required" with a clear explanation.
+- [ ] Complete the Telegram token in the frontend and confirm the state changes
+      to "provider missing".
+- [ ] Add a provider and confirm the state changes to "ready".
+- [ ] Remove the only provider and confirm the state changes to "pipeline
+      invalid" or "provider missing".
+- [ ] The frontend explains each state in plain language and suggests the next
+      action the user should take.
+
 ## A5 — Runtime manager
 
 | Field | Value |
@@ -358,6 +399,19 @@ Responsibilities:
 - expose health and degraded-state information;
 - ensure in-flight requests use a stable configuration snapshot.
 
+**Manual verification** (from frontend)
+
+- [ ] Start the application and confirm the Telegram bot does not start
+      automatically (no polling).
+- [ ] In the frontend, go to the runtime/bot status section and confirm the
+      bot is shown as "stopped".
+- [ ] Start the bot from the frontend and confirm polling begins (check logs).
+- [ ] Stop the bot from the frontend and confirm polling stops.
+- [ ] Change the Telegram token in settings and confirm the bot status reflects
+      the change (restart recommended / restarted automatically).
+- [ ] Open a second browser tab, change a limit while a request is in-flight,
+      and confirm the in-flight request is not affected (uses the old value).
+
 ## A6 — First-run setup mode
 
 | Field | Value |
@@ -375,6 +429,18 @@ On an empty data volume:
 5. invalidate the code after the first administrator is created.
 
 The setup code is stored only as a hash.
+
+**Manual verification** (from frontend)
+
+- [ ] Start the application on a blank data volume with `docker compose up`.
+- [ ] Check the container logs: a one-time setup code must be printed.
+- [ ] Open `http://localhost:<port>` — confirm you are redirected to the setup
+      page (no admin dashboard or bot functionality exposed).
+- [ ] Enter an invalid setup code and confirm an error is shown.
+- [ ] Enter the correct setup code, create the first administrator, and confirm
+      the code is invalidated (re-opening the setup page should not work).
+- [ ] Log in as the new administrator and confirm you enter the full
+      administration dashboard.
 
 ## A7 — Remove mandatory `.env` and `authorized.json`
 
@@ -423,6 +489,20 @@ Add a responsive web application with:
 The choice of framework should minimize operational dependencies and integrate
 cleanly with the existing Python runtime.
 
+**Manual verification** (from frontend)
+
+- [ ] Access the frontend URL on a blank data volume — confirm only the setup
+      page is reachable, not the admin dashboard.
+- [ ] Register/login as an administrator and confirm the session persists
+      across page reloads (secure cookie).
+- [ ] Open browser DevTools and confirm no secrets (tokens, keys) appear in
+      the page source, network responses, or client-side storage in plaintext.
+- [ ] Log out and confirm the session is invalidated.
+- [ ] Access the admin section without logging in and confirm a redirect or
+      401 page is shown.
+- [ ] Test CSRF protection: submit a cross-origin form and confirm it is
+      rejected.
+
 ## W2 — Guided onboarding
 
 | Field | Value |
@@ -445,6 +525,28 @@ Wizard steps:
 Users may save incomplete setup, but the UI must clearly show why audio
 processing is unavailable.
 
+**Manual verification** (from frontend — requires a blank data volume)
+
+- [ ] Start the application and open the frontend: confirm you see the setup
+      wizard, not the admin dashboard.
+- [ ] Step through the entire wizard:
+      1. Redeem the setup code from container logs.
+      2. Create the first administrator.
+      3. Enter a valid Telegram token — confirm the bot is reachable (check
+         passes or a useful error is shown).
+      4. Enter an invalid Telegram token — confirm a clear error message.
+      5. Connect an AI provider with valid credentials — confirm capability
+         detection completes and shows detected models.
+      6. Accept "use this provider for everything" by default — confirm the
+         pipeline is resolved and valid.
+      7. Start the bot from the wizard — confirm the bot goes online and
+         responds to Telegram commands.
+- [ ] Close the wizard and confirm the dashboard shows "ready" status.
+- [ ] Save the wizard halfway (e.g. setup code redeemed but no admin created):
+      reopen the frontend and confirm you continue from where you left off.
+- [ ] If the pipeline is incomplete, confirm the UI explains exactly what is
+      missing (e.g. "No provider configured — audio processing unavailable").
+
 ## W3 — Provider management
 
 | Field | Value |
@@ -464,6 +566,23 @@ Allow administrators to:
 
 Provider deletion must be blocked while referenced by an active pipeline unless
 a replacement is selected.
+
+**Manual verification** (from frontend)
+
+- [ ] Add an OpenAI provider connection — confirm the form asks for name,
+      endpoint (pre-filled), and API key (masked on save).
+- [ ] After saving, confirm the provider appears in the list with its detected
+      capabilities (transcription, refinement, streaming, etc.).
+- [ ] Edit the provider name and confirm the change persists.
+- [ ] Replace the API key — confirm the UI asks for a new key (does not show
+      the old one in full) and the updated key works.
+- [ ] Add a Gemini provider and confirm both are listed.
+- [ ] Delete a provider that is not referenced by any pipeline — confirm it is
+      removed immediately.
+- [ ] Try to delete a provider that IS referenced by an active pipeline —
+      confirm the UI shows a blocking error or requires a replacement first.
+- [ ] Test a connectivity check on a provider with valid and invalid
+      credentials — confirm success/failure feedback.
 
 ## W4 — Pipeline management
 
@@ -486,6 +605,22 @@ Advanced mode:
 - configure explicit fallback behavior;
 - preview the resolved pipeline and expected data flow.
 
+**Manual verification** (from frontend)
+
+- [ ] In the pipeline section, confirm the default mode shows a single
+      "preferred provider" selector — not separate transcription/text fields.
+- [ ] Select one provider that supports both transcription and refinement —
+      confirm the pipeline shows as complete.
+- [ ] Switch to advanced mode — confirm the UI now shows independent
+      selectors for transcription and text processing.
+- [ ] Pick different providers for each stage and confirm the preview shows
+      the expected data flow (audio → Transcriber A → TextProcessor B).
+- [ ] Save an incomplete pipeline (e.g. transcription provider set but no
+      text processor) — confirm the UI warns that the pipeline is incomplete
+      and audio processing will not work.
+- [ ] Enable "refinement optional" and confirm the pipeline is accepted with
+      only a transcription provider.
+
 ## W5 — Settings and access-control pages
 
 | Field | Value |
@@ -506,6 +641,24 @@ Manage:
 Use progressive disclosure: common settings first, advanced details behind
 clearly labeled sections.
 
+**Manual verification** (from frontend)
+
+- [ ] Navigate to the limits section and confirm the common settings
+      (max file size, rate limits) are visible without scrolling.
+- [ ] Change a limit (e.g. max file size), save, and confirm the new value is
+      used by the bot (e.g. upload a file just above the new limit and confirm
+      it is rejected).
+- [ ] Navigate to prompts — change the system prompt or refine template,
+      send an audio to the bot, and confirm the new prompt is used in the
+      output.
+- [ ] Navigate to users/groups — add a new user ID and confirm they can now
+      use the bot; remove them and confirm they are rejected.
+- [ ] Navigate to the admin section — confirm only existing administrators
+      are listed. Add a new admin from the frontend, log out, and log in as
+      the new admin.
+- [ ] Confirm that sensitive settings (API keys) are never shown in full in
+      any settings page.
+
 ## W6 — Frontend authentication and recovery
 
 | Field | Value |
@@ -525,6 +678,20 @@ application recovery command -> time-limited one-time URL
 Revoking or misconfiguring the Telegram token must not permanently lock out the
 administrator.
 
+**Manual verification** (from frontend)
+
+- [ ] Log in via the normal admin login (username/password or Telegram if
+      integrated).
+- [ ] If Telegram-based login is available, confirm it works: send a command
+      to the bot and receive a login link.
+- [ ] Revoke or change the Telegram token while logged in — confirm the admin
+      session remains active (admin is not locked out).
+- [ ] Test the recovery mechanism: trigger a password reset or recovery code
+      flow and confirm a time-limited one-time URL is generated.
+- [ ] Use the recovery URL to log in — confirm it works only once and
+      expires after the first use.
+- [ ] Test with an expired recovery URL and confirm it is rejected.
+
 ## W7 — Import, export, and backup
 
 | Field | Value |
@@ -539,6 +706,19 @@ Provide:
 - validated import with a preview;
 - optional password-encrypted full backup;
 - documented restore and key-recovery limitations.
+
+**Manual verification** (from frontend)
+
+- [ ] Export the current configuration from the frontend — confirm the
+      downloaded file does NOT contain secrets (API keys, tokens).
+- [ ] Import the exported file on a fresh installation — confirm settings
+      (except secrets) are restored.
+- [ ] Perform a password-encrypted full backup — confirm it requires a
+      password to restore.
+- [ ] Restore from backup and confirm all settings, including secrets, are
+      recovered.
+- [ ] Try to import a malformed or invalid file — confirm a validation error
+      is shown with a preview of what is wrong.
 
 # Phase 3 — Composable provider architecture
 
@@ -620,6 +800,23 @@ Resolve the simplest valid pipeline from:
 The resolver must explain invalid configurations in user-facing terms and
 produce an immutable execution plan for each accepted request.
 
+**Manual verification** (from frontend)
+
+- [ ] Configure a provider that supports both transcription and text
+      processing. In the pipeline page, confirm the resolver automatically
+      selects it for both stages without requiring manual assignment.
+- [ ] Configure two providers: one with only transcription capability, another
+      with both. In the pipeline page, confirm the resolver picks the
+      capable provider for the full pipeline by default.
+- [ ] Disable refinement globally — confirm the resolver produces a
+      transcription-only execution plan.
+- [ ] Intentionally create an invalid configuration (e.g. remove all
+      providers from a pipeline) — confirm the error message explains the
+      problem in plain language (e.g. "No provider available for
+      transcription").
+- [ ] Send an audio to the bot — confirm the handler accepts or rejects it
+      based on the resolved pipeline state.
+
 ## P5 — Same-provider default
 
 | Field | Value |
@@ -634,6 +831,18 @@ internally.
 
 Do not expose separate provider choices during onboarding unless the preferred
 connection cannot satisfy the requested behavior.
+
+**Manual verification** (from frontend)
+
+- [ ] During onboarding: add a provider that supports transcription and text
+      processing — confirm the wizard offers "use this provider for everything"
+      as the default option and does NOT expose separate transcription/text
+      selectors.
+- [ ] During onboarding: add a provider that supports only transcription —
+      confirm the wizard explains that text refinement is disabled or asks to
+      add a text-processing provider.
+- [ ] In the admin pipeline page: when using default mode, confirm the UI
+      shows a single provider selector, not two separate ones.
 
 ## P6 — Advanced multi-provider pipelines
 
@@ -654,6 +863,19 @@ Fallbacks must be opt-in and visible because they may change:
 - output quality;
 - data residency.
 
+**Manual verification** (from frontend)
+
+- [ ] In the frontend, go to advanced pipeline settings and confirm you can
+      independently select a transcription provider and a text-processing
+      provider (different from each other).
+- [ ] Configure fallback providers — confirm the UI shows a clear list of
+      which provider is used at each stage, in what order, and why each
+      fallback might be activated.
+- [ ] Save the advanced configuration and confirm the preview shows the
+      complete resolved pipeline with data flow labels (e.g. "Audio →
+      Transcriber: OpenAI → Text: Gemini").
+- [ ] Send audio to the bot — confirm it uses the correct provider mix.
+
 ## P7 — Capability-aware audio preparation
 
 | Field | Value |
@@ -666,6 +888,17 @@ Skip conversion when the transcriber accepts the original format. Otherwise
 normalize audio using speech-appropriate settings.
 
 The execution plan should record why conversion is or is not required.
+
+**Manual verification** (from frontend)
+
+- [ ] Send an audio file in a format already supported by the transcriber
+      (e.g. MP3 for OpenAI) — confirm the execution log shows "No conversion
+      needed: format accepted by provider".
+- [ ] Send an audio in an unsupported format (e.g. OGG) — confirm the audio
+      is converted before transcription and the execution log records the
+      conversion step.
+- [ ] Check the audio preparation decision in the pipeline preview or
+      execution plan (if available in frontend).
 
 ## P8 — Local provider deployment
 
@@ -762,6 +995,16 @@ provider connection and operation.
 Configuration updates must not mutate dependencies used by in-flight requests.
 Build and atomically swap validated runtime snapshots for subsequent requests.
 
+**Manual verification** (from frontend)
+
+- [ ] While the bot is processing an audio, change a setting in the frontend
+      (e.g. update the system prompt or modify a rate limit).
+- [ ] Confirm the in-flight request completes with the old configuration
+      (verify via logs or output).
+- [ ] Confirm the next audio request uses the new configuration.
+- [ ] Change the Telegram token while requests are in-flight — confirm the
+      current request is not interrupted and completes normally.
+
 # Phase 5 — Telegram configuration and end-user UX
 
 ## T1 — Telegram settings interface
@@ -783,6 +1026,16 @@ Provide commands and inline keyboards for safe settings:
 
 Do not expose raw secrets, arbitrary endpoint URLs, destructive recovery, or
 infrastructure controls in Telegram.
+
+**Manual verification** (admin — from frontend, end-user — from Telegram)
+
+- [ ] In the frontend settings page, confirm pipeline profiles can be created
+      and named (e.g. "Default", "Quick", "High quality").
+- [ ] In the Telegram settings interface (T1), confirm a user can select an
+      active pipeline profile from an administrator-approved list.
+- [ ] As admin, send `/status` or equivalent to Telegram and confirm the
+      response shows provider health, pipeline status, and queue state
+      without exposing API keys or tokens.
 
 ## T2 — Selectable output modes
 
@@ -880,6 +1133,19 @@ without logging secrets or transcript content.
 Expose frontend, database, Telegram, queue, runtime-manager, pipeline, and
 provider health. Avoid introducing a large monitoring stack without a concrete
 deployment need.
+
+**Manual verification** (from frontend)
+
+- [ ] Open the health/dashboard page and confirm the following status
+      indicators are visible: database (connected/disconnected), Telegram
+      (polling/stopped/error), queue (current size / limit), and each
+      configured provider (reachable/unreachable).
+- [ ] Stop the Telegram bot from the runtime manager — confirm the dashboard
+      shows "stopped" or "disconnected".
+- [ ] Start it again — confirm the status returns to "polling" or "connected".
+- [ ] If a provider becomes unreachable (e.g. wrong API key), confirm the
+      dashboard shows "unreachable" or "error" for that specific provider
+      without affecting the status of other providers.
 
 ## O3 — Expanded integration and migration testing
 
@@ -1018,3 +1284,4 @@ Record decisions without rewriting roadmap history.
 | 2026-06-23 | Transcript storage | Approved | Do not retain audio or transcripts by default. |
 | 2026-06-23 | B1 | Done | Added secret-free CI across Python 3.10–3.12 with source compilation, import smoke testing, and pytest. |
 | 2026-06-23 | B3 | Done | Added explicit numeric-range and boolean validation with regression tests. |
+| 2026-06-23 | B2 | Done | Added offline integration coverage for the decorated pipeline, provider and Telegram failures, queue handoff, cleanup, and startup wiring. |

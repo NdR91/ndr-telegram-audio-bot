@@ -16,6 +16,7 @@ project_root = os.path.dirname(current_dir)
 sys.path.insert(0, project_root)
 
 from bot.config import Config
+from bot.database import DatabaseManager, SecretStore, SecretStoreError
 from bot.exceptions import ConfigError
 from bot.core.app import create_application, run_application
 from bot import utils
@@ -62,6 +63,68 @@ def initialize_configuration() -> Config:
         raise
 
 
+def _get_database_path(config) -> str:
+    """Return the unified database path (default: ``<audio_dir>/app.sqlite3``)."""
+    return os.getenv(
+        "APPLICATION_DB",
+        os.path.join(config.audio_dir, "app.sqlite3"),
+    )
+
+
+def _get_master_key_path(config) -> str:
+    """Return the master key path.
+
+    Respects ``MASTER_KEY_FILE`` when set; otherwise defaults to
+    ``<audio_dir>/.master_key``.
+    """
+    return os.getenv(
+        "MASTER_KEY_FILE",
+        os.path.join(config.audio_dir, ".master_key"),
+    )
+
+
+def _init_database(
+    db_path: str,
+    config,
+    secret_store: SecretStore | None = None,
+) -> DatabaseManager:
+    """Initialize the unified database and import legacy whitelist data."""
+    db = DatabaseManager(db_path, secret_store=secret_store)
+    db.initialize()
+    logger.info("Unified application database ready at %s", db_path)
+
+    # Bootstrap whitelist from legacy data if the tables are empty.
+    db.import_whitelist_from_dict(config.authorized_data)
+
+    return db
+
+
+def _init_secret_store(key_path: str) -> SecretStore | None:
+    """Initialize the local secret store.
+
+    Returns ``None`` when the store cannot be initialized (e.g. permission
+    error), allowing the application to continue without at-rest encryption.
+    """
+    try:
+        store = SecretStore(key_path)
+        is_new = store.initialize()
+        if is_new:
+            logger.info("Generated new master key at %s (first run)", key_path)
+        else:
+            logger.debug("Loaded master key from %s", key_path)
+        return store
+    except SecretStoreError:
+        logger.exception("Failed to initialize SecretStore; continuing without at-rest encryption")
+        return None
+    except PermissionError:
+        logger.exception(
+            "Permission denied while initializing SecretStore at %s; "
+            "continuing without at-rest encryption",
+            key_path,
+        )
+        return None
+
+
 def main() -> None:
     """
     Main entry point for Telegram bot.
@@ -71,14 +134,28 @@ def main() -> None:
     try:
         # Initialize configuration
         config = initialize_configuration()
-        
+
+        # Initialize local secret store for at-rest encryption (A2)
+        key_path = _get_master_key_path(config)
+        secret_store = _init_secret_store(key_path)
+
+        # Initialize unified application database (A1) with optional
+        # secret store for transparent credential encryption.
+        db_path = _get_database_path(config)
+        database_manager = _init_database(db_path, config, secret_store)
+
         # Cleanup temporary audio files from previous runs
         utils.cleanup_audio_directory(config.audio_dir)
-        
+
         # Create and setup application
         logger.info("Creating Telegram application...")
-        app = create_application(config.telegram_token, config)
-        
+        app = create_application(
+            config.telegram_token,
+            config,
+            database_manager=database_manager,
+            secret_store=secret_store,
+        )
+
         # Start bot
         logger.info("Starting Telegram bot polling...")
         run_application(app)

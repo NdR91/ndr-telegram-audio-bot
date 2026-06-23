@@ -143,7 +143,8 @@ When behavior changes:
 - `bot/handlers/`: commands, administration, and audio pipeline handlers.
 - `bot/providers.py`: LLM provider implementations and resilience wrapper.
 - `bot/config.py`: environment loading and validation.
-- `bot/auth_store.py`: SQLite whitelist persistence.
+- `bot/auth_store.py`: SQLite whitelist persistence (legacy).
+- `bot/database/`: unified application database (schema, migrations, repository, secret store).
 - `bot/rate_limiter.py`: concurrency admission and queueing.
 - `bot/ui/`: progress and Telegram delivery adapters.
 - `bot/utils.py`: FFmpeg conversion, cleanup, and provider factory.

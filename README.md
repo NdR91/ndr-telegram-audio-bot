@@ -248,6 +248,10 @@ GitHub Actions compiles the Python sources, smoke-tests package imports, and
 runs the complete suite on Python 3.10, 3.11, and 3.12 without requiring
 Telegram or provider credentials.
 
+The suite includes offline integration coverage for the decorated audio
+handler, queue handoff, provider and Telegram failures, cleanup, and
+application dependency wiring.
+
 ## Troubleshooting
 
 - `FFmpeg is not installed`: install FFmpeg and confirm `ffmpeg -version`.
