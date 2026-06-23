@@ -16,6 +16,9 @@ authorized.json
 .opencode/
 .tmp/
 
+# Installer scripts
+install.sh
+
 # Temporary Files
 audio_files/
 ___backup versioni/
