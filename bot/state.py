@@ -81,10 +81,13 @@ _STATE_DESCRIPTIONS: Dict[AppState, Dict[str, str]] = {
         "label": "Setup richiesto",
         "description": (
             "L'applicazione non è stata ancora configurata. "
-            "Completa la procedura di configurazione iniziale per iniziare."
+            "Usa il codice di configurazione generato all'avvio "
+            "per completare la procedura guidata."
         ),
         "next_action": (
-            "Completa la configurazione guidata per avviare il bot."
+            "Controlla i log del container per il codice di setup "
+            "monouso, quindi apri l'interfaccia web per completare "
+            "la configurazione."
         ),
     },
     AppState.TELEGRAM_MISSING: {

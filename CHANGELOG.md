@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **First-run setup mode (A6)**: Time-limited one-time setup code for
+  blank data volumes, preparing the application for guided onboarding
+  (Phase 2 frontend).
+
+  - **`bot/setup.py`** module provides ``generate_setup_code()``,
+    ``validate_setup_code()``, ``invalidate_setup_code()``, and helper
+    predicates (``is_first_run``, ``is_code_generated``).
+  - Codes are cryptographically random alphanumeric strings (8 chars)
+    stored only as SHA-256 hashes — never persisted in plaintext.
+  - Expiry enforced server-side via a stored monotonic timestamp
+    (default 30 minutes, configurable via ``SETUP_CODE_TTL_SECONDS``).
+  - **Startup integration** in ``bot/main.py``: when the application
+    state is ``SETUP_REQUIRED``, a code is generated and printed
+    prominently in the container logs.
+  - **State description** updated: the ``SETUP_REQUIRED`` message now
+    references the setup code and guides the user to check logs.
+  - **15 tests** covering generation, validation, invalidation, hash
+    isolation, expiry rejection, and helper predicates.
+
 - **Runtime manager (A5)**: Separated the Telegram bot lifecycle from
   the main application entry point in preparation for Phase 2 (web
   frontend).

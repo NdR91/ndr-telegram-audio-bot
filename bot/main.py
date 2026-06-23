@@ -15,12 +15,14 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.insert(0, project_root)
 
+import bot.setup
 from bot.config import Config
 from bot.config_service import ConfigService
 from bot.database import DatabaseManager, SecretStore, SecretStoreError
 from bot.exceptions import ConfigError
 from bot.runtime_manager import RuntimeManager
-from bot.state import StateChecker
+from bot.setup import generate_setup_code, is_code_generated
+from bot.state import AppState, StateChecker
 from bot import utils
 
 # Configure logging
@@ -127,6 +129,23 @@ def _init_secret_store(key_path: str) -> SecretStore | None:
         return None
 
 
+def _print_setup_code(code: str) -> None:
+    """Print the setup code prominently in the logs so the administrator
+    can copy it for guided onboarding."""
+    # Deliberately uses print (not logger) so the code is always visible
+    # regardless of log-level configuration.
+    sep = "=" * 56
+    print(f"\n{sep}", flush=True)
+    print(f"  SETUP CODE: {code}", flush=True)
+    print(f"  Valido per {bot.setup.SETUP_CODE_TTL_SECONDS} secondi.", flush=True)
+    print(f"  Apri l'interfaccia web per completare la configurazione.", flush=True)
+    print(f"{sep}\n", flush=True)
+    logger.info(
+        "One-time setup code generated — valid for %s seconds",
+        bot.setup.SETUP_CODE_TTL_SECONDS,
+    )
+
+
 def main() -> None:
     """
     Main entry point for Telegram bot.
@@ -159,6 +178,20 @@ def main() -> None:
 
         # Cleanup temporary audio files from previous runs
         utils.cleanup_audio_directory(config.audio_dir)
+
+        # A6 — First-run setup mode.
+        # On a blank data volume (state == SETUP_REQUIRED) generate a
+        # time-limited one-time setup code and print it prominently in
+        # the logs.  The code is stored only as a SHA-256 hash.
+        # NOTE: Currently this is gated by the legacy-config shortcut:
+        # when a valid .env exists, the state checker returns READY and
+        # no code is generated.  Once A7 removes mandatory .env, this
+        # path will activate automatically on first start.
+        app_state = state_checker.get_state()
+        if app_state.state == AppState.SETUP_REQUIRED:
+            if not is_code_generated(database_manager):
+                setup_code = generate_setup_code(database_manager)
+                _print_setup_code(setup_code)
 
         # Create RuntimeManager (A5) — owns the Telegram bot lifecycle.
         # In the current migration stage the manager runs in blocking
