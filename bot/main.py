@@ -19,8 +19,8 @@ from bot.config import Config
 from bot.config_service import ConfigService
 from bot.database import DatabaseManager, SecretStore, SecretStoreError
 from bot.exceptions import ConfigError
+from bot.runtime_manager import RuntimeManager
 from bot.state import StateChecker
-from bot.core.app import create_application, run_application
 from bot import utils
 
 # Configure logging
@@ -160,20 +160,24 @@ def main() -> None:
         # Cleanup temporary audio files from previous runs
         utils.cleanup_audio_directory(config.audio_dir)
 
-        # Create and setup application
-        logger.info("Creating Telegram application...")
-        app = create_application(
-            config.telegram_token,
+        # Create RuntimeManager (A5) — owns the Telegram bot lifecycle.
+        # In the current migration stage the manager runs in blocking
+        # mode; the frontend (Phase 2) will use non-blocking start/stop.
+        manager = RuntimeManager(
             config,
-            database_manager=database_manager,
-            secret_store=secret_store,
-            config_service=config_service,
-            state_checker=state_checker,
+            database_manager,
+            secret_store,
+            config_service,
+            state_checker,
+        )
+        logger.info(
+            "RuntimeManager initialised, state=%s",
+            manager.get_state().state.value,
         )
 
-        # Start bot
+        # Start bot (blocking — legacy CLI mode)
         logger.info("Starting Telegram bot polling...")
-        run_application(app)
+        manager.run_until_stopped()
         
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Runtime manager (A5)**: Separated the Telegram bot lifecycle from
+  the main application entry point in preparation for Phase 2 (web
+  frontend).
+  
+  - **`RuntimeManager`** class (`bot/runtime_manager.py`) centralises
+    bot lifecycle: `start(block=True|False)`, `stop()`, `restart()`,
+    `run_until_stopped()` (legacy CLI), `get_state()`, `get_health()`,
+    and `can_start()`.
+  - **Blocking mode** (default): calls `Application.run_polling()`,
+    preserving the current CLI behaviour and signal handling.
+  - **Non-blocking mode** (`block=False`): calls `initialize()`,
+    `start()`, and `updater.start_polling()` without idling, so the
+    frontend can manage the bot alongside its own event loop.
+  - **State gate**: `start()` raises `RuntimeError` unless the
+    application state is `READY`.
+  - **Health reporting**: `get_health()` returns bot status, state,
+    and uptime for dashboards and health checks.
+  - **Thread-safe**: `_app` reference protected by a lock so the
+    frontend can start/stop from request handlers.
+  - **Refactored `bot/main.py`**: uses `RuntimeManager.run_until_stopped()`
+    instead of directly calling `create_application` + `run_application`.
+  - **21 new tests** covering initialisation, state/health introspection,
+    blocking and non-blocking start, stop, restart, error conditions, and
+    legacy CLI entry point.
+
 - **Runtime integration hardening (A4.1)**: Closed the gap between new
   database-backed services and the still-legacy runtime.
   
