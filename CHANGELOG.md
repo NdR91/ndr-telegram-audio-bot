@@ -7,8 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added least-privilege GitHub Actions CI for Python 3.10, 3.11, and 3.12,
+  including source compilation, an import smoke test, and the complete pytest
+  suite without runtime credentials.
+
+### Changed
+
+- Added explicit range validation for rate-limit, queue, and provider
+  resilience values, with errors naming the invalid environment variable.
+- Boolean configuration now accepts only documented `1`/`0`,
+  `true`/`false`, and `yes`/`no` values.
+
 ### Documentation
 
+- Added a living `ROADMAP.md` with individually reviewable reliability, UX,
+  feature, and operational improvements.
+- Expanded the roadmap with a frontend-led zero-configuration control plane,
+  encrypted configuration storage, provider capability resolution, local and
+  cloud provider support, and a staged migration away from mandatory `.env`
+  and `authorized.json` files.
 - Removed the repository-specific `.opencode/` context bundle and the
   standalone OpenAgents installer script from the public repository.
 - Aligned `README.md`, `AGENTS.md`, and `.env.example` with the current test

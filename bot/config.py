@@ -5,24 +5,29 @@ This module handles loading and validating all configuration parameters
 required for bot operation, including API keys, paths, and prompts.
 """
 
-import os
 import json
 import logging
+import os
 import subprocess
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 from dotenv import load_dotenv
+
+from bot.exceptions import (
+    APIProviderError,
+    ConfigError,
+    ExternalDependencyError,
+    InvalidConfig,
+    MissingRequiredConfig,
+)
 
 # Load environment variables from .env file
 load_dotenv()
-from bot.exceptions import (
-    ConfigError,
-    MissingRequiredConfig,
-    InvalidConfig,
-    ExternalDependencyError,
-    APIProviderError
-)
 
 logger = logging.getLogger(__name__)
+
+TRUE_VALUES = {"1", "true", "yes"}
+FALSE_VALUES = {"0", "false", "no"}
 
 
 class Config:
@@ -136,19 +141,35 @@ class Config:
         
         return dir_path
     
-    def _load_rate_limit_config(self) -> Dict[str, int]:
+    def _load_rate_limit_config(self) -> Dict[str, int | bool]:
         """Load rate limit configuration from env or defaults."""
         from bot import constants as c
         defaults = c.RATE_LIMIT_DEFAULTS
         
         return {
-            "max_per_user": int(os.getenv('RATE_LIMIT_PER_USER', str(defaults["max_per_user"]))),
-            "cooldown_seconds": int(os.getenv('RATE_LIMIT_COOLDOWN', str(defaults["cooldown_seconds"]))),
-            "max_concurrent_global": int(os.getenv('RATE_LIMIT_GLOBAL', str(defaults["max_concurrent_global"]))),
-            "max_file_size_mb": int(os.getenv('RATE_LIMIT_FILE_SIZE', str(defaults["max_file_size_mb"]))),
-            "queue_enabled": os.getenv('RATE_LIMIT_QUEUE_ENABLED', str(defaults["queue_enabled"])).strip().lower() not in {'0', 'false', 'no'},
-            "max_queue_size": int(os.getenv('RATE_LIMIT_QUEUE_SIZE', str(defaults["max_queue_size"]))),
-            "max_queued_per_user": int(os.getenv('RATE_LIMIT_QUEUE_PER_USER', str(defaults["max_queued_per_user"]))),
+            "max_per_user": self._get_int(
+                "RATE_LIMIT_PER_USER", defaults["max_per_user"], minimum=1
+            ),
+            "cooldown_seconds": self._get_int(
+                "RATE_LIMIT_COOLDOWN", defaults["cooldown_seconds"], minimum=0
+            ),
+            "max_concurrent_global": self._get_int(
+                "RATE_LIMIT_GLOBAL", defaults["max_concurrent_global"], minimum=1
+            ),
+            "max_file_size_mb": self._get_int(
+                "RATE_LIMIT_FILE_SIZE", defaults["max_file_size_mb"], minimum=1
+            ),
+            "queue_enabled": self._get_bool(
+                "RATE_LIMIT_QUEUE_ENABLED", bool(defaults["queue_enabled"])
+            ),
+            "max_queue_size": self._get_int(
+                "RATE_LIMIT_QUEUE_SIZE", defaults["max_queue_size"], minimum=0
+            ),
+            "max_queued_per_user": self._get_int(
+                "RATE_LIMIT_QUEUE_PER_USER",
+                defaults["max_queued_per_user"],
+                minimum=1,
+            ),
         }
 
     def _load_provider_resilience_config(self) -> Dict[str, int | bool]:
@@ -157,9 +178,19 @@ class Config:
         defaults = c.PROVIDER_RESILIENCE_DEFAULTS
 
         return {
-            "enabled": os.getenv('PROVIDER_RESILIENCE_ENABLED', str(defaults["enabled"])).strip().lower() not in {'0', 'false', 'no'},
-            "failure_threshold": int(os.getenv('PROVIDER_RESILIENCE_THRESHOLD', str(defaults["failure_threshold"]))),
-            "cooldown_seconds": int(os.getenv('PROVIDER_RESILIENCE_COOLDOWN', str(defaults["cooldown_seconds"]))),
+            "enabled": self._get_bool(
+                "PROVIDER_RESILIENCE_ENABLED", bool(defaults["enabled"])
+            ),
+            "failure_threshold": self._get_int(
+                "PROVIDER_RESILIENCE_THRESHOLD",
+                defaults["failure_threshold"],
+                minimum=1,
+            ),
+            "cooldown_seconds": self._get_int(
+                "PROVIDER_RESILIENCE_COOLDOWN",
+                defaults["cooldown_seconds"],
+                minimum=0,
+            ),
         }
 
     def _load_telegram_progressive_output_config(self) -> Dict[str, bool]:
@@ -168,8 +199,45 @@ class Config:
         defaults = c.TELEGRAM_PROGRESSIVE_OUTPUT_DEFAULTS
 
         return {
-            "enabled": os.getenv('TELEGRAM_DRAFT_STREAMING', str(defaults["enabled"])).strip().lower() not in {'0', 'false', 'no'},
+            "enabled": self._get_bool(
+                "TELEGRAM_DRAFT_STREAMING", bool(defaults["enabled"])
+            ),
         }
+
+    @staticmethod
+    def _get_int(variable: str, default: int, minimum: int) -> int:
+        """Load an integer environment variable and validate its lower bound."""
+        raw_value = os.getenv(variable, str(default)).strip()
+
+        try:
+            value = int(raw_value)
+        except ValueError as e:
+            raise InvalidConfig(
+                f"{variable} must be an integer. Got: '{raw_value}'"
+            ) from e
+
+        if value < minimum:
+            raise InvalidConfig(
+                f"{variable} must be greater than or equal to {minimum}. "
+                f"Got: {value}"
+            )
+
+        return value
+
+    @staticmethod
+    def _get_bool(variable: str, default: bool) -> bool:
+        """Load a boolean environment variable from explicit supported values."""
+        raw_value = os.getenv(variable, "1" if default else "0").strip().lower()
+
+        if raw_value in TRUE_VALUES:
+            return True
+        if raw_value in FALSE_VALUES:
+            return False
+
+        raise InvalidConfig(
+            f"{variable} must be one of: 1, 0, true, false, yes, no. "
+            f"Got: '{raw_value}'"
+        )
     
     def _load_prompts(self) -> Dict[str, str]:
         """Load and validate prompt templates."""

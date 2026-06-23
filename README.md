@@ -154,6 +154,10 @@ stop the bot and remove or relocate the SQLite database before restarting.
 | `RATE_LIMIT_QUEUE_SIZE` | `10` | Maximum global queue size. |
 | `RATE_LIMIT_QUEUE_PER_USER` | `1` | Maximum queued requests per user. |
 
+Concurrency limits, file size, and per-user queue capacity must be at least
+`1`. Cooldowns and the global queue size may be `0`. Invalid values stop
+startup and report the exact environment variable.
+
 ### Provider resilience
 
 | Variable | Default | Description |
@@ -161,6 +165,10 @@ stop the bot and remove or relocate the SQLite database before restarting.
 | `PROVIDER_RESILIENCE_ENABLED` | `1` | Enable the provider circuit breaker. |
 | `PROVIDER_RESILIENCE_THRESHOLD` | `3` | Consecutive failures before opening the circuit. |
 | `PROVIDER_RESILIENCE_COOLDOWN` | `60` | Open-circuit cooldown in seconds. |
+
+The threshold must be at least `1`; the cooldown may be `0`.
+Boolean settings accept `1`, `0`, `true`, `false`, `yes`, or `no`
+case-insensitively.
 
 ### Telegram progressive output
 
@@ -236,6 +244,10 @@ python -m pytest tests/test_config.py::test_config_loads_defaults_and_normalizes
 Using `python -m pytest` avoids import-path differences between pytest
 installations.
 
+GitHub Actions compiles the Python sources, smoke-tests package imports, and
+runs the complete suite on Python 3.10, 3.11, and 3.12 without requiring
+Telegram or provider credentials.
+
 ## Troubleshooting
 
 - `FFmpeg is not installed`: install FFmpeg and confirm `ffmpeg -version`.
@@ -276,8 +288,8 @@ installations.
 ## Contributing and security
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the local
-workflow and [SECURITY.md](SECURITY.md) for responsible vulnerability
-reporting.
+workflow, [ROADMAP.md](ROADMAP.md) for proposed evolution, and
+[SECURITY.md](SECURITY.md) for responsible vulnerability reporting.
 
 Never commit `.env`, `authorized.json`, SQLite authorization data, API keys,
 Telegram tokens, or user audio/transcripts.

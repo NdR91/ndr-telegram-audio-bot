@@ -42,6 +42,9 @@ the repository root on the import path consistently.
 Tests that instantiate `Config` mock external configuration and FFmpeg checks;
 they must not depend on a contributor's real `.env` or API credentials.
 
+GitHub Actions runs the suite on Python 3.10, 3.11, and 3.12. The workflow must
+remain independent of repository secrets and real service credentials.
+
 ## Making changes
 
 - Keep provider-specific API behavior in `bot/providers.py`.
@@ -82,4 +85,3 @@ Never include Telegram tokens, provider keys, `.env` files,
 issue, commit, test fixture, or pull request.
 
 For vulnerabilities, follow [SECURITY.md](SECURITY.md).
-
