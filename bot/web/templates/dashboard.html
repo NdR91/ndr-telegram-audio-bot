@@ -33,6 +33,11 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit" class="btn btn-primary">Avvia bot</button>
     </form>
+    {% elif health.bot_running %}
+    <form method="post" action="/admin/bot/stop" class="form-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-secondary">Ferma bot</button>
+    </form>
     {% endif %}
 </div>
 {% endblock %}

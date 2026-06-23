@@ -1,56 +1,953 @@
 {% extends "base.html" %}
-{% block title %} — Configurazione iniziale{% endblock %}
+{% block title %} — Configurazione guidata{% endblock %}
 
 {% block content %}
-<div class="card">
-    <h1>Configurazione iniziale</h1>
-    <p class="lead">
-        Per iniziare, inserisci il codice di configurazione che trovi nei log del container
-        e crea la password amministratore.
-    </p>
+<div class="wizard">
+    {# ------------------------------------------------------------------ #}
+    {# Progress indicator                                                  #}
+    {# ------------------------------------------------------------------ #}
+    <div class="wizard-progress" data-current="{{ current_step }}">
+        {% for s in ["step_code", "step_admin", "step_telegram", "step_provider",
+                      "step_capabilities", "step_pipeline", "step_verify", "step_done"] %}
+        {% set sn = loop.index %}
+        {% set sm = {
+            "step_code": ["🔑", "Codice"],
+            "step_admin": ["👤", "Admin"],
+            "step_telegram": ["✈️", "Telegram"],
+            "step_provider": ["🤖", "AI"],
+            "step_capabilities": ["🔍", "Modelli"],
+            "step_pipeline": ["⚙️", "Pipeline"],
+            "step_verify": ["✅", "Verifica"],
+            "step_done": ["🎉", "Fine"],
+        }[s] %}
+        <div class="progress-step {{ 'active' if current_step == s else 'completed' if step_number > sn else '' }}"
+             data-step="{{ s }}">
+            <div class="progress-dot">{{ sm[0] }}</div>
+            <div class="progress-label">{{ sm[1] }}</div>
+        </div>
+        {% endfor %}
+    </div>
 
-    {% if error == "csrf" %}
-    <div class="alert alert-error">Errore di validazione. Riprova.</div>
-    {% elif error == "invalid_code" %}
-    <div class="alert alert-error">Codice di configurazione non valido o scaduto. Controlla i log del container.</div>
-    {% elif error == "password_short" %}
-    <div class="alert alert-error">La password deve contenere almeno 8 caratteri.</div>
-    {% elif error == "password_mismatch" %}
-    <div class="alert alert-error">Le password non coincidono.</div>
+    {# ------------------------------------------------------------------ #}
+    {# Error / success alerts                                             #}
+    {# ------------------------------------------------------------------ #}
+    {% if error %}
+    <div class="alert alert-error" id="wizard-error">{{ error }}</div>
     {% endif %}
+    {% if success %}
+    <div class="alert alert-success" id="wizard-success">{{ success }}</div>
+    {% endif %}
+    <div id="wizard-live-error" class="alert alert-error" style="display:none"></div>
 
-    <form method="post" action="/setup" class="form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {# ------------------------------------------------------------------ #}
+    {# Wizard steps                                                       #}
+    {# ------------------------------------------------------------------ #}
+    <div class="wizard-steps">
 
-        <div class="form-group">
-            <label for="setup_code">Codice di configurazione</label>
-            <input type="text" id="setup_code" name="setup_code"
-                   placeholder="Inserisci il codice dai log"
-                   required autocomplete="off"
-                   pattern="[A-Za-z0-9]{8}"
-                   title="Codice di 8 caratteri">
-            <small class="form-help">Trovi il codice nei log del container all'avvio.</small>
+        {# ============ STEP 1: Codice setup ============ #}
+        <div class="wizard-step {{ 'active' if current_step == 'step_code' else '' }}" id="step-step_code">
+            <div class="card">
+                <h2>🔑 Codice di configurazione</h2>
+                <p class="lead">
+                    Per iniziare, inserisci il codice unico generato all'avvio del container.
+                    Lo trovi nei log del container.
+                </p>
+
+                <form method="post" action="/setup" class="form step-form" data-step="step_code">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="_step" value="step_code">
+
+                    <div class="form-group">
+                        <label for="setup_code">Codice di configurazione</label>
+                        <input type="text" id="setup_code" name="setup_code"
+                               placeholder="Inserisci il codice dai log"
+                               required autocomplete="off"
+                               pattern="[A-Za-z0-9]{8,}"
+                               title="Codice alfanumerico di 8+ caratteri"
+                               class="input-lg text-center">
+                        <small class="form-help">Il codice è monouso e scade dopo 30 minuti.</small>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-lg js-validate" data-action="code">
+                            Verifica codice
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
 
-        <div class="form-group">
-            <label for="admin_password">Password amministratore</label>
-            <input type="password" id="admin_password" name="admin_password"
-                   placeholder="Minimo 8 caratteri"
-                   required minlength="8"
-                   autocomplete="new-password">
+        {# ============ STEP 2: Password admin ============ #}
+        <div class="wizard-step {{ 'active' if current_step == 'step_admin' else '' }}" id="step-step_admin">
+            <div class="card">
+                <h2>👤 Password amministratore</h2>
+                <p class="lead">
+                    Crea la password per l'account amministratore. Ti servirà per accedere
+                    alla dashboard di amministrazione.
+                </p>
+
+                <form method="post" action="/setup" class="form step-form" data-step="step_admin">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="_step" value="step_admin">
+
+                    <div class="form-group">
+                        <label for="admin_password">Password</label>
+                        <input type="password" id="admin_password" name="admin_password"
+                               placeholder="Scegli una password"
+                               required autocomplete="new-password"
+                               class="input-lg">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="admin_password_confirm">Conferma password</label>
+                        <input type="password" id="admin_password_confirm" name="admin_password_confirm"
+                               placeholder="Ripeti la password"
+                               required autocomplete="new-password"
+                               class="input-lg">
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-lg js-validate" data-action="admin">
+                            Crea amministratore
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
 
-        <div class="form-group">
-            <label for="admin_password_confirm">Conferma password</label>
-            <input type="password" id="admin_password_confirm" name="admin_password_confirm"
-                   placeholder="Ripeti la password"
-                   required minlength="8"
-                   autocomplete="new-password">
+        {# ============ STEP 3: Token Telegram ============ #}
+        <div class="wizard-step {{ 'active' if current_step == 'step_telegram' else '' }}" id="step-step_telegram">
+            <div class="card">
+                <h2>✈️ Token Telegram</h2>
+                <p class="lead">
+                    Collega il tuo bot Telegram. Hai già creato un bot con
+                    <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>?
+                    Inserisci il token qui sotto.
+                </p>
+
+                <form method="post" action="/setup" class="form step-form" data-step="step_telegram">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="_step" value="step_telegram">
+
+                    <div class="form-group">
+                        <label for="telegram_token">Token del bot Telegram</label>
+                        <input type="password" id="telegram_token" name="telegram_token"
+                               placeholder="1234567890:ABCdefGHIjklmnOPQrstUVwxyz"
+                               required autocomplete="off"
+                               class="input-lg font-mono">
+                        <small class="form-help">
+                            Lo ottieni da <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>
+                            dopo aver creato il bot.
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <button type="button" class="btn btn-secondary js-test-telegram" data-testing="Verifico…">
+                            🔍 Verifica token
+                        </button>
+                        <span id="telegram-test-result" class="test-result"></span>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-lg" id="telegram-continue" disabled>
+                            Salva e continua
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
 
-        <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Completa configurazione</button>
+        {# ============ STEP 4: Provider AI ============ #}
+        <div class="wizard-step {{ 'active' if current_step == 'step_provider' else '' }}" id="step-step_provider">
+            <div class="card">
+                <h2>🤖 Provider AI</h2>
+                <p class="lead">
+                    Connetti un servizio di intelligenza artificiale per la trascrizione audio.
+                    Puoi usare OpenAI, Google Gemini, o un endpoint compatibile.
+                </p>
+
+                <form method="post" action="/setup" class="form step-form" data-step="step_provider">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="_step" value="step_provider">
+
+                    <div class="form-group">
+                        <label for="provider_type">Provider</label>
+                        <select id="provider_type" name="provider_type" required class="input-lg">
+                            <option value="">— Seleziona un provider —</option>
+                            {% for key, preset in provider_presets.items() %}
+                            <option value="{{ key }}"
+                                    data-endpoint="{{ preset.default_endpoint }}"
+                                    data-description="{{ preset.description }}">
+                                {{ preset.label }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small class="form-help" id="provider-description">
+                            Seleziona un provider per vedere la descrizione.
+                        </small>
+                    </div>
+
+                    <div class="form-group" id="endpoint-group" style="display:none">
+                        <label for="provider_endpoint">Endpoint API</label>
+                        <input type="url" id="provider_endpoint" name="provider_endpoint"
+                               placeholder="https://api.openai.com/v1"
+                               class="input-lg font-mono">
+                        <small class="form-help">URL dell'API compatibile con OpenAI.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="provider_api_key">Chiave API</label>
+                        <input type="password" id="provider_api_key" name="provider_api_key"
+                               placeholder="Inserisci la chiave API"
+                               required autocomplete="off"
+                               class="input-lg font-mono">
+                        <small class="form-help">
+                            La chiave viene criptata e mai mostrata in chiaro.
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <button type="button" class="btn btn-secondary js-test-provider" data-testing="Verifico…">
+                            🔍 Verifica connessione
+                        </button>
+                        <span id="provider-test-result" class="test-result"></span>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-lg" id="provider-continue" disabled>
+                            Salva e continua
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
-    </form>
-</div>
+
+        {# ============ STEP 5: Capacità ============ #}
+        <div class="wizard-step {{ 'active' if current_step == 'step_capabilities' else '' }}" id="step-step_capabilities">
+            <div class="card">
+                <h2>🔍 Rilevamento capacità</h2>
+                <p class="lead">
+                    Analizzo i modelli disponibili per determinare le capacità del provider…
+                </p>
+
+                <div id="capabilities-loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Rilevamento in corso…</p>
+                </div>
+
+                <div id="capabilities-result" style="display:none">
+                    <div class="capability-grid">
+                        <div class="capability-item" id="cap-transcription">
+                            <span class="cap-icon">🎤</span>
+                            <span class="cap-label">Trascrizione audio</span>
+                            <span class="cap-status" id="cap-trans-status"></span>
+                        </div>
+                        <div class="capability-item" id="cap-refinement">
+                            <span class="cap-icon">📝</span>
+                            <span class="cap-label">Refinement testo</span>
+                            <span class="cap-status" id="cap-ref-status"></span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Modelli disponibili</label>
+                        <div id="capabilities-models" class="model-list"></div>
+                    </div>
+
+                    <form method="post" action="/setup" class="form step-form" data-step="step_capabilities">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="_step" value="step_capabilities">
+                        <input type="hidden" name="capabilities_json" id="capabilities-json" value="">
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary btn-lg" id="capabilities-continue">
+                                Continua
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        {# ============ STEP 6: Pipeline ============ #}
+        <div class="wizard-step {{ 'active' if current_step == 'step_pipeline' else '' }}" id="step-step_pipeline">
+            <div class="card">
+                <h2>⚙️ Modalità pipeline</h2>
+                <p class="lead">
+                    Scegli come utilizzare il provider configurato.
+                </p>
+
+                <form method="post" action="/setup" class="form step-form" data-step="step_pipeline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="_step" value="step_pipeline">
+                    <input type="hidden" name="pipeline_mode" id="pipeline-mode-input" value="single">
+
+                    <div class="pipeline-options">
+                        <div class="pipeline-option selected" data-mode="single" tabindex="0" role="button">
+                            <div class="pipeline-option-icon">🌟</div>
+                            <div class="pipeline-option-content">
+                                <h3>Usa questo provider per tutto</h3>
+                                <p>
+                                    Il provider scelto gestirà automaticamente sia la trascrizione
+                                    che il refinement del testo. Consigliato per la maggior parte
+                                    degli utenti.
+                                </p>
+                                <ul class="pipeline-features">
+                                    <li>✅ Configurazione automatica</li>
+                                    <li>✅ Meno passaggi da gestire</li>
+                                    <li>✅ Pipeline ottimizzata</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="pipeline-option" data-mode="single-no-refine" tabindex="0" role="button">
+                            <div class="pipeline-option-icon">🎤</div>
+                            <div class="pipeline-option-content">
+                                <h3>Solo trascrizione</h3>
+                                <p>
+                                    Trascrivi l'audio senza refinement. Il testo grezzo viene
+                                    restituito così come trascritto dal provider.
+                                </p>
+                                <ul class="pipeline-features">
+                                    <li>✅ Più veloce</li>
+                                    <li>✅ Testo originale senza modifiche</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="pipeline-option" data-mode="advanced" tabindex="0" role="button">
+                            <div class="pipeline-option-icon">🔧</div>
+                            <div class="pipeline-option-content">
+                                <h3>Modalità avanzata</h3>
+                                <p>
+                                    Scegli provider diversi per trascrizione e refinement.
+                                    Configurabile in seguito dalla dashboard.
+                                </p>
+                                <ul class="pipeline-features">
+                                    <li>✅ Massima flessibilità</li>
+                                    <li>✅ Provider diversi per ogni fase</li>
+                                    <li>✅ Configurazione manuale</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group" id="model-select-group" style="display:none">
+                        <label for="provider_model">Modello preferito (opzionale)</label>
+                        <select id="provider_model" name="provider_model" class="input-lg">
+                            <option value="">— Usa il default del provider —</option>
+                        </select>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            Salva e continua
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {# ============ STEP 7: Verifica ============ #}
+        <div class="wizard-step {{ 'active' if current_step == 'step_verify' else '' }}" id="step-step_verify">
+            <div class="card">
+                <h2>✅ Verifica configurazione</h2>
+                <p class="lead">
+                    Conferma la configurazione prima di avviare il bot.
+                </p>
+
+                <div id="verify-content" class="verify-grid">
+                    <div class="verify-item">
+                        <span class="verify-icon">✈️</span>
+                        <div>
+                            <strong>Bot Telegram</strong>
+                            <span class="verify-status" id="verify-telegram">⏳</span>
+                        </div>
+                    </div>
+                    <div class="verify-item">
+                        <span class="verify-icon">🤖</span>
+                        <div>
+                            <strong>Provider AI</strong>
+                            <span class="verify-status" id="verify-provider">⏳</span>
+                        </div>
+                    </div>
+                    <div class="verify-item">
+                        <span class="verify-icon">🎤</span>
+                        <div>
+                            <strong>Trascrizione</strong>
+                            <span class="verify-status" id="verify-transcription">⏳</span>
+                        </div>
+                    </div>
+                    <div class="verify-item">
+                        <span class="verify-icon">📝</span>
+                        <div>
+                            <strong>Refinement</strong>
+                            <span class="verify-status" id="verify-refinement">⏳</span>
+                        </div>
+                    </div>
+                    <div class="verify-item">
+                        <span class="verify-icon">⚙️</span>
+                        <div>
+                            <strong>Pipeline</strong>
+                            <span class="verify-status" id="verify-pipeline">⏳</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="verify-error-box" class="alert alert-error" style="display:none"></div>
+
+                <form method="post" action="/setup" class="form step-form" data-step="step_verify">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="_step" value="step_verify">
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-lg" id="verify-continue" disabled>
+                            ✅ Completa configurazione
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {# ============ STEP 8: Completato ============ #}
+        <div class="wizard-step {{ 'active' if current_step == 'step_done' else '' }}" id="step-step_done">
+            <div class="card card-done">
+                <div class="done-icon">🎉</div>
+                <h2>Configurazione completata!</h2>
+                <p class="lead">
+                    Il bot è pronto per essere utilizzato. Effettua il login per accedere
+                    alla dashboard e avviare il bot.
+                </p>
+
+                <div class="form-actions">
+                    <a href="/login" class="btn btn-primary btn-lg">Vai al login</a>
+                </div>
+            </div>
+        </div>
+
+    </div>{# /wizard-steps #}
+</div>{# /wizard #}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    // ------------------------------------------------------------------
+    // Wizard step navigation
+    // ------------------------------------------------------------------
+    const currentStep = '{{ current_step }}';
+    const totalSteps = {{ total_steps }};
+
+    document.querySelectorAll('.step-form').forEach(function(form) {
+        form.addEventListener('submit', function(e) {
+            // For JS-enhanced flow, we handle via fetch and prevent default
+            // Only prevent default if the button has js-validate class
+            const btn = form.querySelector('.js-validate');
+            if (!btn) return; // regular form submit (non-JS fallback)
+
+            e.preventDefault();
+            const step = form.dataset.step;
+            const formData = new FormData(form);
+            const data = {};
+
+            formData.forEach(function(value, key) {
+                if (key !== 'csrf_token' && key !== '_step') {
+                    data[key] = value;
+                }
+            });
+
+            processStep(step, data, form);
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // API call: process a step
+    // ------------------------------------------------------------------
+    function processStep(step, data, form) {
+        const btn = form ? form.querySelector('button[type="submit"]') : null;
+        if (btn) { btn.disabled = true; btn.textContent = 'Elaborazione…'; }
+
+        fetch('/api/setup/step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ step: step, data: data }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.ok) {
+                if (result.next_step) {
+                    advanceToStep(result.next_step);
+                }
+            } else {
+                showError(result.errors ? result.errors.join(', ') : 'Errore sconosciuto');
+                if (btn) { btn.disabled = false; btn.textContent = 'Riprova'; }
+            }
+        })
+        .catch(function(err) {
+            showError('Errore di rete: ' + err.message);
+            if (btn) { btn.disabled = false; btn.textContent = 'Riprova'; }
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Step advancement
+    // ------------------------------------------------------------------
+    function advanceToStep(step) {
+        // Hide all steps
+        document.querySelectorAll('.wizard-step').forEach(function(s) {
+            s.classList.remove('active');
+        });
+
+        // Show target step
+        var target = document.getElementById('step-' + step);
+        if (target) {
+            target.classList.add('active');
+        }
+
+        // Update progress bar
+        document.querySelectorAll('.progress-step').forEach(function(ps) {
+            var psStep = ps.dataset.step;
+            var psNum = getStepNumber(psStep);
+            var targetNum = getStepNumber(step);
+            ps.classList.remove('active', 'completed');
+            if (psStep === step) {
+                ps.classList.add('active');
+            } else if (psNum < targetNum) {
+                ps.classList.add('completed');
+            }
+        });
+
+        // Update URL without reload
+        var url = new URL(window.location);
+        url.searchParams.set('step', step);
+        window.history.replaceState({}, '', url);
+
+        // Clear errors
+        hideError();
+
+        // Trigger step-specific logic
+        if (step === 'step_capabilities') {
+            detectCapabilities();
+        }
+        if (step === 'step_verify') {
+            loadVerifySummary();
+        }
+        if (step === 'step_done') {
+            // Redirect to login after a short delay
+            setTimeout(function() {
+                window.location.href = '/login?setup=ok';
+            }, 3000);
+        }
+    }
+
+    function getStepNumber(step) {
+        var order = ['step_code', 'step_admin', 'step_telegram', 'step_provider',
+                     'step_capabilities', 'step_pipeline', 'step_verify', 'step_done'];
+        var idx = order.indexOf(step);
+        return idx >= 0 ? idx + 1 : 0;
+    }
+
+    // ------------------------------------------------------------------
+    // Error display
+    // ------------------------------------------------------------------
+    function showError(msg) {
+        var el = document.getElementById('wizard-live-error');
+        if (el) {
+            el.textContent = msg;
+            el.style.display = 'block';
+        }
+    }
+
+    function hideError() {
+        var el = document.getElementById('wizard-live-error');
+        if (el) {
+            el.style.display = 'none';
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Step 3: Telegram token test
+    // ------------------------------------------------------------------
+    var testBtn = document.querySelector('.js-test-telegram');
+    var tokenInput = document.getElementById('telegram_token');
+    var testResult = document.getElementById('telegram-test-result');
+    var continueBtn = document.getElementById('telegram-continue');
+
+    if (testBtn) {
+        testBtn.addEventListener('click', function() {
+            var token = tokenInput ? tokenInput.value.trim() : '';
+            if (!token) {
+                testResult.textContent = '❌ Inserisci un token prima di verificare.';
+                testResult.className = 'test-result error';
+                return;
+            }
+
+            testBtn.disabled = true;
+            testBtn.textContent = testBtn.dataset.testing || 'Verifico…';
+            testResult.textContent = '⏳ Verifica in corso…';
+            testResult.className = 'test-result';
+
+            fetch('/api/setup/test-telegram', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: token }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.ok && result.bot) {
+                    testResult.innerHTML = '✅ Bot <strong>' + (result.bot.username || '') + '</strong> rilevato!';
+                    testResult.className = 'test-result success';
+                    if (continueBtn) continueBtn.disabled = false;
+                } else {
+                    testResult.textContent = '❌ ' + (result.error || 'Token non valido');
+                    testResult.className = 'test-result error';
+                }
+            })
+            .catch(function(err) {
+                testResult.textContent = '❌ Errore: ' + err.message;
+                testResult.className = 'test-result error';
+            })
+            .finally(function() {
+                testBtn.disabled = false;
+                testBtn.textContent = '🔍 Verifica token';
+            });
+        });
+    }
+
+    // Enable continue button when token changes after verification
+    if (tokenInput) {
+        tokenInput.addEventListener('input', function() {
+            if (continueBtn) continueBtn.disabled = true;
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Step 4: Provider test
+    // ------------------------------------------------------------------
+    var providerType = document.getElementById('provider_type');
+    var providerEndpoint = document.getElementById('provider_endpoint');
+    var endpointGroup = document.getElementById('endpoint-group');
+    var providerDesc = document.getElementById('provider-description');
+    var providerTestBtn = document.querySelector('.js-test-provider');
+    var providerTestResult = document.getElementById('provider-test-result');
+    var providerContinueBtn = document.getElementById('provider-continue');
+
+    if (providerType) {
+        providerType.addEventListener('change', function() {
+            var opt = providerType.options[providerType.selectedIndex];
+            var endpoint = opt ? opt.dataset.endpoint || '' : '';
+            var description = opt ? opt.dataset.description || '' : '';
+
+            if (providerDesc) {
+                providerDesc.textContent = description || 'Seleziona un provider per vedere la descrizione.';
+            }
+
+            // Show endpoint field for custom/openrouter/ollama/vllm
+            var showEndpoint = ['openrouter', 'ollama', 'vllm', 'custom'].indexOf(providerType.value) >= 0;
+            if (endpointGroup) {
+                endpointGroup.style.display = showEndpoint ? 'block' : 'none';
+            }
+            if (providerEndpoint && endpoint) {
+                providerEndpoint.value = endpoint;
+            }
+
+            // Reset test state
+            if (providerTestResult) providerTestResult.textContent = '';
+            if (providerContinueBtn) providerContinueBtn.disabled = true;
+        });
+    }
+
+    if (providerTestBtn) {
+        providerTestBtn.addEventListener('click', function() {
+            var ptype = providerType ? providerType.value : '';
+            var apiKey = document.getElementById('provider_api_key') ? document.getElementById('provider_api_key').value.trim() : '';
+            var endpoint = providerEndpoint ? providerEndpoint.value.trim() : '';
+
+            if (!ptype) {
+                providerTestResult.textContent = '❌ Seleziona un provider.';
+                providerTestResult.className = 'test-result error';
+                return;
+            }
+            if (!apiKey) {
+                providerTestResult.textContent = '❌ Inserisci una chiave API.';
+                providerTestResult.className = 'test-result error';
+                return;
+            }
+
+            providerTestBtn.disabled = true;
+            providerTestBtn.textContent = providerTestBtn.dataset.testing || 'Verifico…';
+            providerTestResult.textContent = '⏳ Connessione in corso…';
+            providerTestResult.className = 'test-result';
+
+            fetch('/api/setup/test-provider', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: ptype, api_key: apiKey, endpoint: endpoint }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.ok) {
+                    var modelCount = result.models ? result.models.length : 0;
+                    providerTestResult.innerHTML = '✅ Connessione riuscita! ' + modelCount + ' modelli rilevati.';
+                    providerTestResult.className = 'test-result success';
+                    if (providerContinueBtn) providerContinueBtn.disabled = false;
+
+                    // Store models for next step
+                    window._detectedModels = result.models || [];
+                    window._detectedProvider = result.provider || ptype;
+                } else {
+                    providerTestResult.textContent = '❌ ' + (result.error || 'Connessione fallita');
+                    providerTestResult.className = 'test-result error';
+                }
+            })
+            .catch(function(err) {
+                providerTestResult.textContent = '❌ Errore: ' + err.message;
+                providerTestResult.className = 'test-result error';
+            })
+            .finally(function() {
+                providerTestBtn.disabled = false;
+                providerTestBtn.textContent = '🔍 Verifica connessione';
+            });
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Step 5: Capability detection
+    // ------------------------------------------------------------------
+    function detectCapabilities() {
+        var loading = document.getElementById('capabilities-loading');
+        var resultDiv = document.getElementById('capabilities-result');
+        var models = window._detectedModels || [];
+        var providerType = window._detectedProvider || '';
+
+        if (!models.length) {
+            // No pre-detected models; detect based on saved config
+            loading.querySelector('p').textContent = 'Caricamento configurazione…';
+            fetch('/api/setup/summary')
+                .then(function(r) { return r.json(); })
+                .then(function(summary) {
+                    providerType = summary.provider ? summary.provider.type : '';
+                    return fetch('/api/setup/detect-capabilities', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: providerType,
+                            models: summary.capabilities && summary.capabilities.models ? summary.capabilities.models : [],
+                        }),
+                    });
+                })
+                .then(function(r) { return r.json(); })
+                .then(renderCapabilities)
+                .catch(function(err) {
+                    loading.innerHTML = '<p class="alert alert-error">Errore: ' + err.message + '</p>';
+                });
+            return;
+        }
+
+        // Call capability detection with discovered models
+        fetch('/api/setup/detect-capabilities', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: providerType, models: models }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(renderCapabilities)
+        .catch(function(err) {
+            loading.innerHTML = '<p class="alert alert-error">Errore: ' + err.message + '</p>';
+        });
+    }
+
+    function renderCapabilities(result) {
+        var loading = document.getElementById('capabilities-loading');
+        var resultDiv = document.getElementById('capabilities-result');
+        var jsonInput = document.getElementById('capabilities-json');
+
+        if (loading) loading.style.display = 'none';
+        if (resultDiv) resultDiv.style.display = 'block';
+
+        if (!result.ok) {
+            if (resultDiv) {
+                resultDiv.innerHTML = '<p class="alert alert-error">' +
+                    (result.error || 'Rilevamento fallito') + '</p>';
+            }
+            return;
+        }
+
+        var caps = result.capabilities || {};
+        var transEl = document.getElementById('cap-trans-status');
+        var refEl = document.getElementById('cap-ref-status');
+        var modelsEl = document.getElementById('capabilities-models');
+
+        if (transEl) {
+            transEl.textContent = caps.transcription ? '✅ Disponibile' : '❌ Non disponibile';
+            transEl.className = caps.transcription ? 'badge badge-success' : 'badge badge-error';
+        }
+        if (refEl) {
+            refEl.textContent = caps.refinement ? '✅ Disponibile' : '❌ Non disponibile';
+            refEl.className = caps.refinement ? 'badge badge-success' : 'badge badge-error';
+        }
+        if (modelsEl) {
+            modelsEl.innerHTML = '';
+            var modelList = caps.models || [];
+            if (modelList.length > 0) {
+                modelList.slice(0, 10).forEach(function(m) {
+                    var badge = document.createElement('span');
+                    badge.className = 'model-badge';
+                    badge.textContent = m;
+                    modelsEl.appendChild(badge);
+                });
+                if (modelList.length > 10) {
+                    var more = document.createElement('p');
+                    more.className = 'form-help';
+                    more.textContent = '… e altri ' + (modelList.length - 10) + ' modelli.';
+                    modelsEl.appendChild(more);
+                }
+            } else {
+                modelsEl.innerHTML = '<p class="form-help">Nessun modello specifico rilevato.</p>';
+            }
+        }
+
+        // Save capabilities via API
+        fetch('/api/setup/step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ step: 'step_capabilities', data: { capabilities: caps } }),
+        });
+
+        // Also store in hidden input for non-JS fallback
+        if (jsonInput) {
+            jsonInput.value = JSON.stringify(caps);
+        }
+
+        // Populate model select for step 6
+        populateModelSelect(caps.models || []);
+    }
+
+    // ------------------------------------------------------------------
+    // Step 6: Pipeline mode selection
+    // ------------------------------------------------------------------
+    var pipelineOptions = document.querySelectorAll('.pipeline-option');
+    var pipelineModeInput = document.getElementById('pipeline-mode-input');
+    var modelSelectGroup = document.getElementById('model-select-group');
+
+    if (pipelineOptions.length) {
+        pipelineOptions.forEach(function(opt) {
+            opt.addEventListener('click', function() {
+                pipelineOptions.forEach(function(o) { o.classList.remove('selected'); });
+                opt.classList.add('selected');
+                if (pipelineModeInput) {
+                    pipelineModeInput.value = opt.dataset.mode;
+                }
+                // Show model selector for "single" modes
+                if (modelSelectGroup) {
+                    var showModel = opt.dataset.mode === 'single' || opt.dataset.mode === 'single-no-refine';
+                    modelSelectGroup.style.display = showModel ? 'block' : 'none';
+                }
+            });
+
+            // Keyboard support
+            opt.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    opt.click();
+                }
+            });
+        });
+    }
+
+    function populateModelSelect(models) {
+        var select = document.getElementById('provider_model');
+        if (!select) return;
+
+        // Keep the default option
+        select.innerHTML = '<option value="">— Usa il default del provider —</option>';
+
+        if (models && models.length) {
+            models.forEach(function(m) {
+                var opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                select.appendChild(opt);
+            });
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Step 7: Verify summary
+    // ------------------------------------------------------------------
+    function loadVerifySummary() {
+        var verifyBtn = document.getElementById('verify-continue');
+
+        fetch('/api/setup/summary')
+            .then(function(r) { return r.json(); })
+            .then(function(summary) {
+                var telegramEl = document.getElementById('verify-telegram');
+                var providerEl = document.getElementById('verify-provider');
+                var transEl = document.getElementById('verify-transcription');
+                var refEl = document.getElementById('verify-refinement');
+                var pipeEl = document.getElementById('verify-pipeline');
+
+                if (telegramEl) {
+                    telegramEl.textContent = summary.telegram_token_set ? '✅ Configurato' : '❌ Mancante';
+                    telegramEl.className = summary.telegram_token_set ? 'badge badge-success' : 'badge badge-error';
+                }
+                if (providerEl) {
+                    var providerName = summary.provider ? summary.provider.type : '';
+                    providerEl.textContent = providerName ? '✅ ' + providerName.toUpperCase() : '❌ Non configurato';
+                    providerEl.className = providerName ? 'badge badge-success' : 'badge badge-error';
+                }
+                if (transEl) {
+                    transEl.textContent = summary.capabilities && summary.capabilities.transcription ? '✅ Supportata' : '❌ Non supportata';
+                    transEl.className = summary.capabilities && summary.capabilities.transcription ? 'badge badge-success' : 'badge badge-error';
+                }
+                if (refEl) {
+                    refEl.textContent = summary.capabilities && summary.capabilities.refinement ? '✅ Supportato' : '⏭️ Disabilitato';
+                    refEl.className = summary.capabilities && summary.capabilities.refinement ? 'badge badge-success' : 'badge badge-info';
+                }
+                if (pipeEl) {
+                    pipeEl.textContent = summary.pipeline_description || summary.pipeline_mode || 'Configurata';
+                    pipeEl.className = summary.bot_ready ? 'badge badge-success' : 'badge badge-warn';
+                }
+
+                // Enable continue if ready, show warning otherwise
+                if (verifyBtn) {
+                    if (summary.bot_ready) {
+                        verifyBtn.disabled = false;
+                    } else {
+                        verifyBtn.disabled = true;
+                        document.getElementById('verify-error-box').style.display = 'block';
+                        document.getElementById('verify-error-box').textContent =
+                            '⚠️ Alcuni elementi necessari non sono configurati. ' +
+                            'Puoi completare la configurazione dalla dashboard.';
+                    }
+                }
+            })
+            .catch(function(err) {
+                var box = document.getElementById('verify-error-box');
+                if (box) {
+                    box.style.display = 'block';
+                    box.textContent = 'Errore nel caricamento del riepilogo: ' + err.message;
+                }
+            });
+    }
+
+    // ------------------------------------------------------------------
+    // Auto-trigger capability detection when entering step 5
+    // ------------------------------------------------------------------
+    if (currentStep === 'step_capabilities') {
+        detectCapabilities();
+    }
+    if (currentStep === 'step_verify') {
+        loadVerifySummary();
+    }
+    if (currentStep === 'step_done') {
+        setTimeout(function() {
+            window.location.href = '/login?setup=ok';
+        }, 3000);
+    }
+
+})();
+</script>
 {% endblock %}

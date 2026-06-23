@@ -69,6 +69,7 @@ def ready_app(tmp_path):
     TELEGRAM_MISSING).
     """
     from bot.web.auth import set_admin_password
+    from bot.web.setup_wizard import set_current_step, STEP_DONE
 
     config = _make_minimal_config(tmp_path)
     app = create_app(config=config)
@@ -77,6 +78,9 @@ def ready_app(tmp_path):
     # wizard *through* the app's own database.
     set_admin_password(app.state.db, "admin-password")
     app.state.db.set_setup_state("admin_created", "true")
+
+    # Mark the wizard as complete so the frontend redirects correctly
+    set_current_step(app.state.db, STEP_DONE)
 
     return app
 
@@ -141,12 +145,13 @@ def test_root_redirects_to_dashboard_when_admin(ready_app):
 
 
 def test_setup_page_renders_form(fresh_app):
-    """GET /setup renders the setup form."""
+    """GET /setup renders the wizard at step 1 (setup code)."""
     with TestClient(fresh_app) as client:
         resp = client.get("/setup")
     assert resp.status_code == 200
     assert "Codice di configurazione" in resp.text
     assert "csrf_token" in resp.text
+    assert "wizard" in resp.text or "step_code" in resp.text
 
 
 def test_setup_page_redirects_to_login_when_admin(ready_app):
@@ -163,8 +168,10 @@ def test_setup_page_redirects_to_dashboard_when_logged_in(fresh_app):
     with TestClient(fresh_app) as client:
         # Create admin first, then set up a session cookie manually
         from bot.web.auth import set_admin_password
+        from bot.web.setup_wizard import set_current_step, STEP_DONE
         set_admin_password(fresh_app.state.db, "pw")
         fresh_app.state.db.set_setup_state("admin_created", "true")
+        set_current_step(fresh_app.state.db, STEP_DONE)
 
         # Set an authenticated session cookie
         serialiser = fresh_app.state.serialiser
@@ -185,61 +192,67 @@ def test_setup_page_redirects_to_dashboard_when_logged_in(fresh_app):
 def _complete_setup(client: TestClient, app, password="test-admin-pw"):
     """Helper: complete the setup wizard through the POST endpoint.
 
-    Returns the response (without following redirects).
+    Returns the final response (without following redirects).
+    Uses two separate POSTs: step_code then step_admin.
     """
-    # Obtain a CSRF token
+    # Obtain a CSRF token from the setup page
     resp = client.get("/setup")
     csrf = _extract_csrf(resp.text)
 
-    # The app generated a setup code on startup — read it from the DB
-    from bot.setup import is_code_generated
-    assert is_code_generated(app.state.db)
-
+    # The app generated a setup code on startup — invalidate and create
+    # a new one so we know the plaintext value.
     from bot.database import DatabaseManager
     db: DatabaseManager = app.state.db
 
-    # The setup code is in generate_setup_code's stored hash; we can't
-    # retrieve the plaintext. Instead, we generate a known code and
-    # monkey-patch validate_setup_code.
-
-    # Alternative: read setup_state directly and regenerate
-    from bot.setup import generate_setup_code, validate_setup_code
-
-    # We need the *plaintext* code. The easiest approach is to call
-    # generate_setup_code ourselves and capture the return value.
-    # But the app already generated one on startup.
-    #
-    # Workaround: invalidate the old code, generate a new one, and use it.
-    from bot.setup import invalidate_setup_code
+    from bot.setup import invalidate_setup_code, generate_setup_code
     invalidate_setup_code(db)
     code = generate_setup_code(db)
 
+    # Step 1: POST step_code
+    resp1 = client.post(
+        "/setup",
+        data={
+            "_step": "step_code",
+            "setup_code": code,
+            "csrf_token": csrf,
+        },
+        follow_redirects=False,
+    )
+    # Obtain a fresh CSRF token for step 2
+    resp = client.get("/setup?step=step_admin")
+    csrf2 = _extract_csrf(resp.text)
+
+    # Step 2: POST step_admin
     return client.post(
         "/setup",
         data={
-            "setup_code": code,
+            "_step": "step_admin",
             "admin_password": password,
             "admin_password_confirm": password,
-            "csrf_token": csrf,
+            "csrf_token": csrf2,
         },
         follow_redirects=False,
     )
 
 
 def test_setup_post_success(fresh_app):
-    """POST /setup with a valid code creates admin and redirects to
-    login."""
+    """POST /setup step_code + step_admin creates admin and advances
+    the wizard."""
     with TestClient(fresh_app) as client:
         resp = _complete_setup(client, fresh_app)
+    # After step_admin the wizard advances to step_telegram
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/login?setup=ok"
+    assert resp.headers["location"] == "/setup?step=step_telegram"
     # Admin should now exist
     from bot.web.auth import has_admin
     assert has_admin(fresh_app.state.db) is True
+    # Wizard should have advanced past admin
+    from bot.web.setup_wizard import get_current_step, STEP_ADMIN
+    assert get_current_step(fresh_app.state.db) != STEP_ADMIN
 
 
 def test_setup_post_invalid_code(fresh_app):
-    """POST /setup with an invalid code shows an error."""
+    """POST /setup step_code with an invalid code shows an error."""
     with TestClient(fresh_app) as client:
         resp = client.get("/setup")
         csrf = _extract_csrf(resp.text)
@@ -247,9 +260,8 @@ def test_setup_post_invalid_code(fresh_app):
         resp = client.post(
             "/setup",
             data={
+                "_step": "step_code",
                 "setup_code": "INVALID1",
-                "admin_password": "test-password",
-                "admin_password_confirm": "test-password",
                 "csrf_token": csrf,
             },
             follow_redirects=False,
@@ -258,20 +270,17 @@ def test_setup_post_invalid_code(fresh_app):
     assert "invalid_code" in resp.headers["location"]
 
 
-def test_setup_post_password_short(fresh_app):
-    """POST /setup with a short password shows an error."""
+def test_setup_post_password_short_accepted(fresh_app):
+    """POST /setup step_admin: short passwords are accepted (no min-length
+    restriction)."""
     with TestClient(fresh_app) as client:
         resp = client.get("/setup")
         csrf = _extract_csrf(resp.text)
 
-        from bot.setup import generate_setup_code, invalidate_setup_code
-        invalidate_setup_code(fresh_app.state.db)
-        code = generate_setup_code(fresh_app.state.db)
-
         resp = client.post(
             "/setup",
             data={
-                "setup_code": code,
+                "_step": "step_admin",
                 "admin_password": "short",
                 "admin_password_confirm": "short",
                 "csrf_token": csrf,
@@ -279,23 +288,20 @@ def test_setup_post_password_short(fresh_app):
             follow_redirects=False,
         )
     assert resp.status_code == 303
-    assert "password_short" in resp.headers["location"]
+    # Should advance to step_telegram, not block on length
+    assert "step_telegram" in resp.headers["location"]
 
 
 def test_setup_post_password_mismatch(fresh_app):
-    """POST /setup with mismatched passwords shows an error."""
+    """POST /setup step_admin with mismatched passwords shows an error."""
     with TestClient(fresh_app) as client:
         resp = client.get("/setup")
         csrf = _extract_csrf(resp.text)
 
-        from bot.setup import generate_setup_code, invalidate_setup_code
-        invalidate_setup_code(fresh_app.state.db)
-        code = generate_setup_code(fresh_app.state.db)
-
         resp = client.post(
             "/setup",
             data={
-                "setup_code": code,
+                "_step": "step_admin",
                 "admin_password": "test-password",
                 "admin_password_confirm": "different-pw",
                 "csrf_token": csrf,
@@ -312,9 +318,8 @@ def test_setup_post_csrf_mismatch(fresh_app):
         resp = client.post(
             "/setup",
             data={
+                "_step": "step_code",
                 "setup_code": "doesnotmatter",
-                "admin_password": "test-password",
-                "admin_password_confirm": "test-password",
                 "csrf_token": "bad-token",
             },
             follow_redirects=False,

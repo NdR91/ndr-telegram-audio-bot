@@ -43,6 +43,31 @@ These decisions define the intended architecture unless explicitly revisited.
 | Local models | Prefer HTTP services such as Ollama or vLLM; keep heavyweight in-process runtimes optional. |
 | Transcript retention | Do not persist audio or transcripts by default. |
 | Compatibility | Preserve the current bot while the new control plane is built and provide a migration path. |
+| Component reuse | Prefer maintained open-source libraries and templates before building custom components. Custom code is justified for bot-specific domain logic, migration boundaries, or security constraints. |
+
+## Component reuse policy
+
+Before implementing a substantial new component, review whether a maintained
+open-source library, framework feature, or template covers the need with lower
+long-term maintenance cost.
+
+Default posture:
+
+- adopt existing components for generic web UI patterns, authentication
+  primitives, form handling, admin layouts, scheduling, health checks, and
+  operational plumbing;
+- build custom code for the Telegram/audio pipeline domain, provider capability
+  resolution, migration from legacy files, runtime snapshot semantics, and
+  safety rules specific to this application;
+- document the choice when a custom implementation replaces an obvious
+  existing library.
+
+For the frontend, keep the early control plane server-rendered and simple.
+When the administration UI needs polish, prefer a lightweight admin template
+and progressive-enhancement stack (for example Tabler + HTMX/Alpine.js) before
+moving to a full SPA. React, Vue, Svelte, or similar should be reconsidered
+only if the frontend becomes a rich standalone product with substantial
+client-side state.
 
 ## Configuration boundaries
 
@@ -602,23 +627,26 @@ cleanly with the existing Python runtime.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
-Wizard steps:
+**Completed 2026-06-23**
 
-1. redeem setup code;
-2. create the first administrator;
-3. enter and verify the Telegram token;
-4. connect the first AI service;
-5. detect capabilities and models;
-6. choose “use this service for everything” by default;
-7. verify the resulting pipeline;
-8. start the bot.
-
-Users may save incomplete setup, but the UI must clearly show why audio
-processing is unavailable.
+- Implemented an 8-step setup wizard with server-rendered Jinja2 templates
+  and progressive JS enhancement (non-JS fallback via form POST).
+- Steps: setup-code redemption, admin creation, Telegram token entry and
+  connectivity test, provider selection (OpenAI/Gemini/OpenRouter/Ollama/vLLM)
+  with credential validation, capability detection, pipeline verification,
+  and bot start/stop.
+- Progress is persisted in the `setup_state` table — resumable across
+  container restarts.
+- Setup code is printed to container logs and invalidated after admin
+  creation.
+- API endpoints: `GET /setup`, `POST /api/setup/step` for JS-driven flow.
+- Added bot start/stop toggle on the dashboard via `POST /api/bot/start`
+  and `POST /api/bot/stop`.
+- Port changed from 8080 to 8086 to avoid host conflict.
 
 **Manual verification** (from frontend — requires a blank data volume)
 
@@ -814,6 +842,43 @@ Provide:
       recovered.
 - [ ] Try to import a malformed or invalid file — confirm a validation error
       is shown with a preview of what is wrong.
+
+## W8 — Polished administration UI
+
+| Field | Value |
+| --- | --- |
+| Status | Deferred |
+| Priority | Medium |
+| Effort | Medium–High |
+
+Improve the administration UI after the backend control plane is stable.
+
+Preferred direction:
+
+- keep server-rendered pages unless interaction requirements prove a full SPA
+  is worth the added complexity;
+- adopt a maintained UI foundation such as Tabler, AdminLTE, DaisyUI, or a
+  comparable admin template instead of designing every component from scratch;
+- use lightweight progressive enhancement such as HTMX and/or Alpine.js for
+  inline validation, live status refresh, modal confirmations, toast
+  notifications, and start/stop actions;
+- keep forms accessible and usable without relying on large client-side state;
+- revisit React, Vue, Svelte, or another SPA framework only if pipeline editing,
+  provider/model exploration, or dashboards become too complex for the
+  server-rendered model.
+
+**Manual verification** (from frontend)
+
+- [ ] The dashboard has a clear visual hierarchy for state, bot lifecycle,
+      provider health, and setup progress.
+- [ ] Forms show inline validation without losing entered data.
+- [ ] Start/stop/restart actions provide immediate feedback and safe
+      confirmation where needed.
+- [ ] The UI remains responsive on mobile and small screens.
+- [ ] No secrets are exposed in page source, browser storage, logs, or
+      JavaScript state.
+- [ ] The selected template/library is documented with rationale and upgrade
+      notes.
 
 # Phase 3 — Composable provider architecture
 
@@ -1333,7 +1398,8 @@ Every migration stage should leave the repository in a deployable state.
 | 11 | P6–P8 | Add advanced composition, OpenRouter, Ollama, vLLM, and local deployment paths. |
 | 12 | W5, W7, T1 | Complete daily administration and safe Telegram configuration. |
 | 13 | T2–T7 | Improve end-user output, control, and multilingual UX. |
-| 14 | O1–O4 | Mature operations, auditability, and reproducibility. |
+| 14 | W8 | Polish the administration UI after the control plane is stable. |
+| 15 | O1–O4 | Mature operations, auditability, and reproducibility. |
 
 # Milestones
 
@@ -1363,8 +1429,8 @@ through the frontend, with safe everyday settings available in Telegram.
 
 ## Milestone 6 — Polished end-user experience
 
-Output modes, cancellation, natural delivery, export, translation, and improved
-progress are available.
+Output modes, cancellation, natural delivery, export, translation, improved
+progress, and a polished administration UI are available.
 
 # Decision log
 
@@ -1383,3 +1449,5 @@ Record decisions without rewriting roadmap history.
 | 2026-06-23 | A3 | Done | Added ConfigService with 17-setting registry, typed validation, transactional bulk updates, and write-only secret fields. |
 | 2026-06-23 | A4 | Done | Added AppState enum, StateChecker, and audio handler gating for readiness. |
 | 2026-06-23 | A4.1 | Done | Closed runtime integration gap: legacy compatibility, secret-write safety, unified ACL, and RuntimeSnapshot. |
+| 2026-06-23 | Component reuse | Approved | Prefer maintained open-source libraries/templates before custom components; keep early frontend server-rendered, revisit richer stacks later. |
+| 2026-06-23 | W2 | Done | Added 8-step guided onboarding wizard with JS enhancement, setup-code flow, admin creation, Telegram/provider testing, capability detection, pipeline verification, and bot lifecycle controls. |
