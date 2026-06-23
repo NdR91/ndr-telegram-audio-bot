@@ -1,131 +1,151 @@
 # AGENTS.md
 
-This file documents how to work in this repository as an agentic coding assistant.
-It focuses on build/run/test commands and the local coding conventions inferred
-from the current codebase.
+This file documents how agentic coding assistants should work in this
+repository. Keep it aligned with the current codebase, `README.md`, and
+`CONTRIBUTING.md`.
 
-No Cursor rules or Copilot instructions were found in:
+No Cursor rules or Copilot instructions are currently present in:
+
 - `.cursor/rules/`
 - `.cursorrules`
 - `.github/copilot-instructions.md`
 
 ## Project summary
-- Python Telegram bot that downloads audio, converts it with FFmpeg, transcribes
-  it with an LLM provider, and returns refined text.
-- Providers: OpenAI Whisper + chat completions, or Google Gemini multimodal.
-- Entry point: `bot/main.py`.
-- Config is via `.env` and `authorized.json` (both untracked).
 
-## Build, run, and ops commands
+- Python Telegram bot that downloads audio, converts it with FFmpeg,
+  transcribes it through an LLM provider, refines the transcript, and returns
+  the result to Telegram.
+- Providers: OpenAI Whisper plus GPT refinement, or Google Gemini multimodal
+  transcription and refinement.
+- Entry point: `bot/main.py`.
+- Runtime configuration comes from `.env`.
+- `authorized.json` is required as the bootstrap access-control file.
+- Runtime access-control changes are persisted in SQLite.
+
+## Build, run, and operations
 
 ### Docker (recommended)
-- Build and run: `docker-compose up -d --build`
-- View logs: `docker-compose logs -f`
 
-### Local run (no Docker)
-- Create venv: `python3 -m venv venv`
-- Activate venv: `source venv/bin/activate`
-- Install deps: `pip install -r requirements.txt`
-- Run bot: `python bot/main.py`
+- Build and run: `docker compose up -d --build`
+- View logs: `docker compose logs -f`
+- Stop: `docker compose down`
+
+The legacy `docker-compose` command may also work where Docker Compose v1 is
+installed, but new documentation should use `docker compose`.
+
+### Local run
+
+- Create virtual environment: `python3 -m venv venv`
+- Activate it: `source venv/bin/activate`
+- Install dependencies: `python -m pip install -r requirements.txt`
+- Run the bot: `python bot/main.py`
 
 ### Runtime prerequisites
-- FFmpeg must be installed and available on PATH.
-- Valid Telegram token in `.env` (`TELEGRAM_TOKEN`).
-- Provider API key in `.env` (`OPENAI_API_KEY` or `GEMINI_API_KEY`).
-- Authorized user/group IDs in `authorized.json`.
+
+- Python 3.10 or newer.
+- FFmpeg available on `PATH`.
+- Valid `TELEGRAM_TOKEN`.
+- The API key required by the selected provider.
+- A valid `authorized.json` containing `admin`, `users`, and `groups` arrays.
 
 ## Tests
-- No automated test suite is present in the repository.
-- There are no test commands in README or scripts.
-- If you add tests later, prefer `pytest` and document single-test usage as:
-  `pytest path/to/test_file.py::test_name`.
+
+An automated pytest suite is present under `tests/`.
+
+- Full suite: `python -m pytest tests`
+- Single file: `python -m pytest tests/test_config.py`
+- Single test:
+  `python -m pytest tests/test_config.py::test_config_loads_defaults_and_normalizes_ids`
+
+Use `python -m pytest` so the repository root is consistently available on the
+Python import path.
 
 ## Linting and formatting
-- No linting or formatting tools are configured.
-- Keep formatting consistent with the existing code:
-  - 4-space indents
-  - Line breaks for long strings using implicit string concatenation
-  - Minimal inline comments, only for non-obvious behavior
 
-## Code style guidelines
+No dedicated linter or formatter is currently configured. Match the existing
+style:
 
-### Imports
-- Standard library imports first, then third-party, then local modules.
-- Use explicit imports (no star imports).
-- Keep import blocks compact with a single blank line between groups.
-- For files within `bot/` package, use relative imports when appropriate.
-- Use `sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))` for critical modules that need project root access.
+- 4-space indentation.
+- Standard library imports, then third-party imports, then local imports.
+- Explicit imports only.
+- Type hints where they improve public interfaces.
+- Implicit string concatenation for long prompt and message strings.
+- Minimal comments, reserved for non-obvious behavior.
 
-### Naming
-- Modules: snake_case (`providers.py`, `constants.py`).
-- Classes: PascalCase (`OpenAIProvider`, `GeminiProvider`).
-- Functions: snake_case (`handle_audio`, `convert_to_mp3`).
-- Constants: UPPER_SNAKE_CASE (`PROMPT_SYSTEM`, `MAX_MESSAGE_LENGTH`).
+## Architecture and conventions
 
-### Types and annotations
-- Use type hints when they clarify public interfaces or factory functions.
-- The codebase is partially typed; do not force types everywhere.
+### Application lifecycle
 
-### Formatting
-- Keep strings in ASCII when possible.
-- For long prompt strings, use parentheses and implicit concatenation.
-- Avoid trailing whitespace and keep files Unix-style.
+- `bot/main.py` loads and validates configuration.
+- `bot/core/app.py` builds the Telegram application and registers handlers.
+- Application-scoped services are stored in `Application.bot_data`.
+- Avoid introducing mutable module-level service singletons.
 
-### Logging
-- Use the standard `logging` module.
-- Log important steps in pipelines (download, conversion, provider calls).
-- Use `logger.error` for failures and include exceptions where helpful.
+### Providers and prompts
 
-### Error handling
-- Fail fast on missing env variables at startup in `bot/main.py`.
-- Use custom exceptions from `bot.exceptions` module for specific error types.
-- Raise `RuntimeError` for unrecoverable failures in helpers.
-- For handler flows, catch exceptions and send a user-facing error message.
-- Always clean up temporary files in a `finally` block.
+- Provider interfaces and implementations live in `bot/providers.py`.
+- Provider construction and provider-agnostic helpers live in `bot/utils.py`.
+- Prompt defaults are loaded by `bot/config.py`; user overrides come from
+  `PROMPT_SYSTEM` and `PROMPT_REFINE_TEMPLATE`.
+- Every refine template must contain `{raw_text}`.
+- OpenAI uses Whisper for transcription and either Chat Completions or the
+  Responses API for refinement.
+- Gemini combines the system and refinement prompts into one request.
 
 ### Async and Telegram handlers
-- Handlers are `async def` and use `await` for Telegram operations.
-- Use `ApplicationBuilder` and register handlers in `main()`.
-- Keep command handlers small and focused on request/response.
-- Use decorators from `bot.decorators` for authentication and timeout handling.
 
-### Prompts and LLM usage
-- Prompts are defined in `bot/constants.py`.
-- `PROMPT_SYSTEM` and `PROMPT_REFINE_TEMPLATE` can be overridden via `.env`.
-- OpenAI uses a system+user chat format.
-- Gemini combines the system prompt and refine template into one string.
-- Always include `{raw_text}` in the refine template.
+- Handlers are `async def` and await Telegram operations.
+- Use decorators from `bot.decorators` for authorization, rate limiting, and
+  timeout behavior.
+- Keep command handlers small and keep pipeline logic in focused classes or
+  helpers.
+- Telegram responses must be split at `MAX_MESSAGE_LENGTH`.
 
-### Configuration files
-- `.env` and `authorized.json` are required at runtime and must not be committed. Never touch them.
-- Avoid logging secrets or tokens.
+### Error handling and cleanup
 
-## Repo layout
-- `bot/main.py`: Telegram bot entry point and configuration initialization.
-- `bot/core/app.py`: Application builder and handler registration.
-- `bot/handlers/`: Command, admin, and audio processing handlers.
-- `bot/providers.py`: LLM providers for transcription and refinement.
-- `bot/config.py`: Centralized configuration management and validation.
-- `bot/utils.py`: FFmpeg conversion and provider factory.
-- `bot/constants.py`: Messages, prompts, and config constants.
-- `bot/exceptions.py`: Custom exception classes for error handling.
-- `bot/decorators/`: Authentication and timeout decorators.
-- `bot/ui/progress.py`: Progress message UI components.
-- `audio_files/`: Temporary storage for downloaded audio files.
+- Use custom exceptions from `bot.exceptions` for pipeline stages.
+- Attach safe user-facing messages to pipeline exceptions.
+- Log technical failures without logging transcript contents by default.
+- Always clean up temporary local files in `finally`.
+- Gemini uploads must also be cleaned up remotely.
 
-## When adding new functionality
-- Keep provider-agnostic logic in `bot/utils.py` and `bot/providers.py`.
-- Add new constants to `bot/constants.py` and wire through env vars.
-- Update `README.md` if you add or change configuration.
-- Update `CHANGELOG.md` with a new dated version section.
+### Access control
 
-## Security and safety
-- Never commit `.env`, `authorized.json`, or any API keys.
-- Validate IDs as integers before writing to `authorized.json`.
-- Ensure cleanup of temporary audio files to avoid disk growth.
+- `authorized.json` is bootstrap input and is not mutated at runtime.
+- Live whitelist state is persisted in the SQLite file configured by
+  `AUTHORIZED_DB`.
+- Validate user and group IDs as integers.
+- Preserve locking around concurrent whitelist changes.
 
-## Common pitfalls
-- Telegram message length limit: split responses over 4000 chars.
-- FFmpeg errors should surface as `RuntimeError` in helpers.
-- Gemini file uploads can be asynchronous; wait for ACTIVE state.
-- Circular imports: use late imports inside functions when needed between bot modules.
+## Documentation responsibilities
+
+When behavior changes:
+
+- Update `README.md` for user-facing setup, operation, or configuration.
+- Update `.env.example` for environment variables.
+- Update `CONTRIBUTING.md` for development workflow changes.
+- Add an entry under `CHANGELOG.md` → `Unreleased`.
+- Keep this file synchronized with repository commands and architecture.
+
+## Security and repository hygiene
+
+- Never read, edit, log, or commit `.env`, `.env.*`, `authorized.json`, API
+  keys, tokens, transcripts, or the SQLite authorization database.
+- Do not commit generated audio, virtual environments, caches, or AppleDouble
+  `._*` files.
+- Preserve the non-root Docker runtime and read-only `authorized.json` mount.
+- Do not weaken file cleanup path validation.
+
+## Repository layout
+
+- `bot/main.py`: entry point and startup.
+- `bot/core/app.py`: application construction and handler registration.
+- `bot/handlers/`: commands, administration, and audio pipeline handlers.
+- `bot/providers.py`: LLM provider implementations and resilience wrapper.
+- `bot/config.py`: environment loading and validation.
+- `bot/auth_store.py`: SQLite whitelist persistence.
+- `bot/rate_limiter.py`: concurrency admission and queueing.
+- `bot/ui/`: progress and Telegram delivery adapters.
+- `bot/utils.py`: FFmpeg conversion, cleanup, and provider factory.
+- `tests/`: automated test suite.
+- `audio_files/`: untracked runtime storage.

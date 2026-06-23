@@ -4,10 +4,17 @@ __pycache__/
 
 # Environment & Secrets
 .env
+.env.*
+!.env.example
 authorized.json
+*.sqlite
+*.sqlite3
+*.db
 
 # opencode files
 .sisyphus/
+.opencode/
+.tmp/
 
 # Temporary Files
 audio_files/
@@ -26,3 +33,4 @@ note.md
 venv/
 .venv/
 env/
+.pytest_cache/

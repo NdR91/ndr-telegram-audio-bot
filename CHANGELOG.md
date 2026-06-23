@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Documentation
+
+- Aligned `README.md`, `AGENTS.md`, and `.env.example` with the current test
+  suite, SQLite authorization persistence, provider streaming behavior, Docker
+  workflow, and supported configuration variables.
+- Added `CONTRIBUTING.md` with a reproducible local development and test
+  workflow.
+- Added `SECURITY.md` with responsible disclosure and deployment guidance for
+  the public GitHub repository.
+- Expanded `.gitignore` coverage for environment backups, SQLite databases,
+  pytest caches, local agent context, and temporary workspace data.
+
 ### Technical Improvements
 - **Refine-streaming hardening and rollout docs added** (`README.md`, `.env.example`, `tests/test_audio_errors.py`, `tests/test_streaming.py`)
   - *Issue*: The new refine streaming path still needed stronger edge-case coverage and explicit operator-facing guidance.
