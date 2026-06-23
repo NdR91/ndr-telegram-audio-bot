@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from bot.config import Config
 from bot.config_service import ConfigService
 from bot.database import DatabaseManager
 
@@ -159,15 +160,22 @@ class StateChecker:
         Initialised :class:`~bot.config_service.ConfigService`.
     db_manager:
         Initialised :class:`~bot.database.DatabaseManager`.
+    legacy_config:
+        Optional legacy :class:`~bot.config.Config` object.  When provided
+        **and** ``admin_created`` is absent from the unified database, the
+        checker assumes a legacy ``.env`` + ``authorized.json`` deployment
+        and reports ``READY`` instead of blocking audio processing.
     """
 
     def __init__(
         self,
         config_service: ConfigService,
         db_manager: DatabaseManager,
+        legacy_config: Config | None = None,
     ):
         self._config_service = config_service
         self._db = db_manager
+        self._legacy_config = legacy_config
 
     # ------------------------------------------------------------------
     # Public API
@@ -197,6 +205,16 @@ class StateChecker:
     # ------------------------------------------------------------------
 
     def _evaluate(self) -> StateInfo:
+        # 0. Legacy compatibility mode
+        # When a legacy Config is available AND the unified database has not
+        # yet recorded admin_created, we are running in legacy .env mode.
+        # The legacy Config has already validated presence of Telegram token,
+        # provider, and authorized.json — treat as READY.
+        if self._legacy_config is not None:
+            admin_created = self._db.get_setup_state("admin_created")
+            if admin_created is None:
+                return self._build_info(AppState.READY)
+
         # 1. Setup required
         admin_created = self._db.get_setup_state("admin_created")
         if admin_created is None:

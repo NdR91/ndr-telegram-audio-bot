@@ -470,3 +470,67 @@ def test_typed_default_values_are_cast_correctly(tmp_path):
     assert by_key["rate_limit_queue_enabled"]["value"] is True
     # String defaults should be str
     assert isinstance(by_key["llm_provider"]["value"], str)
+
+
+# ------------------------------------------------------------------
+# A4.1 — Secret writes fail without encryption
+# ------------------------------------------------------------------
+
+
+def test_update_setting_rejects_secret_without_store(tmp_path):
+    """Writing a secret without a SecretStore should be rejected."""
+    service = _make_service(tmp_path, with_secret_store=False)
+    errors = service.update_setting("telegram_token", "some-token")
+    assert len(errors) > 0
+    assert "crittografia" in errors[0].lower()
+
+
+def test_update_setting_allows_secret_with_store(tmp_path):
+    """Writing a secret WITH a SecretStore should succeed."""
+    service = _make_service(tmp_path, with_secret_store=True)
+    errors = service.update_setting("telegram_token", "some-token")
+    assert errors == []
+
+
+def test_update_setting_rejects_required_secret_when_empty(tmp_path):
+    """A required secret field should fail validation when empty,
+    regardless of encryption availability."""
+    service = _make_service(tmp_path, with_secret_store=False)
+    errors = service.update_setting("telegram_token", "")
+    assert len(errors) > 0
+    assert "obbligatorio" in errors[0].lower()
+
+
+def test_update_settings_bulk_rejects_secret_without_store(tmp_path):
+    """Bulk update should reject any secret when encryption is unavailable."""
+    service = _make_service(tmp_path, with_secret_store=False)
+    result = service.update_settings({
+        "llm_provider": "gemini",
+        "telegram_token": "new-token",
+    })
+    # telegram_token should have an error
+    assert "telegram_token" in result
+    assert len(result["telegram_token"]) > 0
+    assert "crittografia" in result["telegram_token"][0].lower()
+    # llm_provider should NOT be in the result (short-circuits before write)
+    # because the bulk write is atomic — all or nothing
+    assert "llm_provider" not in result
+    # DB should be empty (nothing written)
+    assert service._db.get_setting("telegram_token") is None
+    assert service._db.get_setting("llm_provider") is None
+
+
+def test_update_settings_bulk_allows_secret_with_store(tmp_path):
+    """Bulk update with a secret should work when encryption is available."""
+    service = _make_service(tmp_path, with_secret_store=True)
+    result = service.update_settings({
+        "llm_provider": "gemini",
+        "telegram_token": "new-token",
+    })
+    for key in ("llm_provider", "telegram_token"):
+        assert result[key] == [], f"key {key} failed: {result[key]}"
+    assert service._db.get_setting("llm_provider") == "gemini"
+    # The token should be encrypted in the DB
+    raw = service._db.get_setting("telegram_token")
+    assert raw != "new-token"
+    assert raw.startswith("gAAAAA")

@@ -149,8 +149,13 @@ def main() -> None:
         # Build the configuration service (A3) on top of the database.
         config_service = ConfigService(database_manager, secret_store=secret_store)
 
-        # Build the runtime state checker (A4).
-        state_checker = StateChecker(config_service, database_manager)
+        # Build the runtime state checker (A4) with legacy config for
+        # backward compatibility (A4.1).  When the unified database has
+        # not yet recorded admin_created, the state checker will treat
+        # the legacy .env + authorized.json deployment as READY.
+        state_checker = StateChecker(
+            config_service, database_manager, legacy_config=config,
+        )
 
         # Cleanup temporary audio files from previous runs
         utils.cleanup_audio_directory(config.audio_dir)

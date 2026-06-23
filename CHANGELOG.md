@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Runtime integration hardening (A4.1)**: Closed the gap between new
+  database-backed services and the still-legacy runtime.
+  
+  - **Legacy compatibility**: `StateChecker` now accepts an optional
+    `legacy_config` parameter. When a legacy `.env` + `authorized.json`
+    deployment is detected (unified DB has no `admin_created`), the
+    checker reports `READY` instead of blocking audio processing
+    ([#1](https://github.com/nickdurantes/telegram-audio-bot/issues/1)).
+  
+  - **Secret write safety**: `ConfigService.update_setting()` and
+    `update_settings()` now reject non-empty secret field writes when
+    the `SecretStore` is unavailable or the encryption key is not loaded.
+    Plaintext secrets are never persisted.
+  
+  - **Unified ACL source**: `WhitelistManager` now accepts an optional
+    `DatabaseManager` parameter. When provided, all whitelist reads and
+    writes go through the unified application database instead of the
+    legacy `SQLiteWhitelistStore`, preventing the two stores from
+    diverging.
+  
+  - **RuntimeSnapshot**: Added an immutable runtime-configuration
+    snapshot (`bot/runtime.py`) built from either the legacy `Config`
+    or the `ConfigService` with fallback. The snapshot is stored in
+    `bot_data['runtime_snapshot']` and used to construct `RateLimiter`
+    and `TelegramDeliveryAdapter` in `create_application()`.
+  
+  - **16 new regression tests** covering legacy compatibility (5 tests),
+    secret-store rejection (5 tests), and `RuntimeSnapshot` construction
+    and immutability (6 tests).
+
 - Added unified application database (A1) with versioned SQLite schema,
   migration framework, and repository layer for configuration, access control,
   provider connections, pipeline profiles, preferences, and audit events.

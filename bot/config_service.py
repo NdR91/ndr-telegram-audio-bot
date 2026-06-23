@@ -36,7 +36,7 @@ Usage::
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from bot.database import DatabaseManager, SecretStore
+from bot.database import DatabaseManager, SecretStore, SecretStoreError
 
 # ---------------------------------------------------------------------------
 # Setting metadata
@@ -403,9 +403,16 @@ def _prepare_stored_value(
     * Booleans are normalised to ``"1"`` / ``"0"``.
     """
     if sd.is_secret:
-        if secret_store is not None and secret_store.key_available and value:
-            return secret_store.encrypt(value)
-        return value  # store as-is when no store is available
+        if value:
+            if secret_store is not None and secret_store.key_available:
+                return secret_store.encrypt(value)
+            # Callers must check via _check_secret_write before calling this.
+            # If we reach here, encryption is unavailable for a non-empty secret.
+            raise SecretStoreError(
+                f"Cannot persist {sd.key}: encryption unavailable. "
+                "Call _check_secret_write before _prepare_stored_value."
+            )
+        return value  # empty value: clear the stored secret
 
     if sd.type == "boolean":
         return "1" if value.lower() in ("1", "true", "yes") else "0"
@@ -526,9 +533,33 @@ class ConfigService:
         if errors:
             return errors
         sd = self._require_def(key)
+
+        # Reject secret writes when encryption is unavailable
+        secret_err = self._check_secret_write(sd, value, self._secret_store)
+        if secret_err:
+            return [secret_err]
+
         stored = _prepare_stored_value(sd, value, self._secret_store)
         self._db.set_setting(key, stored)
         return []
+
+    @staticmethod
+    def _check_secret_write(
+        sd: SettingDef, value: str, secret_store: SecretStore | None = None
+    ) -> str | None:
+        """Return an error message if a secret value cannot be safely persisted.
+
+        Returns ``None`` when the write is safe (no secret, or encryption is
+        available, or the value is empty).
+        """
+        if not sd.is_secret or not value:
+            return None
+        if secret_store is not None and secret_store.key_available:
+            return None
+        return (
+            f"Impossibile salvare {sd.label}: la crittografia non è disponibile. "
+            "Assicurati che il SecretStore sia configurato correttamente."
+        )
 
     def update_settings(self, updates: Dict[str, str]) -> Dict[str, List[str]]:
         """Validate and persist multiple settings **transactionally**.
@@ -553,11 +584,21 @@ class ConfigService:
             if errors:
                 all_errors[key] = errors
 
-        # Short-circuit on any error.
+        # Short-circuit on any validation error.
         if any(errors for errors in all_errors.values()):
             return all_errors
 
-        # Phase 2 — prepare and persist in one transaction.
+        # Phase 2 — reject secret writes when encryption is unavailable.
+        for key, value in updates.items():
+            sd = sd_map[key]
+            secret_err = self._check_secret_write(sd, value, self._secret_store)
+            if secret_err:
+                all_errors[key] = [secret_err]
+
+        if any(errors for errors in all_errors.values()):
+            return all_errors
+
+        # Phase 3 — prepare and persist in one transaction.
         stored: Dict[str, str] = {}
         for key, value in updates.items():
             sd = sd_map[key]

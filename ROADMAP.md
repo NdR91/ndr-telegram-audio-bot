@@ -413,6 +413,68 @@ the pipeline is invalid.
 - [ ] The frontend explains each state in plain language and suggests the next
       action the user should take.
 
+## A4.1 — Runtime integration hardening
+
+| Field | Value |
+| --- | --- |
+| Status | Done |
+| Priority | Critical |
+| Effort | Medium |
+
+**Completed 2026-06-23**
+
+- `StateChecker` accepts `legacy_config` to preserve compatibility with
+  `.env` + `authorized.json` deployments that have not yet populated the
+  unified database.
+- Secret field writes in `ConfigService` reject non-empty values when
+  `SecretStore` encryption is unavailable, never persisting plaintext.
+- `WhitelistManager` uses the unified `DatabaseManager` as its primary
+  ACL store, with a legacy `SQLiteWhitelistStore` fallback.
+- `RuntimeSnapshot` dataclass provides an immutable, resolved
+  configuration snapshot for runtime object construction.
+- `create_application()` builds a `RuntimeSnapshot` and uses it for
+  `RateLimiter` and `TelegramDeliveryAdapter` setup.
+- 16 new regression tests cover legacy compatibility, secret-store
+  failure, and snapshot resolution.
+
+Close the integration gap between the new database/configuration/state services
+and the still-legacy runtime. A3 and A4 provide the contract, but the bot must
+remain deployable during migration and must not silently split live state across
+old and new stores.
+
+**Blocking findings**
+
+- Preserve legacy runtime compatibility while `authorized.json` and `.env`
+  remain mandatory. The audio-handler readiness gate must not reject valid
+  legacy deployments only because the new database has not yet imported
+  `admin_created`, Telegram token, provider, or pipeline state.
+- Do not allow secret settings to be persisted in plaintext when `SecretStore`
+  is unavailable or the encryption key cannot be loaded. Secret writes should
+  fail safely until encryption is available, with a clear operator-facing
+  error.
+- Make the unified database the live access-control source once imported, or
+  keep the runtime explicitly on the legacy SQLite whitelist store until the
+  cutover. Avoid importing ACL data once and then letting the old and new
+  stores diverge.
+- Ensure `ConfigService` values actually drive runtime dependencies before
+  presenting them as live configuration: provider selection, prompts, rate
+  limits, resilience settings, and Telegram delivery options must be resolved
+  into stable runtime snapshots.
+
+**Done when**
+
+- A legacy `.env` + `authorized.json` deployment still processes audio before
+  database import.
+- A blank/new-control-plane deployment blocks audio only for the correct setup
+  reasons and shows actionable state.
+- Secret update attempts fail without persisting plaintext if encryption is not
+  available.
+- Whitelist reads/writes have a single live source for each migration stage.
+- Runtime objects are built from an explicit validated snapshot, and in-flight
+  requests keep using the snapshot they started with.
+- Regression tests cover legacy compatibility, secret-store failure, ACL source
+  selection, and runtime snapshot resolution.
+
 ## A5 — Runtime manager
 
 | Field | Value |
@@ -1260,7 +1322,7 @@ Every migration stage should leave the repository in a deployable state.
 | ---: | --- | --- |
 | 1 | B1, B2, B3 | Protect current behavior before migration. |
 | 2 | A1, A2 | Establish persistent configuration and secret storage. |
-| 3 | A3, A4 | Create the configuration contract and readiness model. |
+| 3 | A3, A4, A4.1 | Create the configuration contract, readiness model, and safe runtime bridge. |
 | 4 | A5, A6 | Start without credentials and support secure first-run setup. |
 | 5 | W1, W2, W6 | Deliver the first usable setup frontend and recovery path. |
 | 6 | P1, P2, P3 | Separate pipeline capabilities from provider brands. |
@@ -1320,3 +1382,4 @@ Record decisions without rewriting roadmap history.
 | 2026-06-23 | B2 | Done | Added offline integration coverage for the decorated pipeline, provider and Telegram failures, queue handoff, cleanup, and startup wiring. |
 | 2026-06-23 | A3 | Done | Added ConfigService with 17-setting registry, typed validation, transactional bulk updates, and write-only secret fields. |
 | 2026-06-23 | A4 | Done | Added AppState enum, StateChecker, and audio handler gating for readiness. |
+| 2026-06-23 | A4.1 | Done | Closed runtime integration gap: legacy compatibility, secret-write safety, unified ACL, and RuntimeSnapshot. |

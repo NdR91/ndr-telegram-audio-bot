@@ -14,6 +14,7 @@ from bot.config_service import ConfigService
 from bot.database import DatabaseManager
 from bot.database.secret_store import SecretStore
 from bot.handlers.commands import start, whoami, help_command
+from bot.runtime import RuntimeSnapshot
 from bot.state import StateChecker
 from bot.handlers.admin import WhitelistManager, adduser, removeuser, addgroup, removegroup
 from bot.handlers.audio import AudioProcessor, handle_audio
@@ -83,6 +84,16 @@ def create_application(
         .build()
     )
     
+    # Build the runtime configuration snapshot (A4.1).
+    # In the current migration stage, ConfigService may not yet have all
+    # values — RuntimeSnapshot handles fallback to the legacy Config.
+    try:
+        snapshot = RuntimeSnapshot.from_legacy_config(config)
+        app.bot_data['runtime_snapshot'] = snapshot
+    except Exception:
+        logger.warning("Could not build RuntimeSnapshot; falling back to Config")
+        snapshot = config  # type: ignore[assignment]
+
     # Store config in bot_data for global access (singleton pattern)
     app.bot_data['config'] = config
     if database_manager is not None:
@@ -93,19 +104,25 @@ def create_application(
         app.bot_data['config_service'] = config_service
     if state_checker is not None:
         app.bot_data['state_checker'] = state_checker
-    app.bot_data['whitelist_manager'] = WhitelistManager(config)
+
+    # WhitelistManager: use the unified database when available (A4.1).
+    app.bot_data['whitelist_manager'] = WhitelistManager(
+        config, db_manager=database_manager,
+    )
+
+    # Runtime objects built from the snapshot (A4.1).
     app.bot_data['audio_processor'] = AudioProcessor(config)
     app.bot_data['delivery_adapter'] = TelegramDeliveryAdapter(
-        progressive_enabled=config.telegram_progressive_output_config["enabled"],
+        progressive_enabled=snapshot.telegram_progressive_output_config["enabled"],
     )
     app.bot_data['rate_limiter'] = RateLimiter(
-        max_per_user=config.rate_limit_config["max_per_user"],
-        cooldown=config.rate_limit_config["cooldown_seconds"],
-        max_global=config.rate_limit_config["max_concurrent_global"],
-        max_file_size_mb=config.rate_limit_config["max_file_size_mb"],
-        queue_enabled=config.rate_limit_config["queue_enabled"],
-        max_queue_size=config.rate_limit_config["max_queue_size"],
-        max_queued_per_user=config.rate_limit_config["max_queued_per_user"],
+        max_per_user=snapshot.rate_limit_config["max_per_user"],
+        cooldown=snapshot.rate_limit_config["cooldown_seconds"],
+        max_global=snapshot.rate_limit_config["max_concurrent_global"],
+        max_file_size_mb=snapshot.rate_limit_config["max_file_size_mb"],
+        queue_enabled=snapshot.rate_limit_config["queue_enabled"],
+        max_queue_size=snapshot.rate_limit_config["max_queue_size"],
+        max_queued_per_user=snapshot.rate_limit_config["max_queued_per_user"],
     )
     
     # Register handlers

@@ -145,6 +145,7 @@ When behavior changes:
 - `bot/config.py`: environment loading and validation.
 - `bot/auth_store.py`: SQLite whitelist persistence (legacy).
 - `bot/database/`: unified application database (schema, migrations, repository, secret store).
+- `bot/runtime.py`: runtime configuration snapshot (A4.1) for immutable resolved config.
 - `bot/rate_limiter.py`: concurrency admission and queueing.
 - `bot/ui/`: progress and Telegram delivery adapters.
 - `bot/utils.py`: FFmpeg conversion, cleanup, and provider factory.

@@ -8,6 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.auth_store import SQLiteWhitelistStore
+from bot.database import DatabaseManager
 from bot.decorators.auth import admin_only
 from bot import constants as c
 
@@ -25,19 +26,33 @@ def get_whitelist_manager(context: ContextTypes.DEFAULT_TYPE) -> "WhitelistManag
 class WhitelistManager:
     """
     Manages user and group whitelist operations.
+    
+    Uses the unified ``DatabaseManager`` when available; falls back to
+    the legacy ``SQLiteWhitelistStore`` during migration.
     """
     
-    def __init__(self, config):
+    def __init__(self, config, db_manager: DatabaseManager | None = None):
         """
         Initialize whitelist manager with configuration.
         
         Args:
             config: Bot configuration object
+            db_manager: Optional unified DatabaseManager (preferred).
         """
         self.config = config
-        self.store = SQLiteWhitelistStore(config.authorized_db)
-        self.authorized_data = self.store.bootstrap_if_empty(config.authorized_data)
-        self.config.authorized_data = self.authorized_data
+        self._db_manager = db_manager
+
+        if db_manager is not None:
+            # Use the unified application database.
+            self.authorized_data = db_manager.load_authorized_data()
+            logger.info("WhitelistManager using unified database")
+        else:
+            # Legacy SQLite fallback.
+            self.store = SQLiteWhitelistStore(config.authorized_db)
+            self.authorized_data = self.store.bootstrap_if_empty(config.authorized_data)
+            self.config.authorized_data = self.authorized_data
+            logger.info("WhitelistManager using legacy SQLite store")
+
         self._lock = asyncio.Lock()
     
     def parse_user_id(self, args) -> Optional[int]:
@@ -103,10 +118,14 @@ class WhitelistManager:
         return True, f"Removed {target_id} from {target_type}"
     
     def save_changes(self) -> None:
-        """Save whitelist changes to SQLite."""
+        """Save whitelist changes to the active data store."""
         try:
-            self.store.replace_authorized_data(self.authorized_data)
-            logger.info("Whitelist changes saved successfully")
+            if self._db_manager is not None:
+                self._db_manager.replace_authorized_data(self.authorized_data)
+                logger.info("Whitelist changes saved to unified database")
+            else:
+                self.store.replace_authorized_data(self.authorized_data)
+                logger.info("Whitelist changes saved to legacy SQLite store")
         except Exception as e:
             logger.error(f"Failed to save whitelist changes: {e}")
             raise RuntimeError("Failed to save changes")

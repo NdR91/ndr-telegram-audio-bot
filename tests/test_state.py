@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from bot.config import Config
 from bot.config_service import ConfigService
 from bot.database import DatabaseManager
 from bot.database.secret_store import SecretStore
@@ -26,15 +27,26 @@ def _make_db(tmp_path) -> DatabaseManager:
     return db
 
 
+def _make_secret_store(tmp_path) -> SecretStore:
+    store = SecretStore(str(tmp_path / ".master_key"))
+    store.initialize()
+    return store
+
+
 def _make_checker(tmp_path) -> StateChecker:
     db = _make_db(tmp_path)
-    cs = ConfigService(db)
+    secret_store = _make_secret_store(tmp_path)
+    cs = ConfigService(db, secret_store=secret_store)
     return StateChecker(cs, db)
 
 
 def _prime_telegram_token(checker: StateChecker) -> None:
-    """Set up a valid telegram token in the DB."""
-    checker._config_service.update_setting("telegram_token", "123:abc")
+    """Set up a valid telegram token in the DB.
+
+    Requires a SecretStore to be configured on the ConfigService (A4.1).
+    """
+    errors = checker._config_service.update_setting("telegram_token", "123:abc")
+    assert errors == [], f"telegram_token write failed: {errors}"
 
 
 def _prime_admin_created(checker: StateChecker) -> None:
@@ -273,3 +285,100 @@ def test_ready_when_one_provider_can_transcribe(tmp_path):
     _prime_provider(checker, name="Good", capabilities={"transcription": True})
     info = checker.get_state()
     assert info.state == AppState.READY
+
+
+# ------------------------------------------------------------------
+# A4.1 — Legacy compatibility mode
+# ------------------------------------------------------------------
+
+
+def _make_legacy_checker(tmp_path) -> StateChecker:
+    """Build a StateChecker in legacy mode with a minimal mocking Config."""
+    db = _make_db(tmp_path)
+    secret_store = _make_secret_store(tmp_path)
+    cs = ConfigService(db, secret_store=secret_store)
+
+    # Mock a valid legacy Config with all required attributes.
+    legacy_config = Config.__new__(Config)
+    legacy_config.provider_name = "openai"
+    legacy_config.model_name = None
+    legacy_config.api_keys = {"openai": "sk-test"}
+    legacy_config.prompts = {
+        "system": "System prompt",
+        "refine_template": "Refine {raw_text}",
+    }
+    legacy_config.rate_limit_config = {
+        "max_per_user": 2,
+        "cooldown_seconds": 30,
+        "max_concurrent_global": 6,
+        "max_file_size_mb": 20,
+        "queue_enabled": True,
+        "max_queue_size": 10,
+        "max_queued_per_user": 1,
+    }
+    legacy_config.provider_resilience_config = {
+        "enabled": True,
+        "failure_threshold": 3,
+        "cooldown_seconds": 60,
+    }
+    legacy_config.telegram_progressive_output_config = {"enabled": False}
+    legacy_config.audio_dir = str(tmp_path / "audio_files")
+
+    return StateChecker(cs, db, legacy_config=legacy_config)
+
+
+def test_legacy_mode_returns_ready_when_db_empty(tmp_path):
+    """A legacy .env deployment with an empty unified DB returns READY."""
+    checker = _make_legacy_checker(tmp_path)
+    info = checker.get_state()
+    assert info.state == AppState.READY
+
+
+def test_legacy_mode_still_rejects_when_config_invalid(tmp_path):
+    """Without legacy_config, an empty DB returns SETUP_REQUIRED."""
+    checker = _make_checker(tmp_path)  # no legacy_config
+    info = checker.get_state()
+    assert info.state == AppState.SETUP_REQUIRED
+
+
+def test_legacy_mode_short_circuits_provider_check(tmp_path):
+    """Legacy mode does not require providers in the unified DB."""
+    checker = _make_legacy_checker(tmp_path)
+    # DB has no providers
+    info = checker.get_state()
+    assert info.state == AppState.READY
+
+
+def test_legacy_mode_short_circuits_token_check(tmp_path):
+    """Legacy mode does not require telegram_token in ConfigService."""
+    checker = _make_legacy_checker(tmp_path)
+    # No telegram_token written via ConfigService
+    info = checker.get_state()
+    assert info.state == AppState.READY
+
+
+def test_legacy_mode_transitions_to_normal_when_db_has_admin_created(tmp_path):
+    """Once admin_created is set, legacy mode switches to normal evaluation."""
+    db = _make_db(tmp_path)
+    secret_store = _make_secret_store(tmp_path)
+    cs = ConfigService(db, secret_store=secret_store)
+
+    # Set admin_created (simulating partial migration)
+    db.set_setup_state("admin_created", "true")
+
+    # Legacy config is provided BUT admin_created exists → normal evaluation
+    legacy_config = Config.__new__(Config)
+    legacy_config.provider_name = "openai"
+    legacy_config.model_name = None
+    legacy_config.api_keys = {"openai": "sk-test"}
+    legacy_config.prompts = {"system": "", "refine_template": "{raw_text}"}
+    legacy_config.rate_limit_config = {}
+    legacy_config.provider_resilience_config = {}
+    legacy_config.telegram_progressive_output_config = {"enabled": False}
+    legacy_config.audio_dir = ""
+
+    checker = StateChecker(cs, db, legacy_config=legacy_config)
+
+    # admin_created is set, but telegram_token is not → TELEGRAM_MISSING
+    info = checker.get_state()
+    assert info.state == AppState.TELEGRAM_MISSING
