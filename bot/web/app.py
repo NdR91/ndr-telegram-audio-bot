@@ -256,9 +256,9 @@ def create_app(
         )
 
     def _login_required(request: Request):
-        """Dependency: redirect to /login if not authenticated."""
+        """Dependency: redirect to /login if not authenticated as admin."""
         session = _session(request)
-        if session is None:
+        if session is None or not session.get("admin"):
             raise HTTPException(status_code=401)
         return session
 
@@ -269,8 +269,8 @@ def create_app(
         session = _session(request)
         admin_exists = has_admin(database_manager)
 
-        # Already logged in and admin exists → go to dashboard
-        if session is not None and admin_exists:
+        # Already logged in as admin and admin exists → go to dashboard
+        if session is not None and session.get("admin") and admin_exists:
             return RedirectResponse(url="/admin/dashboard", status_code=303)
 
         # Setup complete but not logged in → go to login
@@ -342,7 +342,7 @@ def create_app(
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request):
         session = _session(request)
-        if session is not None and has_admin(database_manager):
+        if session is not None and session.get("admin") and has_admin(database_manager):
             return RedirectResponse(url="/admin/dashboard", status_code=303)
 
         # Ensure a session cookie exists (CSRF storage)

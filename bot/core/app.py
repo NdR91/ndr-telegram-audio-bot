@@ -85,10 +85,14 @@ def create_application(
     )
     
     # Build the runtime configuration snapshot (A4.1).
-    # In the current migration stage, ConfigService may not yet have all
-    # values — RuntimeSnapshot handles fallback to the legacy Config.
+    # When ConfigService is available, use it to resolve settings (with
+    # fallback to the legacy Config for values not yet migrated).
+    # Otherwise, build from the legacy Config directly.
     try:
-        snapshot = RuntimeSnapshot.from_legacy_config(config)
+        if config_service is not None:
+            snapshot = RuntimeSnapshot.from_config_service(config_service, config)
+        else:
+            snapshot = RuntimeSnapshot.from_legacy_config(config)
         app.bot_data['runtime_snapshot'] = snapshot
     except Exception:
         logger.warning("Could not build RuntimeSnapshot; falling back to Config")
