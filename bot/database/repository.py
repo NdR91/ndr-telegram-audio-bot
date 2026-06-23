@@ -103,18 +103,23 @@ class DatabaseManager:
         return result
 
     def replace_authorized_data(self, data: Dict[str, List[int]]) -> None:
-        """Atomically replace all whitelist entries."""
+        """Atomically replace all whitelist entries, rolling back on failure."""
         conn = self.connection
-        conn.execute("DELETE FROM admin_users")
-        conn.execute("DELETE FROM authorized_users")
-        conn.execute("DELETE FROM authorized_groups")
-        for entry_id in data.get("admin", []):
-            conn.execute("INSERT INTO admin_users (entry_id) VALUES (?)", (int(entry_id),))
-        for entry_id in data.get("users", []):
-            conn.execute("INSERT INTO authorized_users (entry_id) VALUES (?)", (int(entry_id),))
-        for entry_id in data.get("groups", []):
-            conn.execute("INSERT INTO authorized_groups (entry_id) VALUES (?)", (int(entry_id),))
-        conn.commit()
+        conn.execute("BEGIN")
+        try:
+            conn.execute("DELETE FROM admin_users")
+            conn.execute("DELETE FROM authorized_users")
+            conn.execute("DELETE FROM authorized_groups")
+            for entry_id in data.get("admin", []):
+                conn.execute("INSERT INTO admin_users (entry_id) VALUES (?)", (int(entry_id),))
+            for entry_id in data.get("users", []):
+                conn.execute("INSERT INTO authorized_users (entry_id) VALUES (?)", (int(entry_id),))
+            for entry_id in data.get("groups", []):
+                conn.execute("INSERT INTO authorized_groups (entry_id) VALUES (?)", (int(entry_id),))
+            conn.commit()
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
 
     # ------------------------------------------------------------------
     # Setup state
@@ -171,7 +176,7 @@ class DatabaseManager:
         return {row["setting_key"]: row["setting_value"] for row in rows}
 
     def set_settings(self, settings: Dict[str, str]) -> None:
-        """Set multiple settings in a single transaction.
+        """Set multiple settings in a single transaction, rolling back on failure.
 
         Parameters
         ----------
@@ -179,14 +184,19 @@ class DatabaseManager:
             ``{key: value}`` pairs to upsert.
         """
         conn = self.connection
-        for key, value in settings.items():
-            conn.execute(
-                "INSERT OR REPLACE INTO app_settings "
-                "(setting_key, setting_value, updated_at) "
-                "VALUES (?, ?, datetime('now'))",
-                (key, value),
-            )
-        conn.commit()
+        conn.execute("BEGIN")
+        try:
+            for key, value in settings.items():
+                conn.execute(
+                    "INSERT OR REPLACE INTO app_settings "
+                    "(setting_key, setting_value, updated_at) "
+                    "VALUES (?, ?, datetime('now'))",
+                    (key, value),
+                )
+            conn.commit()
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
 
     def delete_setting(self, key: str) -> None:
         """Remove a setting by key."""

@@ -317,12 +317,30 @@ application data volume.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
 Create the single application API for reading, validating, testing, and
 updating settings.
+
+**Completed 2026-06-23** (`a80d9bb`)
+
+- `SettingDef` dataclass with key, label, type, default, scope, group,
+  requires_reload, is_secret, and validation rules (min/max, enum values).
+- `SETTINGS_REGISTRY` catalog of 17 settings across 7 groups (telegram,
+  provider, prompts, rate_limits, resilience, output, infrastructure).
+- `ConfigService` API: `list_definitions`, `get_setting(s)`,
+  `get_settings_by_group`, `validate_value`, `update_setting`,
+  `update_settings` (transactional bulk with atomic rollback).
+- Secret fields are write-only — value never returned, only `has_value`.
+- Secret values transparently encrypted via `SecretStore` when available.
+- Type-specific validation with Italian error messages.
+- Settings that require runtime reload explicitly flagged via
+  `requires_reload` + `get_reload_required()`.
+- Wired into `bot_data['config_service']` via `create_application()`. 
+- 44 tests: registry integrity, typed defaults, read/write, validation,
+  atomic rollback, secret masking, reload signalling.
 
 The web frontend, Telegram administration, runtime manager, and CLI recovery
 tools must use this service.
@@ -352,7 +370,7 @@ tools must use this service.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | Medium |
 
@@ -364,6 +382,21 @@ Represent readiness as explicit states:
 - `pipeline_invalid`;
 - `ready`;
 - `degraded`.
+
+**Completed 2026-06-23** (`a80d9bb`)
+
+- `AppState` enum with the 6 states above.
+- `StateInfo` dataclass with state, label (IT), description (IT),
+  and next_action for frontend consumption.
+- `StateChecker` evaluates readiness by querying `setup_state`,
+  `ConfigService` settings, and provider connections with capabilities.
+- Legacy providers without capabilities assumed transcription-capable.
+- Audio handler (`handle_audio`) gated: rejects with explanation when
+  `can_process_audio()` is `False`.
+- Exception-safe: `get_state()` returns `DEGRADED` on evaluation errors.
+- Wired into `bot_data['state_checker']` via `create_application()`.
+- 18 tests: all states, can_process_audio gating, backward compat,
+  exception handling.
 
 The frontend must explain the current state. The bot must not accept audio when
 the pipeline is invalid.
@@ -1285,3 +1318,5 @@ Record decisions without rewriting roadmap history.
 | 2026-06-23 | B1 | Done | Added secret-free CI across Python 3.10–3.12 with source compilation, import smoke testing, and pytest. |
 | 2026-06-23 | B3 | Done | Added explicit numeric-range and boolean validation with regression tests. |
 | 2026-06-23 | B2 | Done | Added offline integration coverage for the decorated pipeline, provider and Telegram failures, queue handoff, cleanup, and startup wiring. |
+| 2026-06-23 | A3 | Done | Added ConfigService with 17-setting registry, typed validation, transactional bulk updates, and write-only secret fields. |
+| 2026-06-23 | A4 | Done | Added AppState enum, StateChecker, and audio handler gating for readiness. |
