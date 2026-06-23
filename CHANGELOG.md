@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- Removed the repository-specific `.opencode/` context bundle and the
+  standalone OpenAgents installer script from the public repository.
 - Aligned `README.md`, `AGENTS.md`, and `.env.example` with the current test
   suite, SQLite authorization persistence, provider streaming behavior, Docker
   workflow, and supported configuration variables.
