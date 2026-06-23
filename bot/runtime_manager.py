@@ -21,6 +21,7 @@ the web frontend calls the manager from a request handler.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -145,32 +146,92 @@ class RuntimeManager:
                     self._app = None
                     self._start_time = None
         else:
-            # Non-blocking — the caller (frontend) is expected to run
-            # its own event loop.  We initialise and start the updater
-            # but do NOT idle.
+            # Non-blocking — schedule async start in the current event
+            # loop (used by the web frontend).
             try:
-                self._app.initialize()
-                self._app.start()
-                self._app.updater.start_polling()
-            except Exception:
-                logger.exception("Failed to start bot in non-blocking mode")
-                with self._lock:
-                    self._app = None
-                    self._start_time = None
-                raise
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop; fall back to synchronous mode.  This
+                # can happen in test environments.
+                try:
+                    self._app.initialize()
+                    self._app.start()
+                    self._app.updater.start_polling()
+                except Exception:
+                    logger.exception(
+                        "Failed to start bot in non-blocking (sync fallback) mode"
+                    )
+                    with self._lock:
+                        self._app = None
+                        self._start_time = None
+                    raise
+            else:
+                loop.create_task(self._start_async_task())
+
+    async def start_async(self) -> None:
+        """Start the Telegram bot asynchronously.
+
+        This is the primary method for the web frontend.  Unlike
+        :meth:`start` with ``block=False``, this method is a coroutine
+        that awaits the PTB ``initialize()``, ``start()``, and
+        ``updater.start_polling()`` calls directly.
+
+        Raises
+        ------
+        RuntimeError:
+            If the bot is already running or the application state is
+            not READY.
+        """
+        with self._lock:
+            if self.is_running:
+                raise RuntimeError("Telegram bot is already running")
+
+            state = self._state_checker.get_state()
+            if state.state != AppState.READY:
+                raise RuntimeError(
+                    f"Cannot start bot: {state.description} "
+                    f"({state.next_action})"
+                )
+
+            self._app = self._build_app()
+            self._start_time = time.monotonic()
+
+        logger.info("RuntimeManager starting Telegram bot (async)")
+        try:
+            await self._app.initialize()
+            await self._app.start()
+            await self._app.updater.start_polling()
+        except Exception:
+            logger.exception("Failed to start bot in async mode")
+            with self._lock:
+                self._app = None
+                self._start_time = None
+            raise
+
+    async def _start_async_task(self) -> None:
+        """Internal wrapper that runs :meth:`start_async` and logs
+        unhandled exceptions so the event loop doesn't swallow them."""
+        try:
+            await self.start_async()
+        except RuntimeError:
+            # start_async already raised; nothing extra to log.
+            raise
+        except Exception:
+            logger.exception("Async bot start task failed unexpectedly")
 
     def stop(self) -> None:
         """Stop the Telegram bot gracefully.
 
         If the bot is not running this is a no-op.
+
+        For the async case (web frontend), prefer :meth:`stop_async`
+        which properly awaits the PTB shutdown coroutines.
         """
         with self._lock:
             app = self._app
             if app is None:
                 logger.debug("RuntimeManager.stop() called but bot is not running")
                 return
-            # Clear the reference immediately so concurrent callers see
-            # is_running == False while we shut down.
             self._app = None
             self._start_time = None
 
@@ -178,10 +239,51 @@ class RuntimeManager:
 
         if app.running:
             try:
-                app.stop()
-                app.shutdown()
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop — call sync (mostly for tests).
+                try:
+                    app.stop()
+                    app.shutdown()
+                except Exception:
+                    logger.exception("Error during bot shutdown (sync)")
+            else:
+                loop.create_task(self._stop_async_task(app))
+
+    async def stop_async(self) -> None:
+        """Stop the Telegram bot asynchronously.
+
+        Properly awaits the PTB ``stop()`` and ``shutdown()`` coroutines.
+        """
+        with self._lock:
+            app = self._app
+            if app is None:
+                logger.debug("RuntimeManager.stop_async() called but bot is not running")
+                return
+            self._app = None
+            self._start_time = None
+
+        logger.info("RuntimeManager stopping Telegram bot (async)")
+
+        if app.running:
+            try:
+                await app.stop()
+                await app.shutdown()
             except Exception:
-                logger.exception("Error during bot shutdown")
+                logger.exception("Error during bot shutdown (async)")
+
+    async def _stop_async_task(self, app: Application) -> None:
+        """Internal wrapper for :meth:`stop_async`."""
+        try:
+            await self._stop_async_inner(app)
+        except Exception:
+            logger.exception("Async bot stop task failed unexpectedly")
+
+    async def _stop_async_inner(self, app: Application) -> None:
+        """Stop the given *app* without touching ``self._lock``."""
+        if app.running:
+            await app.stop()
+            await app.shutdown()
 
     def restart(self) -> None:
         """Stop the bot (if running) and start it again.

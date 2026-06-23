@@ -53,6 +53,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     blocking and non-blocking start, stop, restart, error conditions, and
     legacy CLI entry point.
 
+- **Web frontend foundation (W1)**: FastAPI-based control plane for the
+  Telegram Audio Bot, providing setup wizard, authentication, dashboard,
+  and API endpoints.
+
+  - **`bot/web/` package** with modular structure: ``auth.py`` (session,
+    CSRF, password), ``app.py`` (FastAPI factory), ``main.py`` (uvicorn
+    entry point).
+  - **Session-based authentication** using signed cookies
+    (itsdangerous) with 24-hour expiry, ``HttpOnly``, ``SameSite=Strict``.
+  - **CSRF protection** via per-session tokens validated on all
+    state-changing requests.
+  - **Admin password hashing** with bcrypt, stored in ``setup_state``.
+  - **Setup wizard** (``/setup``): validates the one-time setup code
+    (A6) and creates the first administrator account.
+  - **Login/logout** (``/login``, ``/logout``) with bcrypt password
+    verification.
+  - **Dashboard** (``/admin/dashboard``): displays application state and
+    bot health status.
+  - **JSON API** (``/api/state``, ``/api/health``) for frontend
+    JavaScript.
+  - **Auto-start**: the bot starts automatically in the lifespan
+    handler when the application state is ``READY``; setup mode logs
+    the setup code URL.
+  - **Docker integration**: updated Dockerfile CMD to use the web
+    entry point, exposed port 8080 in ``docker-compose.yml``.
+  - **7 Jinja2 templates** (base, setup, login, dashboard, error) with
+    responsive CSS.
+  - **Testable via TestClient**: ``create_app(config=...)`` accepts a
+    mock config for isolated testing.
+
 - **Runtime integration hardening (A4.1)**: Closed the gap between new
   database-backed services and the still-legacy runtime.
   

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %} — Login{% endblock %}
+
+{% block content %}
+<div class="card card-narrow">
+    <h1>Accesso amministratore</h1>
+
+    {% if setup_ok %}
+    <div class="alert alert-success">
+        Configurazione completata! Effettua il login per accedere alla dashboard.
+    </div>
+    {% endif %}
+
+    {% if error == "csrf" %}
+    <div class="alert alert-error">Errore di validazione. Riprova.</div>
+    {% elif error == "invalid" %}
+    <div class="alert alert-error">Password errata. Riprova.</div>
+    {% endif %}
+
+    <form method="post" action="/login" class="form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="form-group">
+            <label for="password">Password amministratore</label>
+            <input type="password" id="password" name="password"
+                   placeholder="Inserisci la password"
+                   required autocomplete="current-password">
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Accedi</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

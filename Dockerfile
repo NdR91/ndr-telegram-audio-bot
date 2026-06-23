@@ -17,10 +17,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia sorgenti bot
 COPY bot/ ./bot/
 
+# Crea directory per template e static web
+RUN mkdir -p ./bot/web/templates ./bot/web/static
+
 # Crea utente non-root e cartella per audio
 RUN adduser --disabled-password --gecos "" appuser && mkdir -p ./audio_files && chown -R appuser:appuser /app
 
 USER appuser
 
-# Comando di avvio
-CMD ["python", "-u", "bot/main.py"]
+# Comando di avvio — web frontend control plane
+# Legacy CLI: python -u bot/main.py
+CMD ["python", "-u", "-m", "bot.web.main"]

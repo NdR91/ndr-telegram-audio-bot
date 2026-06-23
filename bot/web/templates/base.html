@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="it" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Audio Bot{% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="navbar">
+        <div class="container">
+            <a href="/" class="navbar-brand">🎵 Audio Bot</a>
+            <nav class="navbar-nav">
+                {% if session and session.get("admin") %}
+                <a href="/admin/dashboard">Dashboard</a>
+                <form action="/logout" method="post" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn-link">Logout</button>
+                </form>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>Telegram Audio Bot &mdash; Trascrizione audio automatica</p>
+        </div>
+    </footer>
+</body>
+</html>

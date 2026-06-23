@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %} — Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h1>Dashboard</h1>
+
+    <div class="status-cards">
+        <div class="card status-card">
+            <h3>Stato applicazione</h3>
+            <div class="status-indicator {{ 'status-ok' if health.state == 'ready' else 'status-warn' }}">
+                <span class="status-dot"></span>
+                <span>{{ state.label }}</span>
+            </div>
+            <p class="status-desc">{{ state.description }}</p>
+            <p class="status-action">{{ state.next_action }}</p>
+        </div>
+
+        <div class="card status-card">
+            <h3>Bot Telegram</h3>
+            <div class="status-indicator {{ 'status-ok' if health.bot_running else 'status-warn' }}">
+                <span class="status-dot"></span>
+                <span>{{ 'Attivo' if health.bot_running else 'Fermo' }}</span>
+            </div>
+            {% if health.uptime_seconds is not none %}
+            <p>Tempo attività: {{ health.uptime_seconds | int }}s</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if state.state == 'ready' and not health.bot_running %}
+    <form method="post" action="/admin/bot/start" class="form-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-primary">Avvia bot</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}
