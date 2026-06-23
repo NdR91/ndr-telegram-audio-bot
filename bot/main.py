@@ -16,8 +16,10 @@ project_root = os.path.dirname(current_dir)
 sys.path.insert(0, project_root)
 
 from bot.config import Config
+from bot.config_service import ConfigService
 from bot.database import DatabaseManager, SecretStore, SecretStoreError
 from bot.exceptions import ConfigError
+from bot.state import StateChecker
 from bot.core.app import create_application, run_application
 from bot import utils
 
@@ -144,6 +146,12 @@ def main() -> None:
         db_path = _get_database_path(config)
         database_manager = _init_database(db_path, config, secret_store)
 
+        # Build the configuration service (A3) on top of the database.
+        config_service = ConfigService(database_manager, secret_store=secret_store)
+
+        # Build the runtime state checker (A4).
+        state_checker = StateChecker(config_service, database_manager)
+
         # Cleanup temporary audio files from previous runs
         utils.cleanup_audio_directory(config.audio_dir)
 
@@ -154,6 +162,8 @@ def main() -> None:
             config,
             database_manager=database_manager,
             secret_store=secret_store,
+            config_service=config_service,
+            state_checker=state_checker,
         )
 
         # Start bot

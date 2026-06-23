@@ -10,9 +10,11 @@ from typing import List
 from telegram import BotCommand
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
+from bot.config_service import ConfigService
 from bot.database import DatabaseManager
 from bot.database.secret_store import SecretStore
 from bot.handlers.commands import start, whoami, help_command
+from bot.state import StateChecker
 from bot.handlers.admin import WhitelistManager, adduser, removeuser, addgroup, removegroup
 from bot.handlers.audio import AudioProcessor, handle_audio
 from bot.rate_limiter import RateLimiter
@@ -38,6 +40,8 @@ def create_application(
     config,
     database_manager: DatabaseManager | None = None,
     secret_store: SecretStore | None = None,
+    config_service: ConfigService | None = None,
+    state_checker: StateChecker | None = None,
 ) -> Application:
     """
     Create and configure the Telegram application.
@@ -85,6 +89,10 @@ def create_application(
         app.bot_data['database_manager'] = database_manager
     if secret_store is not None:
         app.bot_data['secret_store'] = secret_store
+    if config_service is not None:
+        app.bot_data['config_service'] = config_service
+    if state_checker is not None:
+        app.bot_data['state_checker'] = state_checker
     app.bot_data['whitelist_manager'] = WhitelistManager(config)
     app.bot_data['audio_processor'] = AudioProcessor(config)
     app.bot_data['delivery_adapter'] = TelegramDeliveryAdapter(

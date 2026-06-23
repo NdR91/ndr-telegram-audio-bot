@@ -170,6 +170,24 @@ class DatabaseManager:
         ).fetchall()
         return {row["setting_key"]: row["setting_value"] for row in rows}
 
+    def set_settings(self, settings: Dict[str, str]) -> None:
+        """Set multiple settings in a single transaction.
+
+        Parameters
+        ----------
+        settings:
+            ``{key: value}`` pairs to upsert.
+        """
+        conn = self.connection
+        for key, value in settings.items():
+            conn.execute(
+                "INSERT OR REPLACE INTO app_settings "
+                "(setting_key, setting_value, updated_at) "
+                "VALUES (?, ?, datetime('now'))",
+                (key, value),
+            )
+        conn.commit()
+
     def delete_setting(self, key: str) -> None:
         """Remove a setting by key."""
         self.connection.execute(

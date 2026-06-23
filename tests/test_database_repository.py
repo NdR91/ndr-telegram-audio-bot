@@ -102,6 +102,21 @@ def test_get_all_settings(tmp_path):
     assert all_settings["key2"] == "val2"
 
 
+def test_set_settings_bulk(tmp_path):
+    db = _make_db(tmp_path)
+    db.set_settings({"key1": "val1", "key2": "val2"})
+    assert db.get_setting("key1") == "val1"
+    assert db.get_setting("key2") == "val2"
+
+
+def test_set_settings_updates_existing(tmp_path):
+    db = _make_db(tmp_path)
+    db.set_setting("key", "old")
+    db.set_settings({"key": "new", "other": "val"})
+    assert db.get_setting("key") == "new"
+    assert db.get_setting("other") == "val"
+
+
 # ------------------------------------------------------------------
 # Provider connections
 # ------------------------------------------------------------------

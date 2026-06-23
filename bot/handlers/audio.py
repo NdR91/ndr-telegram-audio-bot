@@ -61,6 +61,14 @@ def get_delivery_adapter(context: ContextTypes.DEFAULT_TYPE):
     return adapter
 
 
+def get_state_checker(context: ContextTypes.DEFAULT_TYPE):
+    """Get the application-scoped state checker instance."""
+    checker = context.bot_data.get('state_checker')
+    if checker is None:
+        raise RuntimeError("StateChecker not initialized")
+    return checker
+
+
 class AudioProcessor:
     """
     Handles audio file processing pipeline.
@@ -212,6 +220,19 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         context: Telegram context object
     """
     message = update.message
+
+    # Gate: reject audio when the pipeline is not ready.
+    try:
+        checker = get_state_checker(context)
+        if not checker.can_process_audio():
+            info = checker.get_state()
+            await message.reply_text(
+                f"⚠️ {info.description}\n\n{info.next_action}"
+            )
+            return
+    except RuntimeError:
+        logger.warning("StateChecker not available; allowing audio processing")
+
     processor = get_audio_processor(context)
     user_id = message.from_user.id
     total_start_time = time.monotonic()
