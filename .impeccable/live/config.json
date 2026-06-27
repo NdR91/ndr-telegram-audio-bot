@@ -1,0 +1,13 @@
+{
+  "framework": "server-rendered",
+  "devUrl": "http://localhost:8086",
+  "routes": [
+    "/admin/dashboard",
+    "/admin/providers",
+    "/admin/pipeline"
+  ],
+  "files": ["bot/web/templates/**/*.html"],
+  "insertBefore": "</body>",
+  "commentSyntax": "html",
+  "cspChecked": true
+}

@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+{% block title %} — Provider{% endblock %}
+
+{% block content %}
+<div class="providers-page">
+    <div class="page-header">
+        <div>
+            <h1>Provider AI</h1>
+            <p class="lead">Gestisci le connessioni AI e prepara i modelli per la pipeline.</p>
+        </div>
+        <div class="page-actions">
+            <a href="/admin/pipeline" class="btn btn-secondary">Pipeline</a>
+        </div>
+    </div>
+
+    {% if request.query_params.get("error") == "csrf" %}
+    <div class="alert alert-error">Errore di sicurezza. Ricarica la pagina e riprova.</div>
+    {% endif %}
+    {% if request.query_params.get("error") == "invalid_type" %}
+    <div class="alert alert-error">Tipo provider non valido.</div>
+    {% endif %}
+    {% if request.query_params.get("error") == "missing_key" %}
+    <div class="alert alert-error">Inserisci una chiave API per questo provider.</div>
+    {% endif %}
+    {% if request.query_params.get("error") == "create_failed" %}
+    <div class="alert alert-error">Impossibile creare il provider. Controlla i log.</div>
+    {% endif %}
+
+    <section class="surface-section">
+        <div class="section-header">
+            <div>
+                <h2>Connessioni configurate</h2>
+                <p>Apri un provider per testare la chiave, importare modelli e modificare capacità.</p>
+            </div>
+        </div>
+        {% if providers %}
+        <div class="provider-list">
+            {% for p in providers %}
+            <div class="provider-list-row">
+                <div>
+                    <a href="/admin/providers/{{ p.id }}" class="provider-list-name">{{ p.name }}</a>
+                    <div class="provider-list-meta">
+                        {{ p.adapter_type }}
+                        {% if p.endpoint %}<span>{{ p.endpoint }}</span>{% endif %}
+                    </div>
+                </div>
+                <div class="provider-list-actions">
+                    {% if p.enabled %}
+                    <span class="badge badge-success">Abilitato</span>
+                    {% else %}
+                    <span class="badge badge-error">Disabilitato</span>
+                    {% endif %}
+                    <a href="/admin/providers/{{ p.id }}" class="btn btn-secondary btn-small">Dettagli</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state compact">Nessun provider configurato.</div>
+        {% endif %}
+    </section>
+
+    <form method="post" action="/admin/providers/create" class="form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <section class="surface-section">
+            <div class="section-header">
+                <div>
+                    <h2>Nuovo provider</h2>
+                    <p>Aggiungi una connessione e verifica le capacità prima di usarla.</p>
+                </div>
+            </div>
+
+            <div class="settings-grid">
+                <div class="form-group">
+                    <label for="provider_type">Tipo</label>
+                    <select id="provider_type" name="provider_type" class="input-lg" required>
+                        <option value="">— Seleziona un provider —</option>
+                        {% for key, preset in provider_presets.items() %}
+                        <option value="{{ key }}"
+                                data-endpoint="{{ preset.default_endpoint }}"
+                                data-label="{{ preset.label }}"
+                                data-description="{{ preset.description }}">
+                            {{ preset.label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-help" id="provider-description">
+                        Seleziona un provider per vedere i dettagli.
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="name">Nome</label>
+                    <input id="name" name="name" type="text" placeholder="OpenAI principale">
+                </div>
+
+                <div class="form-group">
+                    <label for="endpoint">Endpoint</label>
+                    <input id="endpoint" name="endpoint" type="url" placeholder="https://api.openai.com/v1">
+                    <small class="form-help">
+                        Lascia vuoto per usare il default del provider selezionato.
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="api_key">Chiave API</label>
+                    <input id="api_key" name="api_key" type="password" autocomplete="off">
+                    <small class="form-help">
+                        La chiave viene salvata cifrata quando il SecretStore è disponibile.
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="model_name">Modello preferito</label>
+                    <input id="model_name" name="model_name" type="text" placeholder="gpt-4o-mini">
+                    <small class="form-help">
+                        Opzionale. Puoi lasciare vuoto e usare il default dell'adapter.
+                    </small>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <button type="button" class="btn btn-secondary js-test-provider-admin" data-testing="Verifico…">
+                    🔍 Test connessione
+                </button>
+                <span id="provider-test-result-admin" class="test-result"></span>
+            </div>
+
+            <div id="provider-test-details-admin" class="test-details" style="display:none">
+                <div class="cap-summary" id="provider-test-caps-admin">
+                    <span class="cap-badge" id="test-cap-tx-admin">🎤 Trascrizione: ⏳</span>
+                    <span class="cap-badge" id="test-cap-ref-admin">📝 Refinement: ⏳</span>
+                    <span class="cap-badge" id="test-cap-stream-admin">💨 Streaming: ⏳</span>
+                </div>
+                <div id="provider-test-warnings-admin" class="test-warnings"></div>
+            </div>
+        </section>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg">Salva provider</button>
+            <a href="/admin/pipeline" class="btn btn-secondary">Vai alla pipeline</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    const providerType = document.getElementById('provider_type');
+    const endpoint = document.getElementById('endpoint');
+    const name = document.getElementById('name');
+    const description = document.getElementById('provider-description');
+
+    if (!providerType) return;
+
+    providerType.addEventListener('change', function() {
+        const opt = providerType.options[providerType.selectedIndex];
+        const defaultEndpoint = opt.dataset.endpoint || '';
+        const label = opt.dataset.label || '';
+        const desc = opt.dataset.description || '';
+
+        if (endpoint && defaultEndpoint && !endpoint.value) {
+            endpoint.value = defaultEndpoint;
+        }
+        if (name && label && !name.value) {
+            name.value = label;
+        }
+        if (description) {
+            description.textContent = desc || 'Seleziona un provider per vedere i dettagli.';
+        }
+
+        // Reset test state
+        const testResult = document.getElementById('provider-test-result-admin');
+        const testDetails = document.getElementById('provider-test-details-admin');
+        if (testResult) testResult.textContent = '';
+        if (testDetails) testDetails.style.display = 'none';
+    });
+
+    // ------------------------------------------------------------------
+    // Test connessione — admin providers page
+    // ------------------------------------------------------------------
+    const testBtn = document.querySelector('.js-test-provider-admin');
+    const testResult = document.getElementById('provider-test-result-admin');
+    const testDetails = document.getElementById('provider-test-details-admin');
+    const apiKeyInput = document.getElementById('api_key');
+
+    if (testBtn) {
+        testBtn.addEventListener('click', function() {
+            const ptype = providerType ? providerType.value : '';
+            const key = apiKeyInput ? apiKeyInput.value.trim() : '';
+            const ep = endpoint ? endpoint.value.trim() : '';
+            const model = document.getElementById('model_name') ? document.getElementById('model_name').value.trim() : '';
+
+            if (!ptype) {
+                if (testResult) {
+                    testResult.textContent = '❌ Seleziona un provider.';
+                    testResult.className = 'test-result error';
+                }
+                return;
+            }
+            if (!key) {
+                if (testResult) {
+                    testResult.textContent = '❌ Inserisci una chiave API.';
+                    testResult.className = 'test-result error';
+                }
+                return;
+            }
+
+            testBtn.disabled = true;
+            testBtn.textContent = testBtn.dataset.testing || 'Verifico…';
+            if (testResult) {
+                testResult.textContent = '⏳ Connessione in corso…';
+                testResult.className = 'test-result';
+            }
+            if (testDetails) testDetails.style.display = 'none';
+
+            fetch('/api/providers/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    provider_type: ptype,
+                    api_key: key,
+                    endpoint: ep,
+                    model_name: model,
+                }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ok && data.auth_ok) {
+                    if (testResult) {
+                        testResult.innerHTML = '✅ Connessione verificata';
+                        testResult.className = 'test-result success';
+                    }
+
+                    // Show capabilities
+                    renderTestCapsAdmin(data.capabilities || {});
+                    renderTestWarningsAdmin(data.warnings || []);
+
+                    // Show pipeline status
+                    var statusMsg = getPipelineStatusMsg(data.pipeline_status || '');
+                    if (statusMsg && testDetails) {
+                        var statusEl = document.createElement('div');
+                        statusEl.className = 'pipeline-status';
+                        statusEl.textContent = '📋 ' + statusMsg;
+                        var warnContainer = document.getElementById('provider-test-warnings-admin');
+                        if (warnContainer) {
+                            warnContainer.insertBefore(statusEl, warnContainer.firstChild);
+                        }
+                    }
+
+                    if (testDetails) testDetails.style.display = 'block';
+                } else {
+                    var errMsg = data.user_message || data.error || 'Connessione fallita';
+                    if (testResult) {
+                        testResult.textContent = '❌ ' + errMsg.replace(/^[❌✅⚠️]+\s*/, '');
+                        testResult.className = 'test-result error';
+                    }
+                    if (data.warnings && data.warnings.length && testDetails) {
+                        renderTestWarningsAdmin(data.warnings || []);
+                        testDetails.style.display = 'block';
+                    }
+                }
+            })
+            .catch(function(err) {
+                if (testResult) {
+                    testResult.textContent = '❌ Errore: ' + err.message;
+                    testResult.className = 'test-result error';
+                }
+            })
+            .finally(function() {
+                testBtn.disabled = false;
+                testBtn.textContent = '🔍 Test connessione';
+            });
+        });
+    }
+
+    function renderTestCapsAdmin(caps) {
+        var txEl = document.getElementById('test-cap-tx-admin');
+        var refEl = document.getElementById('test-cap-ref-admin');
+        var streamEl = document.getElementById('test-cap-stream-admin');
+
+        if (txEl) {
+            txEl.textContent = '🎤 Trascrizione: ' + (caps.transcription ? '✅' : '❌');
+            txEl.className = 'cap-badge ' + (caps.transcription ? 'badge-success' : 'badge-error');
+        }
+        if (refEl) {
+            var hasRef = caps.refinement || caps.text_generation;
+            refEl.textContent = '📝 Refinement: ' + (hasRef ? '✅' : '❌');
+            refEl.className = 'cap-badge ' + (hasRef ? 'badge-success' : 'badge-error');
+        }
+        if (streamEl) {
+            streamEl.textContent = '💨 Streaming: ' + (caps.streaming_refinement ? '✅' : '❌');
+            streamEl.className = 'cap-badge ' + (caps.streaming_refinement ? 'badge-success' : 'badge-error');
+        }
+    }
+
+    function renderTestWarningsAdmin(warnings) {
+        var container = document.getElementById('provider-test-warnings-admin');
+        if (!container) return;
+        container.innerHTML = '';
+        if (!warnings || !warnings.length) return;
+        warnings.forEach(function(w) {
+            var el = document.createElement('div');
+            el.className = 'alert alert-warn';
+            el.textContent = '💡 ' + w;
+            container.appendChild(el);
+        });
+    }
+
+    function getPipelineStatusMsg(status) {
+        var msgs = {
+            'complete_same_provider': 'Pipeline completa: stesso provider per trascrizione e refinement.',
+            'transcription_only': 'Solo trascrizione: aggiungi un provider per il refinement.',
+            'refinement_only': 'Solo refinement: aggiungi un provider per la trascrizione.',
+            'not_compatible': 'Nessuna capacità rilevata: questo provider non è compatibile.',
+        };
+        return msgs[status] || '';
+    }
+})();
+</script>
+{% endblock %}

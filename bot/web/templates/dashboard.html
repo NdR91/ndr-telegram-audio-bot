@@ -3,7 +3,24 @@
 
 {% block content %}
 <div class="dashboard">
-    <h1>Dashboard</h1>
+    <div class="page-header">
+        <h1>Dashboard</h1>
+        {% if health.bot_running %}
+        <div class="page-actions">
+            <form method="post" action="/admin/bot/stop" class="form-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-secondary">Ferma bot</button>
+            </form>
+        </div>
+        {% elif state.state == 'ready' %}
+        <div class="page-actions">
+            <form method="post" action="/admin/bot/start" class="form-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-primary">Avvia bot</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
 
     <div class="status-cards">
         <div class="card status-card">
@@ -12,32 +29,30 @@
                 <span class="status-dot"></span>
                 <span>{{ state.label }}</span>
             </div>
+            {% if state.description %}
             <p class="status-desc">{{ state.description }}</p>
+            {% endif %}
+            {% if state.next_action %}
             <p class="status-action">{{ state.next_action }}</p>
+            {% endif %}
+            {% if state.state in ['provider_missing', 'pipeline_invalid'] %}
+            <div class="card-actions">
+                <a href="/admin/providers" class="btn btn-primary">Aggiungi provider</a>
+                <a href="/admin/pipeline" class="btn btn-secondary">Configura pipeline</a>
+            </div>
+            {% endif %}
         </div>
 
         <div class="card status-card">
             <h3>Bot Telegram</h3>
-            <div class="status-indicator {{ 'status-ok' if health.bot_running else 'status-warn' }}">
+            <div class="status-indicator {{ 'status-ok' if health.bot_running else 'status-stopped' }}">
                 <span class="status-dot"></span>
                 <span>{{ 'Attivo' if health.bot_running else 'Fermo' }}</span>
             </div>
             {% if health.uptime_seconds is not none %}
-            <p>Tempo attività: {{ health.uptime_seconds | int }}s</p>
+            <p class="status-desc">Attività: <code>{{ health.uptime_seconds | int }}s</code></p>
             {% endif %}
         </div>
     </div>
-
-    {% if state.state == 'ready' and not health.bot_running %}
-    <form method="post" action="/admin/bot/start" class="form-inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="btn btn-primary">Avvia bot</button>
-    </form>
-    {% elif health.bot_running %}
-    <form method="post" action="/admin/bot/stop" class="form-inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="btn btn-secondary">Ferma bot</button>
-    </form>
-    {% endif %}
 </div>
 {% endblock %}

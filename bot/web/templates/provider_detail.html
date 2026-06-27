@@ -1,0 +1,536 @@
+{% extends "base.html" %}
+{% block title %} — Provider: {{ provider.name }}{% endblock %}
+
+{% block content %}
+<div class="provider-detail-page">
+    {% set is_openrouter = provider.adapter_type == "openai-compat" and "openrouter" in (provider.endpoint or "")|lower %}
+
+    <div class="page-header">
+        <div>
+            <h1>{{ provider.name }}</h1>
+            <p class="lead">Connessione, modelli disponibili e capacità usate dalla pipeline.</p>
+        </div>
+        <div class="page-actions">
+            <a href="/admin/providers" class="btn btn-secondary">Tutti i provider</a>
+            <form method="post" action="/admin/providers/{{ provider.id }}/delete"
+                  onsubmit="return confirm('Eliminare definitivamente questo provider?');"
+                  class="form-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-danger">Elimina</button>
+            </form>
+        </div>
+    </div>
+
+    {% if request.query_params.get("success") == "updated" %}
+    <div class="alert alert-success">✅ Provider aggiornato con successo.</div>
+    {% endif %}
+    {% if request.query_params.get("error") == "csrf" %}
+    <div class="alert alert-error">❌ Errore di sicurezza. Ricarica e riprova.</div>
+    {% endif %}
+    {% if request.query_params.get("error") == "update_failed" %}
+    <div class="alert alert-error">❌ Aggiornamento fallito. Controlla i log.</div>
+    {% endif %}
+
+    <section class="surface-section">
+        <div class="section-header">
+            <div>
+                <h2>Connessione</h2>
+                <p>Endpoint, credenziali e stato operativo del provider.</p>
+            </div>
+        </div>
+        <div class="provider-meta">
+            <div class="provider-meta-item">
+                <strong>Tipo adattatore</strong>
+                {{ provider.adapter_type }}
+            </div>
+            <div class="provider-meta-item">
+                <strong>Endpoint</strong>
+                {{ provider.endpoint or "—" }}
+            </div>
+            <div class="provider-meta-item">
+                <strong>Stato</strong>
+                {% if provider.enabled %}
+                <span class="badge badge-success">Abilitato</span>
+                {% else %}
+                <span class="badge badge-error">Disabilitato</span>
+                {% endif %}
+            </div>
+            <div class="provider-meta-item">
+                <strong>Creato</strong>
+                {{ provider.created_at }}
+            </div>
+        </div>
+
+        <form method="post" action="/admin/providers/{{ provider.id }}/edit" class="settings-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div class="settings-grid">
+                <div class="form-group">
+                    <label for="name">Nome</label>
+                    <input id="name" name="name" type="text" value="{{ provider.name }}">
+                </div>
+
+                <div class="form-group">
+                    <label for="endpoint">Endpoint</label>
+                    <input id="endpoint" name="endpoint" type="url" value="{{ provider.endpoint or '' }}">
+                </div>
+
+                <div class="form-group">
+                    <label for="api_key">Nuova chiave API</label>
+                    <input id="api_key" name="api_key" type="password" autocomplete="off" placeholder="Lascia vuoto per mantenere quella esistente">
+                    <small class="form-help">La chiave salvata non viene mai mostrata.</small>
+                </div>
+
+                <label class="toggle-row">
+                    <input type="checkbox" name="enabled" value="1" {% if provider.enabled %}checked{% endif %}>
+                    <span>
+                        <strong>Provider abilitato</strong>
+                        <small>Può essere usato nelle pipeline attive.</small>
+                    </span>
+                </label>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Salva modifiche</button>
+            </div>
+        </form>
+    </section>
+
+    {# --- Model discovery --- #}
+    <section class="surface-section model-workbench">
+        <div class="section-header">
+            <div>
+                <h2>Modelli</h2>
+                <p>Registra solo i modelli che userai per trascrizione, refinement o fallback.</p>
+            </div>
+            <span id="discover-result" class="test-result"></span>
+        </div>
+
+        {% if is_openrouter %}
+        <div class="notice-inline">
+            OpenRouter espone un catalogo ampio. Usa i filtri per importare una shortlist. Audio input non significa automaticamente STT verificato, e i modelli single-pass vanno provati prima di metterli in produzione.
+        </div>
+        <div class="discovery-panel">
+            <div class="discovery-actions">
+                <button type="button" class="btn btn-primary discover-models-btn js-catalog-purpose"
+                        data-provider-id="{{ provider.id }}" data-purpose="refinement"
+                        data-testing="Cerco refinement…">
+                    Testo / refinement
+                </button>
+                <button type="button" class="btn discover-models-btn js-catalog-purpose"
+                        data-provider-id="{{ provider.id }}" data-purpose="transcription"
+                        data-testing="Cerco trascrizione…">
+                    Trascrizione
+                </button>
+                <button type="button" class="btn discover-models-btn js-catalog-purpose"
+                        data-provider-id="{{ provider.id }}" data-purpose="single_pass"
+                        data-testing="Cerco single-pass…">
+                    Single-pass
+                </button>
+                <button type="button" class="btn discover-models-btn js-catalog-purpose"
+                        data-provider-id="{{ provider.id }}" data-purpose="all_recommended"
+                        data-testing="Cerco consigliati…">
+                    Consigliati
+                </button>
+            </div>
+            <div class="discovery-search">
+                <label for="discover-query">Cerca nel catalogo</label>
+                <input id="discover-query" type="search"
+                       placeholder="es. gpt-4o, claude, whisper"
+                       autocomplete="off"
+                       data-provider-id="{{ provider.id }}">
+            </div>
+            <div id="catalog-results" class="catalog-results"></div>
+        </div>
+        {% else %}
+        <p class="section-copy">
+            I modelli registrati possono essere usati nella configurazione pipeline.
+            Usa "Scopri modelli" per rilevare automaticamente i modelli supportati,
+            oppure aggiungine uno manualmente.
+        </p>
+        <button type="button" class="btn btn-primary discover-models-btn js-discover-models"
+                data-provider-id="{{ provider.id }}" data-purpose="all_recommended"
+                data-testing="Scopro…">
+            🔍 Scopri modelli
+        </button>
+        {% endif %}
+
+        <div id="discover-progress" style="display:none" class="loading">
+            <div class="spinner"></div>
+            <p>Scoprendo modelli…</p>
+        </div>
+
+        <div class="registered-models-header">
+            <div>
+                <h3>Modelli registrati</h3>
+                <p>{{ models|length }} modello{% if models|length != 1 %}i{% endif %} disponibili per la pipeline.</p>
+            </div>
+        </div>
+
+        {% if models %}
+        <div class="model-table-wrap">
+            <table class="model-table compact-table">
+                <thead>
+                    <tr>
+                        <th>Modello</th>
+                        <th>Capacità</th>
+                        <th>Stato</th>
+                        <th>Origine</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in models %}
+                    <tr>
+                        <td class="model-name-cell"><code>{{ m.model_id }}</code></td>
+                        <td>
+                            <div class="capability-list">
+                                <span class="cap-pill {% if m.capabilities and m.capabilities.get('transcription') %}is-on{% else %}is-off{% endif %}">STT</span>
+                                <span class="cap-pill {% if m.capabilities and m.capabilities.get('refinement') %}is-on{% else %}is-off{% endif %}">Testo</span>
+                                <span class="cap-pill {% if m.capabilities and m.capabilities.get('streaming_refinement') %}is-on{% else %}is-off{% endif %}">Stream</span>
+                                <span class="cap-pill {% if m.capabilities and m.capabilities.get('single_pass_audio_to_text') %}is-on{% else %}is-off{% endif %}">Single</span>
+                            </div>
+                        </td>
+                        <td>
+                            {% if m.enabled %}
+                            <span class="badge badge-success">Attivo</span>
+                            {% else %}
+                            <span class="badge badge-error">Disattivo</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if m.detected %}
+                            <span class="badge badge-info">Rilevato</span>
+                            {% endif %}
+                            {% if m.manually_overridden %}
+                            <span class="badge badge-warn">Modificato</span>
+                            {% endif %}
+                        </td>
+                        <td class="table-action-cell">
+                            <button type="button" class="btn btn-small js-toggle-model"
+                                    data-entry-id="{{ m.id }}"
+                                    data-enabled="{{ '1' if m.enabled else '0' }}">
+                                {% if m.enabled %}Disattiva{% else %}Attiva{% endif %}
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">Nessun modello registrato. Importa una shortlist o aggiungi un modello manualmente.</div>
+        {% endif %}
+    </section>
+
+    {# --- Add manual model --- #}
+    <section class="surface-section">
+        <div class="section-header">
+            <div>
+                <h2>Aggiunta manuale</h2>
+                <p>Usala quando conosci già l'identificativo esatto del modello.</p>
+            </div>
+        </div>
+        <form method="post" action="/api/providers/{{ provider.id }}/models"
+              class="manual-model-form js-add-model-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="manual-model-row">
+                <div class="form-group">
+                    <label for="manual_model_id">ID modello</label>
+                    <input id="manual_model_id" name="model_id" type="text"
+                           placeholder="es. gpt-4o-mini" class="input-lg">
+                </div>
+                <button type="submit" class="btn btn-primary">Aggiungi</button>
+            </div>
+            <small class="form-help">
+                Inserisci l'identificativo del modello (es. <code>gpt-4o</code>,
+                <code>whisper-1</code>). Le capacità verranno stimate automaticamente.
+            </small>
+        </form>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    // ------------------------------------------------------------------
+    // Model discovery
+    // ------------------------------------------------------------------
+    const discoverButtons = document.querySelectorAll('.js-discover-models');
+    const catalogButtons = document.querySelectorAll('.js-catalog-purpose');
+    const discoverResult = document.getElementById('discover-result');
+    const discoverProgress = document.getElementById('discover-progress');
+    const discoverQuery = document.getElementById('discover-query');
+    const catalogResults = document.getElementById('catalog-results');
+    let activePurpose = 'refinement';
+    let catalogTimer = null;
+
+    function formatUsdPerMillion(value) {
+        if (value === null || value === undefined || value === '') return 'n/d';
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return 'n/d';
+        if (numeric === 0) return 'gratis';
+        return '$' + (numeric * 1000000).toFixed(2) + '/M';
+    }
+
+    function formatContext(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) return 'n/d';
+        if (numeric >= 1000) return Math.round(numeric / 1000) + 'k';
+        return String(numeric);
+    }
+
+    function capabilityBadges(model) {
+        const caps = model.capabilities || {};
+        const meta = model.metadata || {};
+        const badges = [];
+        if (caps.refinement) badges.push('<span class="badge badge-info">Testo</span>');
+        if (caps.transcription) badges.push('<span class="badge badge-success">STT</span>');
+        if (caps.single_pass_audio_to_text) badges.push('<span class="badge badge-warn">Single-pass</span>');
+        if (caps.streaming_refinement) badges.push('<span class="badge badge-info">Streaming</span>');
+        if (meta.audio_input && !caps.transcription && !caps.single_pass_audio_to_text) {
+            badges.push('<span class="badge badge-warn">Audio input</span>');
+        }
+        return badges.join(' ');
+    }
+
+    function renderCatalog(models) {
+        if (!catalogResults) return;
+        if (!models.length) {
+            catalogResults.innerHTML = '<div class="empty-state compact">Nessun modello compatibile trovato.</div>';
+            return;
+        }
+        catalogResults.innerHTML = models.map(function(model) {
+            const pricing = model.pricing || {};
+            const desc = model.description
+                ? '<p class="catalog-model-desc">' + escapeHtml(model.description).slice(0, 180) + '</p>'
+                : '';
+            return '<article class="catalog-model">'
+                + '<div class="catalog-model-main">'
+                + '<div class="catalog-model-title">'
+                + '<strong>' + escapeHtml(model.name || model.model_id) + '</strong>'
+                + '<code>' + escapeHtml(model.model_id) + '</code>'
+                + '</div>'
+                + desc
+                + '<div class="catalog-badges">' + capabilityBadges(model) + '</div>'
+                + '</div>'
+                + '<div class="catalog-model-meta">'
+                + '<span><b>Input</b>' + formatUsdPerMillion(pricing.prompt) + '</span>'
+                + '<span><b>Output</b>' + formatUsdPerMillion(pricing.completion) + '</span>'
+                + '<span><b>Context</b>' + formatContext(model.context_length) + '</span>'
+                + '</div>'
+                + '<div class="catalog-model-action">'
+                + '<button type="button" class="btn btn-primary btn-small js-import-catalog-model"'
+                + ' data-model-id="' + escapeAttr(model.model_id) + '"'
+                + ' data-display-name="' + escapeAttr(model.name || model.model_id) + '"'
+                + ' data-capabilities="' + escapeAttr(JSON.stringify(model.capabilities || {})) + '">'
+                + 'Importa</button>'
+                + '</div>'
+                + '</article>';
+        }).join('');
+    }
+
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, function(ch) {
+            return ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[ch];
+        });
+    }
+
+    function escapeAttr(value) {
+        return escapeHtml(value).replace(/`/g, '&#96;');
+    }
+
+    function searchCatalog() {
+        if (!discoverQuery || !catalogResults) return;
+        const providerId = discoverQuery.dataset.providerId;
+        const query = discoverQuery.value.trim();
+        const purpose = query ? 'all' : activePurpose;
+        const params = new URLSearchParams({ purpose: purpose, limit: '10' });
+        if (query) params.set('query', query);
+
+        catalogResults.innerHTML = '<p class="form-help">Cerco modelli…</p>';
+        fetch('/api/providers/' + providerId + '/catalog?' + params.toString())
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ok) {
+                    renderCatalog(data.models || []);
+                } else {
+                    catalogResults.innerHTML = '<p class="form-help catalog-error">' + escapeHtml(data.error || 'Errore') + '</p>';
+                }
+            })
+            .catch(function(err) {
+                catalogResults.innerHTML = '<p class="form-help catalog-error">' + escapeHtml(err.message) + '</p>';
+            });
+    }
+
+    catalogButtons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            activePurpose = btn.dataset.purpose || 'all_recommended';
+            catalogButtons.forEach(function(other) { other.classList.remove('btn-primary'); });
+            btn.classList.add('btn-primary');
+            searchCatalog();
+        });
+    });
+
+    if (discoverQuery) {
+        discoverQuery.addEventListener('input', function() {
+            clearTimeout(catalogTimer);
+            catalogTimer = setTimeout(searchCatalog, 300);
+        });
+        searchCatalog();
+    }
+
+    if (catalogResults) {
+        catalogResults.addEventListener('click', function(e) {
+            const btn = e.target.closest('.js-import-catalog-model');
+            if (!btn) return;
+            const providerId = discoverQuery.dataset.providerId;
+            btn.disabled = true;
+            btn.textContent = 'Importo…';
+            fetch('/api/providers/' + providerId + '/models', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model_id: btn.dataset.modelId,
+                    display_name: btn.dataset.displayName,
+                    capabilities: JSON.parse(btn.dataset.capabilities || '{}'),
+                }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ok) {
+                    btn.textContent = 'Importato';
+                    setTimeout(function() { location.reload(); }, 600);
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Importa';
+                    alert('Errore: ' + (data.error || 'Operazione fallita'));
+                }
+            })
+            .catch(function(err) {
+                btn.disabled = false;
+                btn.textContent = 'Importa';
+                alert('Errore: ' + err.message);
+            });
+        });
+    }
+
+    discoverButtons.forEach(function(discoverBtn) {
+        discoverBtn.addEventListener('click', function() {
+            const providerId = discoverBtn.dataset.providerId;
+            const originalText = discoverBtn.textContent;
+            const purpose = discoverBtn.dataset.purpose || 'all_recommended';
+            const params = new URLSearchParams({ purpose: purpose, limit: '30' });
+            const query = discoverQuery ? discoverQuery.value.trim() : '';
+            if (query) params.set('query', query);
+
+            discoverButtons.forEach(function(btn) { btn.disabled = true; });
+            discoverBtn.textContent = discoverBtn.dataset.testing || 'Scopro…';
+            if (discoverResult) discoverResult.textContent = '';
+            if (discoverProgress) discoverProgress.style.display = 'block';
+
+            fetch('/api/providers/' + providerId + '/discover?' + params.toString(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ok) {
+                    if (discoverResult) {
+                        var counts = data.counts || {};
+                        var details = data.guided
+                            ? ' · refinement ' + (counts.refinement || 0)
+                              + ', trascrizione ' + (counts.transcription || 0)
+                              + ', single-pass ' + (counts.single_pass || 0)
+                            : '';
+                        discoverResult.textContent = '✅ Importati ' + data.discovered + ' modelli' + details;
+                        discoverResult.className = 'test-result success';
+                    }
+                    // Reload the page to show the new models
+                    setTimeout(function() { location.reload(); }, 1000);
+                } else {
+                    if (discoverResult) {
+                        discoverResult.textContent = '❌ ' + (data.error || 'Errore');
+                        discoverResult.className = 'test-result error';
+                    }
+                }
+            })
+            .catch(function(err) {
+                if (discoverResult) {
+                    discoverResult.textContent = '❌ ' + err.message;
+                    discoverResult.className = 'test-result error';
+                }
+            })
+            .finally(function() {
+                discoverButtons.forEach(function(btn) { btn.disabled = false; });
+                discoverBtn.textContent = originalText;
+                if (discoverProgress) discoverProgress.style.display = 'none';
+            });
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // Toggle model enabled/disabled
+    // ------------------------------------------------------------------
+    document.querySelectorAll('.js-toggle-model').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const entryId = btn.dataset.entryId;
+            const currentlyEnabled = btn.dataset.enabled === '1';
+
+            fetch('/api/providers/models/' + entryId + '/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: !currentlyEnabled }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ok) {
+                    location.reload();
+                } else {
+                    alert('Errore: ' + (data.error || 'Operazione fallita'));
+                }
+            })
+            .catch(function(err) {
+                alert('Errore: ' + err.message);
+            });
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // Add manual model
+    // ------------------------------------------------------------------
+    const addModelForm = document.querySelector('.js-add-model-form');
+    if (addModelForm) {
+        addModelForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const modelIdInput = document.getElementById('manual_model_id');
+            const modelId = modelIdInput ? modelIdInput.value.trim() : '';
+            if (!modelId) {
+                alert('Inserisci un ID modello.');
+                return;
+            }
+
+            fetch(addModelForm.action, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model_id: modelId }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ok) {
+                    location.reload();
+                } else {
+                    alert('Errore: ' + (data.error || 'Operazione fallita'));
+                }
+            })
+            .catch(function(err) {
+                alert('Errore: ' + err.message);
+            });
+        });
+    }
+})();
+</script>
+{% endblock %}

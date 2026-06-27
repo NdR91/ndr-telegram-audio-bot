@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-28T01:00:00Z",
+  "title": "Design System: Telegram Audio Bot Admin",
+  "extensions": {
+    "colorMeta": {
+      "bg":            { "role": "neutral",   "displayName": "Void",              "canonical": "oklch(0.11 0.000 0)",  "tonalRamp": ["oklch(0.06 0 0)", "oklch(0.11 0 0)", "oklch(0.16 0 0)", "oklch(0.21 0 0)", "oklch(0.30 0 0)", "oklch(0.45 0 0)", "oklch(0.60 0 0)", "oklch(0.90 0 0)"] },
+      "surface":       { "role": "neutral",   "displayName": "Panel",             "canonical": "oklch(0.16 0.000 0)",  "tonalRamp": ["oklch(0.06 0 0)", "oklch(0.11 0 0)", "oklch(0.16 0 0)", "oklch(0.21 0 0)", "oklch(0.30 0 0)", "oklch(0.45 0 0)", "oklch(0.60 0 0)", "oklch(0.90 0 0)"] },
+      "surface-raised":{ "role": "neutral",   "displayName": "Raised Surface",    "canonical": "oklch(0.21 0.000 0)",  "tonalRamp": ["oklch(0.06 0 0)", "oklch(0.11 0 0)", "oklch(0.16 0 0)", "oklch(0.21 0 0)", "oklch(0.30 0 0)", "oklch(0.45 0 0)", "oklch(0.60 0 0)", "oklch(0.90 0 0)"] },
+      "ink":           { "role": "neutral",   "displayName": "Ink",               "canonical": "oklch(0.96 0.004 30)", "tonalRamp": ["oklch(0.20 0.004 30)", "oklch(0.35 0.004 30)", "oklch(0.38 0.004 30)", "oklch(0.50 0.004 30)", "oklch(0.62 0.004 30)", "oklch(0.74 0.004 30)", "oklch(0.84 0.004 30)", "oklch(0.91 0.004 30)", "oklch(0.96 0.004 30)"] },
+      "muted":         { "role": "neutral",   "displayName": "Muted",             "canonical": "oklch(0.52 0.006 30)", "tonalRamp": ["oklch(0.20 0.006 30)", "oklch(0.30 0.006 30)", "oklch(0.40 0.006 30)", "oklch(0.52 0.006 30)", "oklch(0.64 0.006 30)", "oklch(0.70 0.006 30)", "oklch(0.74 0.006 30)", "oklch(0.84 0.006 30)", "oklch(0.93 0.006 30)"] },
+      "border":        { "role": "neutral",   "displayName": "Rule",              "canonical": "oklch(0.26 0.000 0)",  "tonalRamp": ["oklch(0.10 0 0)", "oklch(0.16 0 0)", "oklch(0.21 0 0)", "oklch(0.26 0 0)", "oklch(0.35 0 0)", "oklch(0.50 0 0)", "oklch(0.68 0 0)", "oklch(0.88 0 0)"] },
+      "primary":       { "role": "primary",   "displayName": "Operational Amber", "canonical": "oklch(0.68 0.17 38)",  "tonalRamp": ["oklch(0.18 0.17 38)", "oklch(0.28 0.17 38)", "oklch(0.38 0.17 38)", "oklch(0.42 0.10 38)", "oklch(0.48 0.17 38)", "oklch(0.58 0.17 38)", "oklch(0.68 0.17 38)", "oklch(0.78 0.14 38)", "oklch(0.78 0.17 38)", "oklch(0.90 0.08 38)"] },
+      "primary-deep":  { "role": "primary",   "displayName": "Deep Amber",        "canonical": "oklch(0.58 0.18 35)",  "tonalRamp": ["oklch(0.15 0.18 35)", "oklch(0.25 0.18 35)", "oklch(0.35 0.18 35)", "oklch(0.45 0.18 35)", "oklch(0.58 0.18 35)", "oklch(0.68 0.17 38)", "oklch(0.78 0.14 38)", "oklch(0.90 0.08 38)"] },
+      "accent":        { "role": "secondary", "displayName": "Signal Teal",       "canonical": "oklch(0.72 0.13 195)", "tonalRamp": ["oklch(0.18 0.13 195)", "oklch(0.28 0.13 195)", "oklch(0.40 0.13 195)", "oklch(0.52 0.13 195)", "oklch(0.62 0.13 195)", "oklch(0.72 0.13 195)", "oklch(0.82 0.10 195)", "oklch(0.82 0.12 195)", "oklch(0.92 0.05 195)"] },
+      "error":         { "role": "tertiary",  "displayName": "Error Red",         "canonical": "oklch(0.60 0.22 25)",  "tonalRamp": ["oklch(0.18 0.22 25)", "oklch(0.28 0.22 25)", "oklch(0.38 0.22 25)", "oklch(0.48 0.22 25)", "oklch(0.50 0.22 25)", "oklch(0.60 0.22 25)", "oklch(0.70 0.18 25)", "oklch(0.78 0.18 25)", "oklch(0.80 0.18 25)", "oklch(0.80 0.12 25)", "oklch(0.92 0.05 25)"] },
+      "success":       { "role": "tertiary",  "displayName": "Status Green",      "canonical": "oklch(0.68 0.16 155)", "tonalRamp": ["oklch(0.18 0.16 155)", "oklch(0.28 0.16 155)", "oklch(0.40 0.16 155)", "oklch(0.52 0.16 155)", "oklch(0.60 0.16 155)", "oklch(0.68 0.16 155)", "oklch(0.78 0.12 155)", "oklch(0.80 0.14 155)", "oklch(0.82 0.14 155)", "oklch(0.90 0.06 155)"] },
+      "warn":          { "role": "tertiary",  "displayName": "Alert Amber",       "canonical": "oklch(0.72 0.13 60)",  "tonalRamp": ["oklch(0.20 0.13 60)", "oklch(0.30 0.13 60)", "oklch(0.40 0.13 60)", "oklch(0.52 0.13 60)", "oklch(0.62 0.13 60)", "oklch(0.72 0.13 60)", "oklch(0.82 0.10 60)", "oklch(0.82 0.11 60)", "oklch(0.84 0.11 60)", "oklch(0.92 0.05 60)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Page-level title. One per page." },
+      "headline": { "displayName": "Headline", "purpose": "Section and card titles." },
+      "title": { "displayName": "Title", "purpose": "Form labels, table headers, metadata labels." },
+      "body": { "displayName": "Body", "purpose": "All prose, helper text, descriptions." },
+      "label": { "displayName": "Label", "purpose": "Status badges and table column headers only. Uppercase + tracked." },
+      "mono": { "displayName": "Mono", "purpose": "API keys, model IDs, pipeline role identifiers, code values." }
+    },
+    "shadows": [
+      { "name": "focus-glow", "value": "0 0 0 3px oklch(0.68 0.17 38 / 0.3)", "purpose": "Focus ring on interactive elements." },
+      { "name": "elevated-panel", "value": "0 4px 16px oklch(0 0 0 / 0.5)", "purpose": "Floating elements: dropdowns, tooltips, dialogs." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Default easing — expo-out feel for state transitions." },
+      { "name": "duration-fast", "value": "120ms", "purpose": "Button presses, toggle switches." },
+      { "name": "duration-standard", "value": "200ms", "purpose": "Panel reveals, status changes, focus rings." },
+      { "name": "duration-slow", "value": "300ms", "purpose": "Wizard step transitions, page-level changes." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "600px" },
+      { "name": "tablet", "value": "720px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary action. Operational Amber fill, ink text.",
+      "html": "<button class=\"ds-btn-primary\">Avvia Bot</button>",
+      "css": ".ds-btn-primary { background: oklch(0.68 0.17 38); color: oklch(0.96 0.004 30); padding: 10px 20px; font-size: 0.875rem; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; font-family: Inter, system-ui, sans-serif; transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 120ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-primary:hover { background: oklch(0.58 0.18 35); transform: translateY(-1px); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px oklch(0.68 0.17 38 / 0.3); } .ds-btn-primary:active { transform: translateY(0); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Secondary action. Raised surface, border, ink text.",
+      "html": "<button class=\"ds-btn-secondary\">Annulla</button>",
+      "css": ".ds-btn-secondary { background: oklch(0.21 0 0); color: oklch(0.96 0.004 30); padding: 10px 20px; font-size: 0.875rem; font-weight: 600; border: 1px solid oklch(0.26 0 0); border-radius: 6px; cursor: pointer; font-family: Inter, system-ui, sans-serif; transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms; } .ds-btn-secondary:hover { background: oklch(0.26 0 0); border-color: oklch(0.34 0 0); } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 3px oklch(0.68 0.17 38 / 0.3); }"
+    },
+    {
+      "name": "Status Indicator — OK",
+      "kind": "custom",
+      "description": "Bot running / provider healthy. Teal dot + label.",
+      "html": "<div class=\"ds-status-ok\"><span class=\"ds-status-dot\"></span><span class=\"ds-status-label\">Attivo</span></div>",
+      "css": ".ds-status-ok { display: flex; align-items: center; gap: 8px; } .ds-status-dot { width: 10px; height: 10px; border-radius: 50%; background: oklch(0.68 0.16 155); flex-shrink: 0; } .ds-status-label { font-size: 0.9375rem; font-weight: 600; color: oklch(0.96 0.004 30); font-family: Inter, system-ui, sans-serif; }"
+    },
+    {
+      "name": "Status Indicator — Warn",
+      "kind": "custom",
+      "description": "Degraded provider or incomplete configuration. Amber dot.",
+      "html": "<div class=\"ds-status-warn\"><span class=\"ds-status-dot-warn\"></span><span class=\"ds-status-label-warn\">Attenzione</span></div>",
+      "css": ".ds-status-warn { display: flex; align-items: center; gap: 8px; } .ds-status-dot-warn { width: 10px; height: 10px; border-radius: 50%; background: oklch(0.72 0.13 60); flex-shrink: 0; } .ds-status-label-warn { font-size: 0.9375rem; font-weight: 600; color: oklch(0.96 0.004 30); font-family: Inter, system-ui, sans-serif; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Standard form input. Raised surface, amber focus ring.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-label\" for=\"f1\">API Key</label><input class=\"ds-input\" id=\"f1\" type=\"text\" placeholder=\"sk-...\" /><span class=\"ds-help\">La chiave viene cifrata a riposo.</span></div>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 6px; } .ds-label { font-size: 0.875rem; font-weight: 600; color: oklch(0.96 0.004 30); font-family: Inter, system-ui, sans-serif; } .ds-input { background: oklch(0.21 0 0); color: oklch(0.96 0.004 30); border: 1px solid oklch(0.26 0 0); border-radius: 6px; padding: 10px 12px; font-size: 0.9375rem; font-family: 'JetBrains Mono', 'Fira Code', monospace; transition: border-color 150ms, box-shadow 150ms; outline: none; width: 100%; } .ds-input::placeholder { color: oklch(0.40 0.006 30); } .ds-input:focus { border-color: oklch(0.68 0.17 38); box-shadow: 0 0 0 3px oklch(0.68 0.17 38 / 0.25); } .ds-help { font-size: 0.8125rem; color: oklch(0.52 0.006 30); font-family: Inter, system-ui, sans-serif; }"
+    },
+    {
+      "name": "Card / Panel",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Standard content container. Panel bg, Rule border.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-header\"><h2 class=\"ds-card-title\">Provider OpenAI</h2><p class=\"ds-card-desc\">Whisper + GPT-4o configurati.</p></div></div>",
+      "css": ".ds-card { background: oklch(0.16 0 0); border: 1px solid oklch(0.26 0 0); border-radius: 10px; padding: 20px; } .ds-card-header { margin-bottom: 12px; } .ds-card-title { font-size: 1.125rem; font-weight: 600; color: oklch(0.96 0.004 30); font-family: Inter, system-ui, sans-serif; letter-spacing: -0.01em; line-height: 1.3; } .ds-card-desc { font-size: 0.875rem; color: oklch(0.52 0.006 30); font-family: Inter, system-ui, sans-serif; margin-top: 4px; line-height: 1.5; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "description": "Inline semantic status chip. Uppercase label, semantic tint.",
+      "html": "<span class=\"ds-badge ds-badge-ok\">Attivo</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-family: Inter, system-ui, sans-serif; } .ds-badge-ok { background: oklch(0.68 0.16 155 / 0.15); color: oklch(0.75 0.16 155); } .ds-badge-warn { background: oklch(0.72 0.13 60 / 0.15); color: oklch(0.78 0.13 60); } .ds-badge-error { background: oklch(0.60 0.22 25 / 0.15); color: oklch(0.68 0.22 25); }"
+    },
+    {
+      "name": "Navbar",
+      "kind": "nav",
+      "description": "Top navigation bar. Dark surface, amber active state.",
+      "html": "<nav class=\"ds-nav\"><div class=\"ds-nav-inner\"><a class=\"ds-nav-brand\" href=\"/\">🎵 Audio Bot</a><div class=\"ds-nav-links\"><a class=\"ds-nav-link ds-active\" href=\"/admin/dashboard\">Dashboard</a><a class=\"ds-nav-link\" href=\"/admin/providers\">Provider</a><a class=\"ds-nav-link\" href=\"/admin/pipeline\">Pipeline</a></div></div></nav>",
+      "css": ".ds-nav { background: oklch(0.14 0 0); border-bottom: 1px solid oklch(0.22 0 0); } .ds-nav-inner { max-width: 1120px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; height: 52px; } .ds-nav-brand { font-weight: 700; font-size: 1rem; color: oklch(0.96 0.004 30); text-decoration: none; font-family: Inter, system-ui, sans-serif; } .ds-nav-links { display: flex; align-items: center; gap: 4px; } .ds-nav-link { color: oklch(0.52 0.006 30); font-size: 0.875rem; font-weight: 500; text-decoration: none; padding: 6px 12px; border-radius: 6px; font-family: Inter, system-ui, sans-serif; transition: color 150ms, background 150ms; } .ds-nav-link:hover { color: oklch(0.96 0.004 30); background: oklch(0.21 0 0); } .ds-nav-link.ds-active { color: oklch(0.68 0.17 38); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Control Room",
+    "overview": "This is an admin interface for operators — people who self-hosted this bot because they wanted control, not convenience. Every screen should feel like a well-designed instrument panel: dense where density serves scanning, minimal where focus matters, and never wasting a pixel on decoration that doesn't carry operational information.\n\nThe surface is dark by design — not as a stylistic choice but as a consequence of use. An admin who checks bot health at 11pm on a dark screen needs fast legibility and low eyestrain. Amber-orange as the primary accent is a deliberate break from generic-SaaS blue: it reads as operational (traffic lights, cockpit readouts, terminal prompts), signals importance without aggression, and pairs well with the dark field.\n\nTypography leans on Inter's precision and a monospace accent for technical values (API keys, model IDs, token counts). No serif sentimentality — this is a tool, not a publication.",
+    "keyCharacteristics": [
+      "Dark field with high-contrast ink — operational, not decorative",
+      "Amber-orange primary accent: confident, distinctive, no blue-SaaS DNA",
+      "Teal/cyan for status OK states — color-coded at a glance",
+      "Monospace accents for technical values: IDs, keys, model names",
+      "Gently curved corners (6px) — structured but not harsh",
+      "Motion only for state transitions: no scroll reveals, no section entrances"
+    ],
+    "rules": [
+      { "name": "The One Amber Rule", "body": "Operational Amber appears only on interactive elements that demand action and on progress/step indicators. It never fills a background panel or decorates a heading. Its scarcity is what makes it legible as a signal.", "section": "colors" },
+      { "name": "The Semantic Color Rule", "body": "Teal means healthy. Red means broken. Amber means warn or act. Never use these colors decoratively.", "section": "colors" },
+      { "name": "The No-Eyebrow Rule", "body": "Uppercase tracked labels are reserved for status badges and table column headers. Never above a section heading as a decorative kicker.", "section": "typography" },
+      { "name": "The Tonal-First Rule", "body": "Before reaching for a drop shadow, ask whether a surface lightness step achieves the same hierarchy. On a dark field, shadows can disappear entirely — tonal steps never do.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use Operational Amber exclusively for interactive elements that demand an action or represent the active/focus state.",
+      "Do communicate bot health via the semantic color trio — teal (running), red (broken), amber (warn) — consistently across every status surface.",
+      "Do use JetBrains Mono for all technical values: API keys, model IDs, pipeline role identifiers.",
+      "Do use tonal surface steps (Void → Panel → Raised Surface) to create hierarchy before reaching for shadows.",
+      "Do keep uppercase tracked text to status badges and table column headers only.",
+      "Do show focus rings on every interactive element — this is an admin tool, keyboard navigation is expected."
+    ],
+    "donts": [
+      "Don't use cream, sand, warm-neutral, or any near-white warm-tinted background. The bg is dark.",
+      "Don't use the generic SaaS blue (#2563eb or equivalents) as a primary color.",
+      "Don't place uppercase tracked labels as decorative eyebrows above section headings.",
+      "Don't use drop shadows on cards or panels at rest. Tonal layering only.",
+      "Don't use gradient text (background-clip: text) — never.",
+      "Don't use border-left greater than 1px as a colored accent stripe on cards or callouts.",
+      "Don't build identical card grids where every card is the same size, same structure, same icon-heading-text layout.",
+      "Don't add motion to section entrances or page loads."
+    ]
+  }
+}
