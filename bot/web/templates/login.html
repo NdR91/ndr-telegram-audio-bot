@@ -11,6 +11,12 @@
     </div>
     {% endif %}
 
+    {% if recovery_ok %}
+    <div class="alert alert-success">
+        Password reimpostata con successo! Effettua il login con la nuova password.
+    </div>
+    {% endif %}
+
     {% if error == "csrf" %}
     <div class="alert alert-error">Errore di validazione. Riprova.</div>
     {% elif error == "invalid" %}
@@ -31,5 +37,9 @@
             <button type="submit" class="btn btn-primary">Accedi</button>
         </div>
     </form>
+
+    <p class="text-muted mt-1">
+        <a href="/recovery">Password dimenticata?</a>
+    </p>
 </div>
 {% endblock %}

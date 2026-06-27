@@ -9,6 +9,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Same-provider default (P5)**: Automatic same-provider pipeline
+  resolution with profile-based configuration and simplified onboarding.
+
+  - **`bot/pipeline_resolver.py`**: New `resolve_from_profile()` method
+    that loads a saved pipeline profile from the database, retrieves the
+    referenced provider connections, and builds an `ExecutionPlan`.
+    Supports same-provider (single provider for all stages) and
+    separate-provider profiles. Validates provider existence, enabled
+    state, and capability requirements at resolution time.
+  - **`bot/web/setup_wizard.py`**: New `create_pipeline_from_wizard()`
+    function that reads saved wizard data from `setup_state`, creates a
+    permanent `provider_connections` record, and creates a same-provider
+    default `pipeline_profiles` record on wizard completion. New
+    `get_active_pipeline_profile_id()` / `set_active_pipeline_profile_id()`
+    helpers. `build_summary()` now includes `active_profile_id`.
+  - **`bot/web/app.py`**: Wizard `step_verify` now calls
+    `create_pipeline_from_wizard()` to persist the provider and profile.
+    New `/admin/pipeline` page with default (single provider selector)
+    and advanced (separate transcription/text selectors) modes. New
+    `/api/pipeline/info` JSON endpoint. New `/admin/pipeline/save` form
+    endpoint.
+  - **`bot/web/templates/pipeline.html`**: New admin pipeline management
+    page with mode toggle (default/advanced), provider selectors, and
+    current status display.
+  - **`bot/web/templates/setup.html`**: Step 6 (step_pipeline) is now
+    adaptive to detected capabilities — auto-selects "use this provider
+    for everything" when both transcription and refinement are supported,
+    "transcription only" when refinement is unavailable, and shows
+    capability badges and explanatory messages.
+  - **17 new tests** (445 total, 0 regressions) covering
+    `resolve_from_profile()` (same provider, separate providers, error
+    cases), `create_pipeline_from_wizard()` (full wizard data, partial
+    data, adapter type mapping).
+
+- **Adapter registry (P3)**: Explicit registries for transcribers and
+  text processors, replacing `if/elif` factory chains.
+
+  - **`bot/adapters/`** package with registry module
+    (`TranscriberRegistry`, `TextProcessorRegistry`) that supports
+    direct and decorator-based registration.
+  - **`OpenAICompatTranscriber`** and **`OpenAICompatTextProcessor`**
+    adapters for OpenAI-compatible endpoints (OpenRouter, Ollama,
+    vLLM, custom), configurable via `endpoint` parameter.
+  - Default registrations for `openai-native`, `gemini-native`,
+    `openai-compat` (plus backward-compatible short aliases `openai`
+    and `gemini`).
+  - `bot/utils.py` factories now delegate to the registry instead of
+    `if/elif` chains; `bot/capabilities.py` extended with new
+    adapter type defaults.
+  - **37 new tests** (402 total, 0 regressions).
+
+- **Automatic pipeline resolver (P4)**: Per-request pipeline resolution
+  based on database provider connections and capabilities, replacing
+  static `.env`-driven provider selection.
+
+  - **`bot/pipeline_resolver.py`** module with :class:`PipelineResolver`,
+    :class:`ExecutionPlan`, :class:`PipelineRequest`, and :class:`RequestMode`.
+  - Resolver selects the simplest valid pipeline: prefers a single
+    provider with both transcription and refinement; falls back to
+    separate providers when needed.
+  - User-facing error messages for invalid configurations (no providers,
+    missing capabilities, unknown adapter types).
+  - Immutable :class:`ExecutionPlan` with resolved `Transcriber` and
+    `TextProcessor` instances, provider/model names, and a resolution log.
+  - Integration in `bot/handlers/audio.py`: pipeline is resolved per-
+    request; on resolution failure the user receives a clear explanation.
+  - Resolver registered in `bot_data['pipeline_resolver']` via
+    `bot/core/app.py` when a `DatabaseManager` is available.
+  - `PipelineResolutionError` added to `bot/exceptions.py`.
+  - **26 new tests** (428 total, 0 regressions).
+
+### Added
+
 - **First-run setup mode (A6)**: Time-limited one-time setup code for
   blank data volumes, preparing the application for guided onboarding
   (Phase 2 frontend).

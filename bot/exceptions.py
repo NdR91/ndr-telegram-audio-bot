@@ -81,3 +81,11 @@ class RefineError(AudioPipelineStageError):
 
 class ProviderCircuitOpen(AudioPipelineStageError):
     """Raised when the provider circuit breaker is open."""
+
+
+class PipelineResolutionError(AudioPipelineError):
+    """Raised when the pipeline resolver cannot produce a valid execution plan.
+
+    ``user_message`` explains the problem in plain language so the user
+    understands what is missing or misconfigured.
+    """

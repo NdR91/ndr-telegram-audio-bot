@@ -42,7 +42,10 @@ from bot.setup import (
 )
 from bot.state import AppState, StateChecker
 
+from bot.capabilities import CapabilityModel, detect_capabilities
+import bot.recovery
 import bot.setup
+from bot.recovery import generate_recovery_code
 from bot.web.auth import (
     SESSION_MAX_AGE,
     _make_serialiser,
@@ -57,6 +60,8 @@ from bot.web.auth import (
 from bot.web.setup_wizard import (
     PROVIDER_PRESETS,
     build_summary,
+    create_pipeline_from_wizard,
+    get_active_pipeline_profile_id,
     get_capabilities,
     get_current_step,
     get_next_step,
@@ -121,11 +126,44 @@ async def _lifespan(app: FastAPI):
             state.state.value,
         )
 
+    # W6 — Generate a recovery code on every startup when admin exists.
+    # The code is printed in the logs so the administrator can always
+    # recover access, even without Telegram or the frontend credentials.
+    if state.state != AppState.SETUP_REQUIRED:
+        db: DatabaseManager = app.state.db
+        if has_admin(db):
+            code = generate_recovery_code(db)
+            _print_recovery_code(code)
+
     yield
 
     # Shutdown
     await mgr.stop_async()
     logger.info("Bot stopped (web server shutdown)")
+
+
+# ------------------------------------------------------------------
+# Print helpers
+# ------------------------------------------------------------------
+
+
+def _print_recovery_code(code: str) -> None:
+    """Print the recovery code prominently in the logs so the administrator
+    can copy it for password reset.
+
+    Deliberately uses ``print`` (not logger) so the code is always visible
+    regardless of log-level configuration.
+    """
+    sep = "=" * 56
+    print(f"\n{sep}", flush=True)
+    print(f"  RECOVERY CODE: {code}", flush=True)
+    print(f"  Valido per {bot.recovery.RECOVERY_CODE_TTL_SECONDS} secondi.", flush=True)
+    print(f"  Vai su /recovery nell'interfaccia web per reimpostare la password.", flush=True)
+    print(f"{sep}\n", flush=True)
+    logger.info(
+        "One-time recovery code generated — valid for %s seconds",
+        bot.recovery.RECOVERY_CODE_TTL_SECONDS,
+    )
 
 
 # ------------------------------------------------------------------
@@ -495,7 +533,11 @@ def create_app(
 
     @app.post("/api/setup/detect-capabilities")
     async def api_detect_capabilities(request: Request):
-        """Detect capabilities from a provider's model list."""
+        """Detect capabilities from a provider's model list.
+
+        Uses the typed :class:`CapabilityModel` from ``bot.capabilities``
+        instead of inline heuristics (P2).
+        """
         try:
             body = await request.json()
         except (json.JSONDecodeError, ValueError):
@@ -509,47 +551,23 @@ def create_app(
             return JSONResponse({
                 "ok": True,
                 "capabilities": {"transcription": False, "text_generation": False,
+                                 "refinement": False, "streaming_refinement": False,
                                  "models": [], "note": "Nessun modello rilevato."},
             })
 
-        # Heuristic capability detection based on model names
-        transcription_keywords = ("whisper", "audio", "voice", "speech")
-        text_keywords = ("gpt", "gemini", "claude", "llama", "mistral", "command",
-                         "text", "chat", "instruct", "turbo")
+        # Use the typed detection from bot.capabilities
+        model_name = models[0] if models else ""
+        caps = detect_capabilities(provider_type, model_name)
 
-        can_transcribe = False
-        can_generate = False
-        relevant_models = []
+        relevant_models = models[:10]
 
-        for model_id in models:
-            mid = model_id.lower()
-            if any(kw in mid for kw in transcription_keywords):
-                can_transcribe = True
-                relevant_models.append(model_id)
-            if any(kw in mid for kw in text_keywords):
-                can_generate = True
-                if model_id not in relevant_models:
-                    relevant_models.append(model_id)
+        # Provider-specific defaults for model list (keep as UX hint)
+        if provider_type == "gemini" and not relevant_models:
+            relevant_models = ["gemini-2.0-flash", "gemini-2.5-pro"]
 
-        # Provider-specific defaults
-        if provider_type == "openai" and not can_transcribe:
-            # OpenAI always has Whisper available
-            can_transcribe = True
-        if provider_type == "gemini":
-            can_transcribe = True
-            can_generate = True
-            if not relevant_models:
-                relevant_models = ["gemini-2.0-flash", "gemini-2.5-pro"]
-
-        return JSONResponse({
-            "ok": True,
-            "capabilities": {
-                "transcription": can_transcribe,
-                "text_generation": can_generate,
-                "refinement": can_generate,
-                "models": relevant_models[:10],
-            },
-        })
+        result = caps.to_dict()
+        result["models"] = relevant_models
+        return JSONResponse({"ok": True, "capabilities": result})
 
     # Non-JS fallback: form-based step processing
     @app.post("/setup")
@@ -649,6 +667,7 @@ def create_app(
                     "csrf_token": session["csrf_token"],
                     "error": request.query_params.get("error", ""),
                     "setup_ok": request.query_params.get("setup", "") == "ok",
+                    "recovery_ok": request.query_params.get("recovery", "") == "ok",
                 },
             )
             _session_response(response, session)
@@ -661,6 +680,7 @@ def create_app(
                 "csrf_token": session.get("csrf_token", generate_csrf_token()),
                 "error": request.query_params.get("error", ""),
                 "setup_ok": request.query_params.get("setup", "") == "ok",
+                "recovery_ok": request.query_params.get("recovery", "") == "ok",
             },
         )
 
@@ -687,6 +707,101 @@ def create_app(
         response = RedirectResponse(url="/login", status_code=303)
         response.delete_cookie("session")
         return response
+
+    # ---- Routes: Recovery (W6) -----------------------------------------------
+
+    @app.get("/recovery", response_class=HTMLResponse)
+    async def recovery_page(request: Request):
+        session = _session(request)
+        recovery_approved = session is not None and session.get("recovery_approved", False)
+
+        if session is None:
+            session = {"csrf_token": generate_csrf_token()}
+            response = templates.TemplateResponse(
+                request,
+                "recovery.html",
+                {
+                    "csrf_token": session["csrf_token"],
+                    "recovery_approved": False,
+                    "error": request.query_params.get("error", ""),
+                    "success": request.query_params.get("success", ""),
+                },
+            )
+            _session_response(response, session)
+            return response
+
+        return templates.TemplateResponse(
+            request,
+            "recovery.html",
+            {
+                "csrf_token": session.get("csrf_token", generate_csrf_token()),
+                "recovery_approved": recovery_approved,
+                "error": request.query_params.get("error", ""),
+                "success": request.query_params.get("success", ""),
+            },
+        )
+
+    @app.post("/recovery")
+    async def recovery_post(
+        request: Request,
+        recovery_code: str = Form(""),
+        csrf_token: str = Form(""),
+    ):
+        session = _session(request)
+        if not validate_csrf_token(session or {}, csrf_token):
+            return RedirectResponse(url="/recovery?error=csrf", status_code=303)
+
+        if not bot.recovery.validate_recovery_code(database_manager, recovery_code):
+            return RedirectResponse(url="/recovery?error=invalid_code", status_code=303)
+
+        # Store approval in session — next step shows password form
+        response = RedirectResponse(url="/recovery", status_code=303)
+        session_data = session or {}
+        session_data["recovery_approved"] = True
+        session_data["csrf_token"] = generate_csrf_token()
+        _session_response(response, session_data)
+        return response
+
+    @app.post("/recovery/reset")
+    async def recovery_reset(
+        request: Request,
+        password: str = Form(""),
+        password_confirm: str = Form(""),
+        csrf_token: str = Form(""),
+    ):
+        session = _session(request)
+        if session is None or not session.get("recovery_approved"):
+            return RedirectResponse(url="/recovery?error=unauthorized", status_code=303)
+
+        if not validate_csrf_token(session, csrf_token):
+            return RedirectResponse(url="/recovery?error=csrf", status_code=303)
+
+        if password != password_confirm:
+            return RedirectResponse(url="/recovery?error=mismatch", status_code=303)
+
+        if len(password) < 8:
+            return RedirectResponse(url="/recovery?error=too_short", status_code=303)
+
+        set_admin_password(database_manager, password)
+        bot.recovery.invalidate_recovery_code(database_manager)
+
+        # Clear session and redirect to login
+        response = RedirectResponse(url="/login?recovery=ok", status_code=303)
+        response.delete_cookie("session")
+        return response
+
+    @app.post("/api/recovery/generate")
+    async def api_recovery_generate(request: Request):
+        """Generate a new recovery code and return it.
+        Requires admin authentication.
+        """
+        session = _session(request)
+        if session is None or not session.get("admin"):
+            return JSONResponse({"ok": False, "error": "Non autorizzato."}, status_code=401)
+
+        code = bot.recovery.generate_recovery_code(database_manager)
+        logger.info("Recovery code generated via API by admin")
+        return JSONResponse({"ok": True, "code": code})
 
     # ---- Routes: Admin ------------------------------------------------------
 
@@ -737,6 +852,103 @@ def create_app(
         logger.info("Bot stopped from admin dashboard")
         return RedirectResponse(url="/admin/dashboard", status_code=303)
 
+    # ---- Routes: Admin — Pipeline management (P5) ---------------------------
+
+    @app.get("/admin/pipeline", response_class=HTMLResponse)
+    async def admin_pipeline(request: Request):
+        """Pipeline configuration page."""
+        session = _login_required(request)
+
+        providers = database_manager.list_providers()
+        profile_id = get_active_pipeline_profile_id(database_manager)
+        profile = None
+        if profile_id is not None:
+            profile = database_manager.get_pipeline_profile(profile_id)
+
+        return templates.TemplateResponse(
+            request,
+            "pipeline.html",
+            {
+                "csrf_token": generate_csrf_token(),
+                "session": {"admin": True},
+                "providers": providers,
+                "profile": profile,
+                "profile_id": profile_id,
+                "pipeline_mode": "single",  # default mode
+            },
+        )
+
+    @app.post("/admin/pipeline/save")
+    async def admin_pipeline_save(request: Request):
+        """Save pipeline configuration (form-based)."""
+        _login_required(request)
+        session = _session(request) or {}
+        form_data = await request.form()
+        csrf = form_data.get("csrf_token", "")
+        if not validate_csrf_token(session, csrf):
+            return RedirectResponse(url="/admin/pipeline?error=csrf", status_code=303)
+
+        mode = form_data.get("pipeline_mode", "single")
+        provider_id = form_data.get("provider_id", "")
+
+        try:
+            if mode == "single":
+                pid = int(provider_id) if provider_id else None
+                if pid is None:
+                    return RedirectResponse(
+                        url="/admin/pipeline?error=no_provider",
+                        status_code=303,
+                    )
+
+                new_id = database_manager.add_pipeline_profile(
+                    name="Pipeline predefinita",
+                    transcription_provider_id=pid,
+                    text_provider_id=pid,
+                )
+
+                set_active_pipeline_profile_id(database_manager, new_id)
+                logger.info(
+                    "Admin pipeline: saved same-provider profile id=%s "
+                    "with provider=%s",
+                    new_id,
+                    pid,
+                )
+
+            elif mode == "advanced":
+                tx_id = form_data.get("transcription_provider_id", "")
+                ref_id = form_data.get("text_provider_id", "")
+                tx_pid = int(tx_id) if tx_id else None
+                ref_pid = int(ref_id) if ref_id else None
+
+                if tx_pid is None:
+                    return RedirectResponse(
+                        url="/admin/pipeline?error=no_tx_provider",
+                        status_code=303,
+                    )
+
+                new_id = database_manager.add_pipeline_profile(
+                    name="Pipeline avanzata",
+                    transcription_provider_id=tx_pid,
+                    text_provider_id=ref_pid,
+                )
+                set_active_pipeline_profile_id(database_manager, new_id)
+                logger.info(
+                    "Admin pipeline: saved advanced profile id=%s "
+                    "(tx=%s, ref=%s)",
+                    new_id,
+                    tx_pid,
+                    ref_pid,
+                )
+
+            return RedirectResponse(url="/admin/pipeline?success=saved", status_code=303)
+
+        except Exception as exc:
+            logger.exception("Failed to save pipeline configuration")
+            return RedirectResponse(
+                url="/admin/pipeline?error=save_failed",
+                status_code=303,
+            )
+
     # ---- Routes: API --------------------------------------------------------
 
     @app.get("/api/state")
@@ -753,6 +965,31 @@ def create_app(
     @app.get("/api/health")
     async def api_health():
         return runtime_manager.get_health()
+
+    @app.get("/api/pipeline/info")
+    async def api_pipeline_info():
+        """Return the current pipeline configuration (for the admin page)."""
+        providers = database_manager.list_providers()
+        profile_id = get_active_pipeline_profile_id(database_manager)
+        profile = (
+            database_manager.get_pipeline_profile(profile_id)
+            if profile_id is not None
+            else None
+        )
+        return {
+            "providers": [
+                {
+                    "id": p["id"],
+                    "name": p["name"],
+                    "adapter_type": p["adapter_type"],
+                    "enabled": bool(p.get("enabled")),
+                    "capabilities": p.get("capabilities"),
+                }
+                for p in providers
+            ],
+            "profile": profile,
+            "profile_id": profile_id,
+        }
 
     @app.get("/api/setup/summary")
     async def api_setup_summary():
@@ -896,8 +1133,29 @@ def _process_step(
             return {"ok": True}
 
         elif step == "step_verify":
+            # Create the provider connection and pipeline profile (P5).
+            try:
+                profile_id = create_pipeline_from_wizard(db, secret_store)
+                logger.info(
+                    "Wizard step_verify: created pipeline profile id=%s",
+                    profile_id,
+                )
+            except ValueError as exc:
+                logger.warning(
+                    "Wizard step_verify: profile creation skipped (%s)",
+                    exc,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Wizard step_verify: profile creation failed: %s",
+                    exc,
+                )
+
             summary = build_summary(db, secret_store)
-            logger.info("Wizard step_verify: pipeline verified, bot_ready=%s", summary.get("bot_ready"))
+            logger.info(
+                "Wizard step_verify: pipeline verified, bot_ready=%s",
+                summary.get("bot_ready"),
+            )
             return {"ok": True, "summary": summary}
 
         else:

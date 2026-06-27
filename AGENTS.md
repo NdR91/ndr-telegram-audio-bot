@@ -85,6 +85,8 @@ style:
 
 - Provider interfaces and implementations live in `bot/providers.py`.
 - Provider construction and provider-agnostic helpers live in `bot/utils.py`.
+- Pipeline resolution (per-request provider selection from DB) lives in
+  `bot/pipeline_resolver.py`.
 - Prompt defaults are loaded by `bot/config.py`; user overrides come from
   `PROMPT_SYSTEM` and `PROMPT_REFINE_TEMPLATE`.
 - Every refine template must contain `{raw_text}`.
@@ -149,5 +151,6 @@ When behavior changes:
 - `bot/rate_limiter.py`: concurrency admission and queueing.
 - `bot/ui/`: progress and Telegram delivery adapters.
 - `bot/utils.py`: FFmpeg conversion, cleanup, and provider factory.
+- `bot/pipeline_resolver.py`: automatic pipeline resolution (P4).
 - `tests/`: automated test suite.
 - `audio_files/`: untracked runtime storage.

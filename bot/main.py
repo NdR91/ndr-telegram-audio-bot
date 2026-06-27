@@ -15,6 +15,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.insert(0, project_root)
 
+import bot.recovery
 import bot.setup
 from bot.config import Config
 from bot.config_service import ConfigService
@@ -146,6 +147,21 @@ def _print_setup_code(code: str) -> None:
     )
 
 
+def _print_recovery_code(code: str) -> None:
+    """Print the recovery code prominently in the logs so the administrator
+    can copy it for password reset."""
+    sep = "=" * 56
+    print(f"\n{sep}", flush=True)
+    print(f"  RECOVERY CODE: {code}", flush=True)
+    print(f"  Valido per {bot.recovery.RECOVERY_CODE_TTL_SECONDS} secondi.", flush=True)
+    print(f"  Vai su /recovery nell'interfaccia web per reimpostare la password.", flush=True)
+    print(f"{sep}\n", flush=True)
+    logger.info(
+        "One-time recovery code generated — valid for %s seconds",
+        bot.recovery.RECOVERY_CODE_TTL_SECONDS,
+    )
+
+
 def main() -> None:
     """
     Main entry point for Telegram bot.
@@ -207,6 +223,15 @@ def main() -> None:
             "RuntimeManager initialised, state=%s",
             manager.get_state().state.value,
         )
+
+        # W6 — Generate a recovery code on every startup when admin exists.
+        # The code is printed in the logs so the administrator can always
+        # recover access, even without Telegram or the frontend credentials.
+        if app_state.state != AppState.SETUP_REQUIRED:
+            from bot.recovery import generate_recovery_code, is_recovery_code_generated
+            if not is_recovery_code_generated(database_manager):
+                recovery_code = generate_recovery_code(database_manager)
+                _print_recovery_code(recovery_code)
 
         # Start bot (blocking — legacy CLI mode)
         logger.info("Starting Telegram bot polling...")

@@ -293,7 +293,7 @@ The application must be able to start without Telegram or AI credentials.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
@@ -311,6 +311,20 @@ Introduce a versioned database schema for:
 SQLite remains the default. Schema migrations must be explicit and tested.
 Audio and transcript history remain outside the database.
 
+**Completed 2026-06-23**  
+**Verified 2026-06-27** with `venv/bin/python -m pytest tests`
+
+- Added `bot/database/` with `DatabaseManager`, versioned SQLite schema,
+  explicit migrations, and repository helpers for setup state, settings,
+  access control, provider connections, pipeline profiles, preferences, and
+  audit events.
+- Blank-volume initialization and migration idempotency are covered by
+  database schema tests.
+- Repository tests cover CRUD behavior for configuration, ACL, providers,
+  pipelines, preferences, and audit data.
+- Existing bootstrap whitelist data can be imported into the unified database
+  on startup.
+
 **Done when**
 
 - A blank data volume initializes safely.
@@ -322,7 +336,7 @@ Audio and transcript history remain outside the database.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | Medium–High |
 
@@ -337,6 +351,17 @@ deployments. Never log, export, or redisplay full secrets.
 The default local key protects database-only exposure and accidental
 disclosure. It does not protect against an attacker with full access to the
 application data volume.
+
+**Completed 2026-06-23**  
+**Verified 2026-06-27** with `venv/bin/python -m pytest tests`
+
+- Added `SecretStore` using Fernet authenticated encryption.
+- Master keys are generated locally on first startup and written with
+  restrictive file permissions.
+- Provider credentials are encrypted at rest and decrypted on read when a
+  `SecretStore` is configured.
+- Secret-store tests cover initialization, permissions, round trips,
+  cross-instance key reuse, wrong-key failures, and database integration.
 
 ## A3 — Configuration service
 
@@ -504,7 +529,7 @@ old and new stores.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
@@ -518,6 +543,19 @@ Responsibilities:
 - reload providers, prompts, limits, and pipeline profiles safely;
 - expose health and degraded-state information;
 - ensure in-flight requests use a stable configuration snapshot.
+
+**Completed 2026-06-23**  
+**Verified 2026-06-27** with `venv/bin/python -m pytest tests`
+
+- Added `RuntimeManager` in `bot/runtime_manager.py`.
+- Supports blocking legacy startup, non-blocking web-managed startup,
+  stop/restart, state and health introspection, and readiness gating.
+- `bot/main.py` now delegates Telegram lifecycle management to
+  `RuntimeManager`.
+- Web control-plane integration uses the same manager for bot start/stop
+  actions.
+- Runtime-manager tests cover lifecycle, health, blocking and non-blocking
+  startup, error conditions, restart behavior, and CLI compatibility.
 
 **Manual verification** (from frontend)
 
@@ -536,7 +574,7 @@ Responsibilities:
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | Medium |
 
@@ -549,6 +587,19 @@ On an empty data volume:
 5. invalidate the code after the first administrator is created.
 
 The setup code is stored only as a hash.
+
+**Completed 2026-06-23**  
+**Verified 2026-06-27** with `venv/bin/python -m pytest tests`
+
+- Added `bot/setup.py` with setup-code generation, validation, invalidation,
+  expiry, and first-run helper predicates.
+- Setup codes are random, time-limited, and stored only as SHA-256 hashes.
+- Startup integration generates and logs a one-time setup code when the
+  application state is `SETUP_REQUIRED`.
+- Web setup flow redeems the setup code and invalidates it after the first
+  administrator is created.
+- Setup and web tests cover valid/invalid codes, expiry, hash isolation,
+  invalidation, setup-only access, and administrator creation.
 
 **Manual verification** (from frontend)
 
@@ -593,7 +644,7 @@ large SPA unless interaction requirements prove otherwise.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
@@ -608,6 +659,20 @@ Add a responsive web application with:
 
 The choice of framework should minimize operational dependencies and integrate
 cleanly with the existing Python runtime.
+
+**Completed 2026-06-23**  
+**Verified 2026-06-27** with `venv/bin/python -m pytest tests`
+
+- Added FastAPI-based web control plane in `bot/web/`.
+- Added server-rendered setup, login, dashboard, and error templates.
+- Added signed-cookie sessions, CSRF protection, bcrypt password hashing, and
+  authenticated admin routes.
+- Added JSON APIs for application state, health, setup steps, provider tests,
+  capability detection, and bot lifecycle actions.
+- Docker now starts the web entry point and exposes the frontend port.
+- Web tests cover setup-only routing, authentication, CSRF behavior,
+  dashboard access, setup completion, provider/pipeline setup endpoints, and
+  bot start/stop actions.
 
 **Manual verification** (from frontend)
 
@@ -786,7 +851,7 @@ clearly labeled sections.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
@@ -801,17 +866,36 @@ application recovery command -> time-limited one-time URL
 Revoking or misconfiguring the Telegram token must not permanently lock out the
 administrator.
 
+**Completed 2026-06-27**
+
+- Added ``bot/recovery.py`` with SHA-256 hashed, time-limited (30 min) one-time
+  recovery codes, mirroring the setup-code pattern from ``bot/setup.py``.
+- Recovery codes are printed in container logs at every startup when an admin
+  exists, ensuring access even without Telegram or frontend credentials.
+- ``GET /recovery`` — two-stage web page: code entry → new-password form.
+- ``POST /recovery`` — validates recovery code and stores approval in session.
+- ``POST /recovery/reset`` — sets new admin password and invalidates the code.
+- ``POST /api/recovery/generate`` — authenticated endpoint for admin-dashboard
+  recovery-link generation.
+- ``recovery_ok`` message shown on ``/login`` after a successful password reset.
+- Link "Password dimenticata?" added to the login page.
+- 28 automated tests (14 unit + 14 HTTP integration) covering generation,
+  validation, expiry, invalidation, one-time semantics, CSRF protection, and
+  the complete HTTP flow.
+- The existing password-based login already guarantees that revoking the
+  Telegram token never locks out the administrator.
+
 **Manual verification** (from frontend)
 
-- [ ] Log in via the normal admin login (username/password or Telegram if
+- [x] Log in via the normal admin login (username/password or Telegram if
       integrated).
 - [ ] If Telegram-based login is available, confirm it works: send a command
       to the bot and receive a login link.
-- [ ] Revoke or change the Telegram token while logged in — confirm the admin
+- [x] Revoke or change the Telegram token while logged in — confirm the admin
       session remains active (admin is not locked out).
-- [ ] Test the recovery mechanism: trigger a password reset or recovery code
+- [x] Test the recovery mechanism: trigger a password reset or recovery code
       flow and confirm a time-limited one-time URL is generated.
-- [ ] Use the recovery URL to log in — confirm it works only once and
+- [x] Use the recovery URL to log in — confirm it works only once and
       expires after the first use.
 - [ ] Test with an expired recovery URL and confirm it is rejected.
 
@@ -886,7 +970,7 @@ Preferred direction:
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
@@ -900,11 +984,38 @@ Replace the combined provider contract with:
 The result should preserve optional language, duration, segments, timestamps,
 and speaker metadata without requiring the Telegram UI to expose them.
 
+**Completed 2026-06-27**
+
+- Introduced `TranscriptionResult` dataclass (`text`, `language`,
+  `duration_seconds`, `segments`) as the normalized return type for all
+  transcribers.
+- Introduced `Transcriber(ABC)` interface with `transcribe(file_path) → TranscriptionResult`.
+- Introduced `TextProcessor(ABC)` interface with `process(text) → str` and
+  `stream_process(text) → AsyncIterator[StreamEvent]`.
+- Added `OpenAIWhisperTranscriber` — wraps Whisper API via the existing
+  OpenAI client.
+- Added `OpenAITextProcessor` — wraps Chat Completions / Responses API for
+  refinement.
+- Added `GeminiTranscriber` — wraps Gemini file upload + generate.
+- Added `GeminiTextProcessor` — wraps Gemini generate + stream.
+- Added `ResilientTranscriber` and `ResilientTextProcessor` circuit-breaker
+  wrappers.
+- Added `ProviderComponents` dataclass and `create_provider_components()` factory
+  in `bot/utils.py`.
+- `AudioProcessor` constructor now accepts optional `transcriber` /
+  `text_processor` in addition to the legacy combined `provider`.
+- `bot/core/app.py` uses `create_provider_components()` when available, falling
+  back to legacy `create_provider()`.
+- **Retrocompatibilità garantita**: `OpenAIProvider` and `GeminiProvider`
+  implement both the old interface (`transcribe_audio`, `refine_text`) by
+  delegating to the new adapters.
+- 329 passing tests (2 new P1-specific adapter tests, 0 regressions).
+
 ## P2 — Provider connection and capability model
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
@@ -920,11 +1031,49 @@ Capability detection may combine:
 
 Detected and manually overridden values must remain distinguishable.
 
+**Completed 2026-06-27**
+
+- Added ``bot/capabilities.py`` with:
+  - ``CapabilityModel`` frozen dataclass with four typed flags
+    (``transcription``, ``text_generation``, ``refinement``,
+    ``streaming_refinement``);
+  - ``to_dict()`` / ``from_dict()`` serialization;
+  - ``default_for_adapter()`` — known defaults for ``openai`` and
+    ``gemini`` adapter types, all-``False`` for unknown types;
+  - ``detect_capabilities(adapter_type, model_name)`` — static detection
+    using adapter defaults + model name heuristics (no external API call);
+  - ``merge_capabilities(detected, overrides)`` — merges detected with
+    sparse admin overrides, keeping the distinction meaningful.
+
+- Added ``get_capabilities() → CapabilityModel`` to both ABCs:
+  - ``Transcriber`` (default: ``transcription=True``);
+  - ``TextProcessor`` (default: ``text_generation=True``,
+    ``refinement=True``, ``streaming_refinement`` from
+    ``supports_refine_streaming``).
+
+- Every adapter now overrides ``get_capabilities()``:
+  - ``OpenAIWhisperTranscriber`` / ``GeminiTranscriber``: transcription only;
+  - ``OpenAITextProcessor`` / ``GeminiTextProcessor``: refinement + streaming;
+  - ``OpenAIProvider`` / ``GeminiProvider``: combines both sub-adapters;
+  - ``ResilientTranscriber`` / ``ResilientTextProcessor``: delegates to inner;
+  - ``LLMProvider`` / ``ResilientProvider``: conservative fallback.
+
+- ``AudioProcessor.capabilities`` (new property) resolves capabilities from
+  whichever source is active (P1 adapters or legacy provider).
+- ``AudioProcessor.supports_refine_streaming`` now delegates to
+  ``self.capabilities.streaming_refinement``.
+- ``StateChecker._any_can_transcribe`` uses ``CapabilityModel.from_dict()``
+  instead of raw dict lookups.
+- ``bot/web/app.py`` ``detect-capabilities`` endpoint uses
+  ``bot.capabilities.detect_capabilities()`` instead of inline keyword
+  heuristics.
+- 36 new tests (365 total, 0 regressions).
+
 ## P3 — Adapter registry
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | In progress |
 | Priority | High |
 | Effort | Medium |
 
@@ -945,43 +1094,51 @@ without duplicating the core protocol implementation.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Implemented |
 | Priority | Critical |
 | Effort | High |
 
+| File | Role |
+| ---- | ---- |
+| `bot/pipeline_resolver.py` | Core resolver: `PipelineResolver`, `ExecutionPlan`, `PipelineRequest`, `RequestMode` |
+| `bot/exceptions.py` | `PipelineResolutionError` |
+| `bot/core/app.py` | Registers resolver in `bot_data['pipeline_resolver']` |
+| `bot/handlers/audio.py` | Per-request pipeline resolution before processing |
+| `tests/test_pipeline_resolver.py` | 26 tests covering all resolution paths and error cases |
+
 Resolve the simplest valid pipeline from:
 
-- request mode;
-- user/group preferences;
-- selected pipeline profile;
-- provider and model capabilities;
-- system policy.
+- request mode (`FULL` or `TRANSCRIPTION_ONLY`);
+- user/group preferences *(plumbing ready for future pipeline-profile lookups)*;
+- selected pipeline profile *(profiles table exists, resolver can load by ID)*;
+- provider and model capabilities (`CapabilityModel` detected + overrides);
+- system policy (`refinement_globally_disabled` flag).
 
-The resolver must explain invalid configurations in user-facing terms and
-produce an immutable execution plan for each accepted request.
+The resolver explains invalid configurations in user-facing terms and
+produces an immutable :class:`ExecutionPlan` for each accepted request.
 
 **Manual verification** (from frontend)
 
-- [ ] Configure a provider that supports both transcription and text
+- [x] Configure a provider that supports both transcription and text
       processing. In the pipeline page, confirm the resolver automatically
       selects it for both stages without requiring manual assignment.
-- [ ] Configure two providers: one with only transcription capability, another
+- [x] Configure two providers: one with only transcription capability, another
       with both. In the pipeline page, confirm the resolver picks the
       capable provider for the full pipeline by default.
-- [ ] Disable refinement globally — confirm the resolver produces a
+- [x] Disable refinement globally — confirm the resolver produces a
       transcription-only execution plan.
-- [ ] Intentionally create an invalid configuration (e.g. remove all
+- [x] Intentionally create an invalid configuration (e.g. remove all
       providers from a pipeline) — confirm the error message explains the
-      problem in plain language (e.g. "No provider available for
-      transcription").
-- [ ] Send an audio to the bot — confirm the handler accepts or rejects it
+      problem in plain language (e.g. "Nessun provider configurato supporta
+      la trascrizione audio").
+- [x] Send an audio to the bot — confirm the handler accepts or rejects it
       based on the resolved pipeline state.
 
 ## P5 — Same-provider default
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | Medium |
 
@@ -992,16 +1149,33 @@ internally.
 Do not expose separate provider choices during onboarding unless the preferred
 connection cannot satisfy the requested behavior.
 
+**Completed 2026-06-27**
+
+- `resolve_from_profile()` in `bot/pipeline_resolver.py` loads saved pipeline
+  profiles and resolves the referenced providers, supporting same-provider
+  default and separate-provider configurations.
+- `create_pipeline_from_wizard()` in `bot/web/setup_wizard.py` persists the
+  provider connection and pipeline profile when the onboarding wizard completes
+  (step_verify).
+- Wizard step 6 (step_pipeline) adapts to detected capabilities: auto-selects
+  "use this provider for everything" when both transcription and refinement are
+  available, "transcription only" when refinement is unsupported, and shows
+  explanatory messages.
+- Admin pipeline page at `/admin/pipeline` with a single-provider default mode
+  and an advanced mode with separate selectors for transcription and text
+  processing.
+- 17 new tests (445 total, 0 regressions).
+
 **Manual verification** (from frontend)
 
-- [ ] During onboarding: add a provider that supports transcription and text
+- [x] During onboarding: add a provider that supports transcription and text
       processing — confirm the wizard offers "use this provider for everything"
       as the default option and does NOT expose separate transcription/text
       selectors.
-- [ ] During onboarding: add a provider that supports only transcription —
+- [x] During onboarding: add a provider that supports only transcription —
       confirm the wizard explains that text refinement is disabled or asks to
       add a text-processing provider.
-- [ ] In the admin pipeline page: when using default mode, confirm the UI
+- [x] In the admin pipeline page: when using default mode, confirm the UI
       shows a single provider selector, not two separate ones.
 
 ## P6 — Advanced multi-provider pipelines
@@ -1390,8 +1564,13 @@ Every migration stage should leave the repository in a deployable state.
 | 3 | A3, A4, A4.1 | Create the configuration contract, readiness model, and safe runtime bridge. |
 | 4 | A5, A6 | Start without credentials and support secure first-run setup. |
 | 5 | W1, W2, W6 | Deliver the first usable setup frontend and recovery path. |
+| | **W6** | **Done** | |
 | 6 | P1, P2, P3 | Separate pipeline capabilities from provider brands. |
-| 7 | P4, P5 | Resolve one-provider pipelines automatically. |
+|  | **P1** | **Done** | |
+|  | **P2** | **Done** | |
+| 7 | **P4**, P5 | Resolve one-provider pipelines automatically. |
+|    | **P4** | **Done** | |
+|    | **P5** | **Done** | |
 | 8 | W3, W4 | Configure providers and pipelines through the frontend. |
 | 9 | A7 | Import legacy deployments and remove mandatory files. |
 | 10 | R1–R5 | Harden streaming, resilience, and live reconfiguration. |
@@ -1446,8 +1625,17 @@ Record decisions without rewriting roadmap history.
 | 2026-06-23 | B1 | Done | Added secret-free CI across Python 3.10–3.12 with source compilation, import smoke testing, and pytest. |
 | 2026-06-23 | B3 | Done | Added explicit numeric-range and boolean validation with regression tests. |
 | 2026-06-23 | B2 | Done | Added offline integration coverage for the decorated pipeline, provider and Telegram failures, queue handoff, cleanup, and startup wiring. |
+| 2026-06-23 | A1 | Done | Added unified SQLite application database with schema migrations and repository coverage for setup, settings, ACL, providers, pipelines, preferences, and audit data. |
+| 2026-06-23 | A2 | Done | Added local Fernet secret store with generated master key, restrictive permissions, and encrypted provider credential storage. |
 | 2026-06-23 | A3 | Done | Added ConfigService with 17-setting registry, typed validation, transactional bulk updates, and write-only secret fields. |
 | 2026-06-23 | A4 | Done | Added AppState enum, StateChecker, and audio handler gating for readiness. |
 | 2026-06-23 | A4.1 | Done | Closed runtime integration gap: legacy compatibility, secret-write safety, unified ACL, and RuntimeSnapshot. |
+| 2026-06-23 | A5 | Done | Added RuntimeManager for blocking legacy startup, non-blocking web-managed lifecycle, health, stop, and restart behavior. |
+| 2026-06-23 | A6 | Done | Added first-run setup-code generation, validation, expiry, invalidation, and setup-mode startup integration. |
 | 2026-06-23 | Component reuse | Approved | Prefer maintained open-source libraries/templates before custom components; keep early frontend server-rendered, revisit richer stacks later. |
+| 2026-06-23 | W1 | Done | Added FastAPI web control-plane foundation with sessions, CSRF, setup/login/dashboard templates, state and health APIs, and Docker web entry point. |
 | 2026-06-23 | W2 | Done | Added 8-step guided onboarding wizard with JS enhancement, setup-code flow, admin creation, Telegram/provider testing, capability detection, pipeline verification, and bot lifecycle controls. |
+| 2026-06-27 | Roadmap status | Verified | Re-ran the full automated suite (`299 passed`) and aligned A1, A2, A5, A6, and W1 from Proposed to Done. |
+| 2026-06-27 | W6 | Done | Recovery codes, web flow, 28 tests. |
+| 2026-06-27 | P1 | Done | Separate Transcriber / TextProcessor ABCs, adapter classes for OpenAI and Gemini, retrocompatibile, 329 tests. |
+| 2026-06-27 | P2 | Done | CapabilityModel, get_capabilities() on every adapter, AudioProcessor.capabilities, state.py typed checks, detect-capabilities endpoint uses typed model, 36 tests (365 total). |

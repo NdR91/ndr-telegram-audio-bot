@@ -321,6 +321,9 @@ def build_summary(db: DatabaseManager, secret_store: SecretStore | None) -> Dict
     can_refine = capabilities.get("text_generation", False) or capabilities.get("refinement", False)
     models = capabilities.get("models", [])
 
+    # Active pipeline profile
+    active_profile_id = get_active_pipeline_profile_id(db)
+
     # Pipeline description
     if pipeline_mode == "single":
         if can_transcribe and can_refine:
@@ -347,7 +350,130 @@ def build_summary(db: DatabaseManager, secret_store: SecretStore | None) -> Dict
         "pipeline_mode": pipeline_mode,
         "pipeline_description": pipeline_desc,
         "bot_ready": bool(get_telegram_token(db, secret_store)) and can_transcribe,
+        "active_profile_id": active_profile_id,
     }
+
+
+# ---------------------------------------------------------------------------
+# Pipeline profile creation from wizard data (P5)
+# ---------------------------------------------------------------------------
+
+_ACTIVE_PROFILE_KEY = "active_pipeline_profile"
+
+
+def get_active_pipeline_profile_id(db: DatabaseManager) -> int | None:
+    """Return the active pipeline profile ID, or ``None``."""
+    raw = db.get_setup_state(_ACTIVE_PROFILE_KEY)
+    if raw:
+        try:
+            return int(raw)
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+def set_active_pipeline_profile_id(db: DatabaseManager, profile_id: int) -> None:
+    """Persist the active pipeline profile ID."""
+    db.set_setup_state(_ACTIVE_PROFILE_KEY, str(profile_id))
+    logger.debug("Active pipeline profile set to id=%s", profile_id)
+
+
+def create_pipeline_from_wizard(
+    db: DatabaseManager,
+    secret_store: SecretStore | None,
+) -> int:
+    """Create a provider connection and pipeline profile from wizard data.
+
+    Reads the saved wizard configuration from ``setup_state``, creates a
+    permanent provider connection in the database, and creates a pipeline
+    profile that uses the same provider for both transcription and text
+    processing (same-provider default).
+
+    Returns the new pipeline profile ID.
+
+    Raises
+    ------
+    ValueError
+        When the wizard has incomplete provider data.
+    """
+    provider_config = get_provider_config(db, secret_store)
+    ptype = provider_config.get("provider_type", "")
+    api_key = provider_config.get("api_key", "")
+    endpoint = provider_config.get("endpoint", "")
+    model_name = get_provider_model(db)
+    capabilities = get_capabilities(db)
+
+    if not ptype or not api_key:
+        raise ValueError(
+            "Impossibile creare il profilo pipeline: dati del provider "
+            "incompleti. Completa la configurazione del provider."
+        )
+
+    # Map wizard provider types to adapter types.
+    _ADAPTER_MAP: dict[str, str] = {
+        "openai": "openai-native",
+        "gemini": "gemini-native",
+        "openrouter": "openai-compat",
+        "ollama": "openai-compat",
+        "vllm": "openai-compat",
+        "custom": "openai-compat",
+    }
+    adapter_type = _ADAPTER_MAP.get(ptype, ptype)
+
+    # Determine provider display name.
+    display_name = {
+        "openai": "OpenAI (onboarding)",
+        "gemini": "Gemini (onboarding)",
+        "openrouter": "OpenRouter (onboarding)",
+        "ollama": "Ollama (onboarding)",
+        "vllm": "vLLM (onboarding)",
+        "custom": "Endpoint personalizzato (onboarding)",
+    }.get(ptype, f"{ptype} (onboarding)")
+
+    # 1. Create the provider connection.
+    provider_id = db.add_provider(
+        name=display_name,
+        adapter_type=adapter_type,
+        endpoint=endpoint or None,
+        credentials=api_key,
+        capabilities={
+            "transcription": capabilities.get("transcription", False),
+            "refinement": capabilities.get("refinement", False)
+            or capabilities.get("text_generation", False),
+            "text_generation": capabilities.get("text_generation", False),
+            "streaming_refinement": capabilities.get(
+                "streaming_refinement", False
+            ),
+            "models": capabilities.get("models", []),
+        },
+        enabled=True,
+    )
+    logger.info(
+        "Created provider connection '%s' (id=%s) from wizard",
+        display_name,
+        provider_id,
+    )
+
+    # 2. Create a same-provider default pipeline profile.
+    pipeline_mode = get_pipeline_mode(db)
+    profile_name = "Default (onboarding)"
+
+    profile_id = db.add_pipeline_profile(
+        name=profile_name,
+        transcription_provider_id=provider_id,
+        text_provider_id=provider_id,
+    )
+    logger.info(
+        "Created pipeline profile '%s' (id=%s) from wizard "
+        "(same-provider default)",
+        profile_name,
+        profile_id,
+    )
+
+    # 3. Save as the active profile.
+    set_active_pipeline_profile_id(db, profile_id)
+
+    return profile_id
 
 
 # ---------------------------------------------------------------------------

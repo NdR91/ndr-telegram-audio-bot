@@ -12,11 +12,19 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from bot.capabilities import CapabilityModel
 from bot.decorators.auth import restricted
 from bot.decorators.timeout import execute_with_timeout
 from bot.decorators.rate_limit import rate_limited
-from bot.exceptions import AudioPipelineError, AudioPipelineStageError, AudioPipelineTimeout, DownloadError
-from bot.providers import RefineStreamEvent
+from bot.exceptions import (
+    AudioPipelineError,
+    AudioPipelineStageError,
+    AudioPipelineTimeout,
+    DownloadError,
+    PipelineResolutionError,
+)
+from bot.pipeline_resolver import PipelineRequest, RequestMode
+from bot.providers import RefineStreamEvent, TextProcessor, Transcriber, TranscriptionResult
 from bot.ui.progress import update_progress, get_progress_message, clear_progress_cache, remember_progress_message
 from bot import utils
 from bot import constants as c
@@ -72,18 +80,79 @@ def get_state_checker(context: ContextTypes.DEFAULT_TYPE):
 class AudioProcessor:
     """
     Handles audio file processing pipeline.
+
+    Accepts optional :class:`Transcriber` and :class:`TextProcessor`
+    instances (P1).  When not provided, falls back to the combined
+    :class:`LLMProvider` created by :func:`utils.create_provider`.
     """
-    
-    def __init__(self, config):
-        """Initialize audio processor with configuration."""
+
+    def __init__(
+        self,
+        config,
+        transcriber: Transcriber | None = None,
+        text_processor: TextProcessor | None = None,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+    ):
+        """Initialize audio processor with configuration.
+
+        Parameters
+        ----------
+        config:
+            Bot configuration object.
+        transcriber:
+            Optional P1 :class:`Transcriber` instance.  When ``None``,
+            the combined provider created by ``utils.create_provider``
+            is used for all operations (backward-compatible mode).
+        text_processor:
+            Optional P1 :class:`TextProcessor` instance.
+        provider_name:
+            Provider name for logging / display (required when *transcriber*
+            is provided).
+        model_name:
+            Model name for response formatting (required when *text_processor*
+            is provided).
+        """
         self.config = config
-        # Initialize provider once at startup (Dependency Injection / Singleton)
-        self.provider = utils.create_provider(config)
+        self._transcriber = transcriber
+        self._text_processor = text_processor
+        self._model_name_override = model_name
+
+        if transcriber is None:
+            # Legacy mode: create the combined provider.
+            self.provider = utils.create_provider(config)
+            self._provider_name = config.provider_name
+        else:
+            # P1 mode: use separate transcriber / text_processor.
+            self.provider = object()  # sentinel for backward-compat checks
+            self._provider_name = provider_name or "unknown"
 
     @property
     def provider_name(self) -> str:
-        return self.config.provider_name
-    
+        return self._provider_name
+
+    @property
+    def capabilities(self) -> CapabilityModel:
+        """Return the resolved :class:`CapabilityModel` for this processor."""
+        if self._text_processor is not None:
+            return self._text_processor.get_capabilities()
+        provider = self.provider
+        if isinstance(provider, object) and type(provider).__name__ == "object":
+            # Sentinel — no capability information available.
+            return CapabilityModel()
+        caps = getattr(provider, "get_capabilities", None)
+        if callable(caps):
+            return caps()
+        return CapabilityModel(transcription=True)
+
+    @property
+    def supports_refine_streaming(self) -> bool:
+        """Return ``True`` when the text processor supports streaming.
+
+        Delegates to :meth:`capabilities` (P2).
+        """
+        return self.capabilities.streaming_refinement
+
     async def determine_file_type(self, message) -> tuple[Optional[str], Optional[str]]:
         """
         Determine file type and get file object from message.
@@ -146,16 +215,27 @@ class AudioProcessor:
     
     async def transcribe_audio(self, mp3_path: str) -> str:
         """Transcribe audio with timeout protection."""
+        if self._transcriber is not None:
+            result = await execute_with_timeout(
+                "transcribe",
+                self._transcriber.transcribe(mp3_path),
+            )
+            return result.text
         return await execute_with_timeout(
             "transcribe",
-            self.provider.transcribe_audio(mp3_path)
+            self.provider.transcribe_audio(mp3_path),
         )
-    
+
     async def refine_text(self, raw_text: str) -> str:
         """Refine transcribed text with timeout protection."""
+        if self._text_processor is not None:
+            return await execute_with_timeout(
+                "refine",
+                self._text_processor.process(raw_text),
+            )
         return await execute_with_timeout(
             "refine",
-            self.provider.refine_text(raw_text)
+            self.provider.refine_text(raw_text),
         )
 
     async def stream_refine_text(
@@ -169,7 +249,13 @@ class AudioProcessor:
         session = delivery_adapter.start_progressive_response(context, chat_id, ack_msg)
         final_text = ""
 
-        async for event in self.provider.stream_refine_text(raw_text):
+        stream = (
+            self._text_processor.stream_process(raw_text)
+            if self._text_processor is not None
+            else self.provider.stream_refine_text(raw_text)
+        )
+
+        async for event in stream:
             if event.type == "delta":
                 await delivery_adapter.push_progressive_delta(context, session, event.text)
             elif event.type == "done":
@@ -185,10 +271,15 @@ class AudioProcessor:
     def format_response(self, final_text: str) -> str:
         """Format final response text with header."""
         try:
-            model_name = self.provider.model_name if self.provider else "unknown"
+            if self._model_name_override:
+                model_name = self._model_name_override
+            elif not isinstance(self.provider, object):
+                model_name = getattr(self.provider, "model_name", "unknown")
+            else:
+                model_name = "unknown"
         except Exception:
             model_name = "unknown"
-        
+
         header = c.MSG_COMPLETION_HEADER.format(model_name=model_name)
         return f"{header}\n\n{final_text}"
     
@@ -233,8 +324,41 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except RuntimeError:
         logger.warning("StateChecker not available; allowing audio processing")
 
-    processor = get_audio_processor(context)
     user_id = message.from_user.id
+    chat_id = message.chat_id
+
+    # P4 — Resolve the pipeline for this specific request.
+    resolver = context.bot_data.get('pipeline_resolver')
+    if resolver is not None:
+        try:
+            request = PipelineRequest(
+                mode=RequestMode.FULL,
+                user_id=user_id,
+                chat_id=chat_id,
+            )
+            plan = resolver.resolve(request)
+            processor = AudioProcessor(
+                context.bot_data.get('config'),
+                transcriber=plan.transcriber,
+                text_processor=plan.text_processor,
+                provider_name=plan.provider_name,
+                model_name=plan.model_name,
+            )
+            logger.info(
+                "Pipeline resolved for user=%s: %s",
+                user_id,
+                "; ".join(plan.resolution_log),
+            )
+        except PipelineResolutionError as e:
+            await message.reply_text(f"⚠️ {e.user_message}")
+            return
+        except Exception as e:
+            logger.error("Pipeline resolution failed: %s", e)
+            processor = get_audio_processor(context)
+    else:
+        # No resolver — fall back to the statically configured processor.
+        processor = get_audio_processor(context)
+
     total_start_time = time.monotonic()
     streamed_refine_delivery = False
     
@@ -291,7 +415,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         stage_start_time = time.monotonic()
         delivery_adapter = get_delivery_adapter(context)
-        if getattr(processor.provider, "supports_refine_streaming", False) and delivery_adapter.supports_live_refine_streaming(context, ack_msg):
+        if getattr(processor, "supports_refine_streaming", False) and delivery_adapter.supports_live_refine_streaming(context, ack_msg):
             final_text = await processor.stream_refine_text(context, message.chat_id, ack_msg, raw_text)
             streamed_refine_delivery = True
         else:

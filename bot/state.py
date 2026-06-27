@@ -27,9 +27,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from bot.capabilities import CapabilityModel
 from bot.config import Config
 from bot.config_service import ConfigService
 from bot.database import DatabaseManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -252,10 +254,11 @@ class StateChecker:
         assumed to support transcription for backward compatibility.
         """
         for p in providers:
-            caps = p.get("capabilities")
-            if caps is None:
-                return True  # assume transcription capable
-            if caps.get("transcription"):
+            caps_raw = p.get("capabilities")
+            if caps_raw is None:
+                return True  # assume transcription capable (legacy)
+            model = CapabilityModel.from_dict(caps_raw)
+            if model.transcription:
                 return True
         return False
 

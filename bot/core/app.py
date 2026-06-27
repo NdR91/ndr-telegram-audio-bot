@@ -18,6 +18,8 @@ from bot.runtime import RuntimeSnapshot
 from bot.state import StateChecker
 from bot.handlers.admin import WhitelistManager, adduser, removeuser, addgroup, removegroup
 from bot.handlers.audio import AudioProcessor, handle_audio
+from bot.pipeline_resolver import PipelineResolver
+from bot.utils import ProviderComponents, create_provider_components
 from bot.rate_limiter import RateLimiter
 from bot.ui.streaming import TelegramDeliveryAdapter
 
@@ -109,13 +111,31 @@ def create_application(
     if state_checker is not None:
         app.bot_data['state_checker'] = state_checker
 
+    # P4 — Automatic pipeline resolver.
+    if database_manager is not None:
+        resolver = PipelineResolver(database_manager)
+        app.bot_data['pipeline_resolver'] = resolver
+
     # WhitelistManager: use the unified database when available (A4.1).
     app.bot_data['whitelist_manager'] = WhitelistManager(
         config, db_manager=database_manager,
     )
 
     # Runtime objects built from the snapshot (A4.1).
-    app.bot_data['audio_processor'] = AudioProcessor(config)
+    # P1 — prefer separate Transcriber + TextProcessor components
+    # when available (all current providers support both).
+    try:
+        components = create_provider_components(config)
+        app.bot_data['audio_processor'] = AudioProcessor(
+            config,
+            transcriber=components.transcriber,
+            text_processor=components.text_processor,
+            provider_name=components.provider_name,
+            model_name=components.model_name,
+        )
+    except Exception:
+        logger.warning("Falling back to legacy AudioProcessor")
+        app.bot_data['audio_processor'] = AudioProcessor(config)
     app.bot_data['delivery_adapter'] = TelegramDeliveryAdapter(
         progressive_enabled=snapshot.telegram_progressive_output_config["enabled"],
     )

@@ -273,7 +273,7 @@
         <div class="wizard-step {{ 'active' if current_step == 'step_pipeline' else '' }}" id="step-step_pipeline">
             <div class="card">
                 <h2>⚙️ Modalità pipeline</h2>
-                <p class="lead">
+                <p class="lead" id="pipeline-lead">
                     Scegli come utilizzare il provider configurato.
                 </p>
 
@@ -282,8 +282,14 @@
                     <input type="hidden" name="_step" value="step_pipeline">
                     <input type="hidden" name="pipeline_mode" id="pipeline-mode-input" value="single">
 
-                    <div class="pipeline-options">
-                        <div class="pipeline-option selected" data-mode="single" tabindex="0" role="button">
+                    <div id="pipeline-capabilities-info" class="cap-summary" style="display:none">
+                        <div class="cap-badge" id="pipeline-cap-tx"></div>
+                        <div class="cap-badge" id="pipeline-cap-ref"></div>
+                    </div>
+
+                    <div class="pipeline-options" id="pipeline-options-container">
+                        <div class="pipeline-option selected" data-mode="single" tabindex="0" role="button"
+                             id="pipeline-option-single">
                             <div class="pipeline-option-icon">🌟</div>
                             <div class="pipeline-option-content">
                                 <h3>Usa questo provider per tutto</h3>
@@ -300,7 +306,8 @@
                             </div>
                         </div>
 
-                        <div class="pipeline-option" data-mode="single-no-refine" tabindex="0" role="button">
+                        <div class="pipeline-option" data-mode="single-no-refine" tabindex="0" role="button"
+                             id="pipeline-option-tx-only">
                             <div class="pipeline-option-icon">🎤</div>
                             <div class="pipeline-option-content">
                                 <h3>Solo trascrizione</h3>
@@ -315,7 +322,8 @@
                             </div>
                         </div>
 
-                        <div class="pipeline-option" data-mode="advanced" tabindex="0" role="button">
+                        <div class="pipeline-option" data-mode="advanced" tabindex="0" role="button"
+                             id="pipeline-option-advanced">
                             <div class="pipeline-option-icon">🔧</div>
                             <div class="pipeline-option-content">
                                 <h3>Modalità avanzata</h3>
@@ -330,6 +338,11 @@
                                 </ul>
                             </div>
                         </div>
+                    </div>
+
+                    <div id="pipeline-auto-message" class="alert alert-info" style="display:none">
+                        <strong>💡 Configurazione automatica</strong>
+                        <p id="pipeline-auto-text"></p>
                     </div>
 
                     <div class="form-group" id="model-select-group" style="display:none">
@@ -530,6 +543,9 @@
         // Trigger step-specific logic
         if (step === 'step_capabilities') {
             detectCapabilities();
+        }
+        if (step === 'step_pipeline') {
+            adaptPipelineStep();
         }
         if (step === 'step_verify') {
             loadVerifySummary();
@@ -826,11 +842,20 @@
     }
 
     // ------------------------------------------------------------------
-    // Step 6: Pipeline mode selection
+    // Step 6: Pipeline mode selection — adaptive to capabilities
     // ------------------------------------------------------------------
     var pipelineOptions = document.querySelectorAll('.pipeline-option');
     var pipelineModeInput = document.getElementById('pipeline-mode-input');
     var modelSelectGroup = document.getElementById('model-select-group');
+    var pipelineLead = document.getElementById('pipeline-lead');
+    var pipelineAutoMsg = document.getElementById('pipeline-auto-message');
+    var pipelineAutoText = document.getElementById('pipeline-auto-text');
+    var pipelineCapInfo = document.getElementById('pipeline-capabilities-info');
+    var pipelineCapTx = document.getElementById('pipeline-cap-tx');
+    var pipelineCapRef = document.getElementById('pipeline-cap-ref');
+    var pipelineOptionSingle = document.getElementById('pipeline-option-single');
+    var pipelineOptionTxOnly = document.getElementById('pipeline-option-tx-only');
+    var pipelineOptionAdvanced = document.getElementById('pipeline-option-advanced');
 
     if (pipelineOptions.length) {
         pipelineOptions.forEach(function(opt) {
@@ -855,6 +880,113 @@
                 }
             });
         });
+    }
+
+    // Adapt step 6 to detected capabilities on entry
+    function adaptPipelineStep() {
+        // Read capabilities from stored data
+        var capsStr = document.getElementById('capabilities-json');
+        var caps = capsStr ? capsStr.value : '{}';
+        try { caps = JSON.parse(caps); } catch(e) { caps = {}; }
+
+        var canTranscribe = caps.transcription === true;
+        var canRefine = caps.refinement === true || caps.text_generation === true;
+
+        // Show capability summary
+        if (pipelineCapInfo) {
+            pipelineCapInfo.style.display = 'flex';
+            if (pipelineCapTx) {
+                pipelineCapTx.textContent = canTranscribe ? '🎤 Trascrizione: ✅' : '🎤 Trascrizione: ❌';
+                pipelineCapTx.className = 'cap-badge ' + (canTranscribe ? 'badge-success' : 'badge-error');
+            }
+            if (pipelineCapRef) {
+                pipelineCapRef.textContent = canRefine ? '📝 Refinement: ✅' : '📝 Refinement: ❌';
+                pipelineCapRef.className = 'cap-badge ' + (canRefine ? 'badge-success' : 'badge-error');
+            }
+        }
+
+        if (canTranscribe && canRefine) {
+            // Provider supports both — recommend "use for everything"
+            if (pipelineLead) {
+                pipelineLead.textContent = 'Il provider configurato supporta sia la trascrizione che il refinement. ' +
+                    'La configurazione consigliata è usarlo per tutto.';
+            }
+            if (pipelineOptionSingle) {
+                pipelineOptionSingle.style.display = 'flex';
+                pipelineOptionSingle.classList.add('selected');
+                pipelineOptionSingle.querySelector('h3').textContent =
+                    '🌟 Usa questo provider per tutto (consigliato)';
+            }
+            if (pipelineOptionTxOnly) {
+                pipelineOptionTxOnly.style.display = 'flex';
+                pipelineOptionTxOnly.classList.remove('selected');
+            }
+            if (pipelineOptionAdvanced) {
+                pipelineOptionAdvanced.style.display = 'flex';
+                pipelineOptionAdvanced.classList.remove('selected');
+            }
+            if (pipelineModeInput) pipelineModeInput.value = 'single';
+
+            if (pipelineAutoMsg) {
+                pipelineAutoMsg.style.display = 'block';
+                pipelineAutoText.textContent = 'Provider configurato: supporta trascrizione + refinement. ' +
+                    'Usa questo provider per tutto. Puoi cambiare in seguito dalla dashboard.';
+            }
+        } else if (canTranscribe && !canRefine) {
+            // Provider supports only transcription
+            if (pipelineLead) {
+                pipelineLead.textContent = 'Il provider configurato supporta solo la trascrizione. ' +
+                    'Il refinement del testo non sarà disponibile.';
+            }
+            if (pipelineOptionSingle) {
+                pipelineOptionSingle.style.display = 'none';
+            }
+            if (pipelineOptionTxOnly) {
+                pipelineOptionTxOnly.style.display = 'flex';
+                pipelineOptionTxOnly.classList.add('selected');
+                pipelineOptionTxOnly.querySelector('h3').textContent =
+                    '🎤 Solo trascrizione (consigliato)';
+            }
+            if (pipelineOptionAdvanced) {
+                pipelineOptionAdvanced.style.display = 'flex';
+                pipelineOptionAdvanced.classList.remove('selected');
+            }
+            if (pipelineModeInput) pipelineModeInput.value = 'single-no-refine';
+
+            if (pipelineAutoMsg) {
+                pipelineAutoMsg.style.display = 'block';
+                pipelineAutoText.textContent = 'Questo provider supporta solo la trascrizione. ' +
+                    'Il refinement sarà disabilitato. Per abilitarlo, aggiungi un secondo provider.';
+            }
+        } else {
+            // No transcription capability
+            if (pipelineLead) {
+                pipelineLead.textContent = '⚠️ Il provider configurato non supporta la trascrizione audio. ' +
+                    'Dovrai aggiungere un provider con capacità di trascrizione.';
+            }
+            if (pipelineOptionSingle) {
+                pipelineOptionSingle.style.display = 'none';
+            }
+            if (pipelineOptionTxOnly) {
+                pipelineOptionTxOnly.style.display = 'none';
+            }
+            if (pipelineOptionAdvanced) {
+                pipelineOptionAdvanced.style.display = 'flex';
+                pipelineOptionAdvanced.classList.add('selected');
+            }
+            if (pipelineModeInput) pipelineModeInput.value = 'advanced';
+
+            if (pipelineAutoMsg) {
+                pipelineAutoMsg.style.display = 'block';
+                pipelineAutoText.textContent = '⚠️ Servono provider con trascrizione. Usa la dashboard ' +
+                    'per configurare provider aggiuntivi.';
+            }
+        }
+    }
+
+    // Auto-adapt when entering step 6
+    if (currentStep === 'step_pipeline') {
+        adaptPipelineStep();
     }
 
     function populateModelSelect(models) {

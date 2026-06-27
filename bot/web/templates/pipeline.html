@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %} — Pipeline{% endblock %}
+
+{% block content %}
+<div class="pipeline-page">
+    <h1>⚙️ Configurazione pipeline</h1>
+    <p class="lead">
+        Scegli come il bot elabora gli audio. In modalità predefinita, un singolo
+        provider gestisce sia la trascrizione che il refinement.
+    </p>
+
+    {% if request.query_params.get("success") == "saved" %}
+    <div class="alert alert-success">✅ Configurazione salvata con successo.</div>
+    {% endif %}
+    {% if request.query_params.get("error") == "csrf" %}
+    <div class="alert alert-error">❌ Errore di sicurezza. Ricarica la pagina e riprova.</div>
+    {% endif %}
+    {% if request.query_params.get("error") == "no_provider" %}
+    <div class="alert alert-error">❌ Seleziona un provider.</div>
+    {% endif %}
+    {% if request.query_params.get("error") == "save_failed" %}
+    <div class="alert alert-error">❌ Errore durante il salvataggio. Controlla i log.</div>
+    {% endif %}
+
+    <form method="post" action="/admin/pipeline/save" class="form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        {# --- Current pipeline status --- #}
+        <div class="card">
+            <h3>Stato attuale</h3>
+            {% if profile %}
+            <div class="pipeline-status">
+                <div class="status-row">
+                    <span class="status-label">Profilo:</span>
+                    <span class="status-value">{{ profile.name }}</span>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Provider trascrizione:</span>
+                    <span class="status-value">
+                        {% for p in providers %}
+                            {% if p.id == profile.transcription_provider_id %}
+                                {{ p.name }} ({{ p.adapter_type }})
+                            {% endif %}
+                        {% endfor %}
+                    </span>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Provider refinement:</span>
+                    <span class="status-value">
+                        {% if profile.text_provider_id %}
+                            {% for p in providers %}
+                                {% if p.id == profile.text_provider_id %}
+                                    {{ p.name }} ({{ p.adapter_type }})
+                                {% endif %}
+                            {% endfor %}
+                        {% else %}
+                            <em>Disabilitato</em>
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+            {% else %}
+            <p class="form-help">Nessun profilo pipeline configurato. Crea una configurazione qui sotto.</p>
+            {% endif %}
+        </div>
+
+        {# --- Mode selection --- #}
+        <div class="card">
+            <h3>Modalità</h3>
+            <div class="pipeline-options">
+                <div class="pipeline-option selected" data-mode="single" tabindex="0" role="button">
+                    <div class="pipeline-option-icon">🌟</div>
+                    <div class="pipeline-option-content">
+                        <h4>Usa un solo provider per tutto</h4>
+                        <p>Un unico provider gestisce trascrizione e refinement.</p>
+                    </div>
+                    <input type="radio" name="pipeline_mode" value="single"
+                           class="pipeline-option-radio" checked>
+                </div>
+
+                <div class="pipeline-option" data-mode="advanced" tabindex="0" role="button">
+                    <div class="pipeline-option-icon">🔧</div>
+                    <div class="pipeline-option-content">
+                        <h4>Modalità avanzata</h4>
+                        <p>Provider diversi per trascrizione e refinement.</p>
+                    </div>
+                    <input type="radio" name="pipeline_mode" value="advanced"
+                           class="pipeline-option-radio">
+                </div>
+            </div>
+        </div>
+
+        {# --- Single provider selector (default mode) --- #}
+        <div class="card" id="single-provider-section">
+            <h3>Provider predefinito</h3>
+            <div class="form-group">
+                <label for="provider_id">Provider</label>
+                <select id="provider_id" name="provider_id" class="input-lg">
+                    <option value="">— Seleziona un provider —</option>
+                    {% for p in providers %}
+                    <option value="{{ p.id }}"
+                            {% if profile and profile.transcription_provider_id == p.id %}selected{% endif %}>
+                        {{ p.name }}
+                        ({{ p.adapter_type }})
+                        {% if not p.enabled %} [disabilitato]{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small class="form-help">
+                    Il provider scelto verrà usato sia per la trascrizione che per il refinement del testo.
+                </small>
+            </div>
+        </div>
+
+        {# --- Separate selectors (advanced mode) --- #}
+        <div class="card" id="advanced-provider-section" style="display:none">
+            <h3>Provider per fase</h3>
+            <div class="form-group">
+                <label for="transcription_provider_id">Provider per trascrizione</label>
+                <select id="transcription_provider_id" name="transcription_provider_id" class="input-lg">
+                    <option value="">— Seleziona un provider —</option>
+                    {% for p in providers %}
+                    <option value="{{ p.id }}"
+                            {% if profile and profile.transcription_provider_id == p.id %}selected{% endif %}>
+                        {{ p.name }}
+                        ({{ p.adapter_type }})
+                        {% if not p.enabled %} [disabilitato]{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="text_provider_id">Provider per refinement (opzionale)</label>
+                <select id="text_provider_id" name="text_provider_id" class="input-lg">
+                    <option value="">— Disabilita refinement —</option>
+                    {% for p in providers %}
+                    <option value="{{ p.id }}"
+                            {% if profile and profile.text_provider_id == p.id %}selected{% endif %}>
+                        {{ p.name }}
+                        ({{ p.adapter_type }})
+                        {% if not p.enabled %} [disabilitato]{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small class="form-help">
+                    Lascia vuoto per trascrizione senza refinement.
+                </small>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg">💾 Salva configurazione</button>
+            <a href="/admin/dashboard" class="btn btn-secondary">Annulla</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    // ------------------------------------------------------------------
+    // Mode toggle
+    // ------------------------------------------------------------------
+    const options = document.querySelectorAll('.pipeline-option');
+    const singleSection = document.getElementById('single-provider-section');
+    const advancedSection = document.getElementById('advanced-provider-section');
+
+    options.forEach(function(opt) {
+        opt.addEventListener('click', function() {
+            options.forEach(function(o) { o.classList.remove('selected'); });
+            opt.classList.add('selected');
+
+            const radio = opt.querySelector('.pipeline-option-radio');
+            if (radio) radio.checked = true;
+
+            const mode = opt.dataset.mode;
+            if (mode === 'single') {
+                singleSection.style.display = 'block';
+                advancedSection.style.display = 'none';
+            } else {
+                singleSection.style.display = 'none';
+                advancedSection.style.display = 'block';
+            }
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // Keyboard support
+    // ------------------------------------------------------------------
+    options.forEach(function(opt) {
+        opt.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                opt.click();
+            }
+        });
+    });
+})();
+</script>
+{% endblock %}
