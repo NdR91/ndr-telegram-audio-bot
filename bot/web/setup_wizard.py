@@ -509,28 +509,33 @@ def create_express_pipeline_from_wizard(
         raise ValueError("Seleziona un modello per completare il setup express.")
 
     adapter_type = _adapter_type_for_provider_type(ptype)
-    provider_id = db.add_provider(
-        name=_display_name_for_provider_type(ptype),
-        adapter_type=adapter_type,
-        endpoint=endpoint or None,
-        credentials=api_key,
-        capabilities=get_capabilities(db) or detect_capabilities(
-            adapter_type,
-            selected_model,
-        ).to_dict(),
-        enabled=True,
-    )
+
+    # Base capabilities from wizard — will be amended below
+    base_caps = get_capabilities(db) or detect_capabilities(
+        adapter_type,
+        selected_model,
+    ).to_dict()
 
     if process_mode == "single_pass":
+        base_caps.update({
+            "transcription": True,
+            "text_generation": True,
+            "refinement": True,
+            "single_pass_audio_to_text": True,
+        })
+        provider_id = db.add_provider(
+            name=_display_name_for_provider_type(ptype),
+            adapter_type=adapter_type,
+            endpoint=endpoint or None,
+            credentials=api_key,
+            capabilities=base_caps,
+            enabled=True,
+        )
         model_entry_id = db.add_provider_model(
             provider_id=provider_id,
             model_id=selected_model,
             display_name=selected_model,
-            capabilities=_model_capabilities(
-                adapter_type,
-                selected_model,
-                force_single_pass=True,
-            ),
+            capabilities=base_caps,
             detected=True,
             enabled=True,
         )
@@ -539,6 +544,18 @@ def create_express_pipeline_from_wizard(
             model_id=model_entry_id,
             name="Express setup - singolo passaggio",
         )
+
+    # Two-stage: ensure provider-level transcription flag is set
+    # since the pipeline will add a whisper-1 (or user-chosen) model.
+    base_caps["transcription"] = True
+    provider_id = db.add_provider(
+        name=_display_name_for_provider_type(ptype),
+        adapter_type=adapter_type,
+        endpoint=endpoint or None,
+        credentials=api_key,
+        capabilities=base_caps,
+        enabled=True,
+    )
 
     tx_entry_id = db.add_provider_model(
         provider_id=provider_id,

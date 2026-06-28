@@ -175,6 +175,19 @@ class Transcriber(ABC):
         from bot.capabilities import CapabilityModel  # avoid circular import in module scope
         return CapabilityModel(transcription=True)
 
+    def accepted_formats(self) -> frozenset[str]:
+        """Return the set of file extensions this transcriber accepts natively.
+
+        When the source file's extension is in this set, the pipeline can
+        skip FFmpeg conversion and pass the file directly to
+        :meth:`transcribe`.
+
+        The default returns ``frozenset({'mp3'})`` for backward
+        compatibility.  Subclasses that support additional formats should
+        override this method.
+        """
+        return frozenset({"mp3"})
+
 
 class TextProcessor(ABC):
     """Text refinement interface.
@@ -233,6 +246,10 @@ class ResilientTranscriber(Transcriber):
     def get_capabilities(self) -> CapabilityModel:
         """Delegate to inner transcriber."""
         return self._inner.get_capabilities()
+
+    def accepted_formats(self) -> frozenset[str]:
+        """Delegate to inner transcriber."""
+        return self._inner.accepted_formats()
 
     async def transcribe(self, file_path: str) -> TranscriptionResult:
         return await self._cb.call("transcribe", self._inner.transcribe, file_path)
@@ -330,6 +347,14 @@ class LLMProvider(ABC):
         text = await self.transcribe_audio(file_path)
         return TranscriptionResult(text=text)
 
+    def accepted_formats(self) -> frozenset[str]:
+        """Return the accepted formats for this legacy provider.
+
+        Subclasses that know their supported formats should override.
+        Default is ``frozenset({'mp3'})``.
+        """
+        return frozenset({"mp3"})
+
     async def process(self, raw_text: str) -> str:
         """P1 interface.  Default: delegates to :meth:`refine_text`."""
         return await self.refine_text(raw_text)
@@ -378,6 +403,13 @@ class ResilientProvider(LLMProvider):
             refinement=self.supports_refine_streaming,
             streaming_refinement=self.supports_refine_streaming,
         )
+
+    def accepted_formats(self) -> frozenset[str]:
+        """Delegate to the wrapped provider when available."""
+        fn = getattr(self.provider, "accepted_formats", None)
+        if callable(fn):
+            return fn()
+        return frozenset({"mp3"})
 
     async def transcribe_audio(self, file_path: str) -> str:
         return await self._cb.call("transcribe", self.provider.transcribe_audio, file_path)
@@ -441,6 +473,12 @@ class OpenAIWhisperTranscriber(Transcriber):
     def get_capabilities(self) -> CapabilityModel:
         from bot.capabilities import CapabilityModel
         return CapabilityModel(transcription=True)
+
+    def accepted_formats(self) -> frozenset[str]:
+        return frozenset({
+            "flac", "m4a", "mp3", "mp4", "mpeg", "mpga",
+            "oga", "ogg", "wav", "webm",
+        })
 
     async def transcribe(self, file_path: str) -> TranscriptionResult:
         logger.info("Transcribe %s with Whisper v1 (P1 adapter)", file_path)
@@ -647,6 +685,10 @@ class OpenAIProvider(LLMProvider, Transcriber, TextProcessor):
     async def transcribe(self, file_path: str) -> TranscriptionResult:
         return await self._transcriber.transcribe(file_path)
 
+    def accepted_formats(self) -> frozenset[str]:
+        """Delegate to the internal Whisper transcriber."""
+        return self._transcriber.accepted_formats()
+
     # ---- New TextProcessor interface ----
 
     async def process(self, raw_text: str) -> str:
@@ -672,6 +714,11 @@ class GeminiTranscriber(Transcriber):
     def get_capabilities(self) -> CapabilityModel:
         from bot.capabilities import CapabilityModel
         return CapabilityModel(transcription=True)
+
+    def accepted_formats(self) -> frozenset[str]:
+        return frozenset({
+            "wav", "mp3", "aiff", "aac", "ogg", "flac",
+        })
 
     async def transcribe(self, file_path: str) -> TranscriptionResult:
         logger.info("Transcribe %s with Gemini (P1 adapter)", file_path)
@@ -909,6 +956,10 @@ class GeminiProvider(LLMProvider, Transcriber, TextProcessor):
 
     async def transcribe(self, file_path: str) -> TranscriptionResult:
         return await self._transcriber.transcribe(file_path)
+
+    def accepted_formats(self) -> frozenset[str]:
+        """Delegate to the internal Gemini transcriber."""
+        return self._transcriber.accepted_formats()
 
     # ---- New TextProcessor interface ----
 

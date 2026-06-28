@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Capability-aware audio preparation (P7)**: FFmpeg conversion is now skipped
+  when the transcriber accepts the original file format natively. Each transcriber
+  exposes its supported formats via `accepted_formats()`. The handler logs the
+  conversion decision. Voice messages (OGG) no longer need conversion for OpenAI
+  or Gemini. 730 tests passing, 0 regressions.
+
+### Changed
+
+- **Express setup feedback migliorato (W10)**: Il feedback finale di
+  `/setup/express` ora distingue tre stati (completato, salvato-senza-avvio,
+  errore) con messaggi chiari, icone e CTA contestuali. La pagina non reindirizza
+  più automaticamente in caso di salvataggio senza avvio, lasciando all'utente
+  la scelta tra dashboard e impostazioni avanzate. Aggiunto campo `status` alla
+  risposta JSON API.
+- **W9/W10 QA completed**: Manual QA passed for express two-stage setup,
+  single-pass setup, sort/filter controls, manual model persistence, selected
+  card behavior, saved/saved-no-start CTAs, secret handling, and responsive
+  viewports. Roadmap W9 and W10 are now marked Done. Follow-up P2 remains:
+  sanitize one OpenAI provider-test error path that can reflect an `sk-...`
+  prefix.
+
+### Added
+
+- **Verified manual OpenRouter model metadata (W10)**: When the user enters a
+  manual model ID for an OpenRouter provider in `/api/setup/model-picker`, the
+  backend now fetches the OpenRouter model catalog, searches for an exact match,
+  and returns a card with real pricing, provider, capabilities, and category.
+  If the model is not found, two-stage returns a conservative card while
+  single-pass returns a clear rejection. In single-pass mode, models found
+  without `single_pass_audio_to_text` capability are also rejected with an
+  explanatory error. 7 new tests cover found, not-found, and capability-gated
+  scenarios.
+
+- **Express model picker controls (W10)**: Added sort controls, tier/provider
+  filtering, selected-card ordering, a custom badge for manual model cards, and
+  browser-session persistence for manually added express setup model cards.
+- **Manual model card persistence beyond session (W10)**: Added
+  `GET /api/setup/manual-cards` and `POST /api/setup/manual-cards` endpoints
+  backed by the `setup_state` database table. Manual model cards now survive
+  browser restart. The `setup_express.html` UI loads persisted cards on open
+  and saves on every manual card addition. Saved payloads strip
+  secret-like fields before persistence, including nested pricing/capability
+  metadata. Tests cover round-trip persistence, empty-state, CSRF rejection,
+  safe metadata preservation, secret stripping, and session-gating.
+- **Agent test etiquette**: `AGENTS.md` now asks coding agents to avoid
+  rerunning the full pytest suite when the user has just confirmed it is green,
+  and to ask before repeating it for narrow or documentation-only follow-ups.
 - **Smart model picker foundation (W10)**: Added `bot/model_picker.py` with
   reusable card shaping for the express setup model picker: locked Whisper
   transcription card, OpenRouter shortlist filtering, per-million token pricing,

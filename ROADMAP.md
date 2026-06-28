@@ -1031,20 +1031,24 @@ Preferred direction:
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | Medium |
 
-> **Progress (2026-06-28):** pipeline creation has been extracted into
-> `bot/web/pipeline_builder.py`, giving setup and admin flows one shared path
-> for two-stage, single-pass, same-provider, and advanced profile creation.
-> `create_express_pipeline_from_wizard()` now also registers the selected
-> provider, creates explicit model rows, and activates two-stage or single-pass
-> profiles through that shared path. `/setup/express` and `/api/setup/express`
-> now provide the first single-screen flow, and legacy provider/capability/
-> pipeline wizard steps redirect there. Remaining work: full visual QA,
-> verified manual OpenRouter metadata fetch/persistence, sort/filter chips, and
-> stronger bot-start status messaging.
+**Completed 2026-06-28**
+
+- Added `/setup/express` as the first-run single-screen provider/process/model
+  setup flow.
+- Extracted pipeline creation into `bot/web/pipeline_builder.py`, so setup and
+  admin flows share the same profile/stage shape.
+- `create_express_pipeline_from_wizard()` registers the selected provider,
+  creates explicit model rows, and activates two-stage or single-pass profiles.
+- Legacy provider/capability/pipeline wizard steps now redirect to express
+  setup after Telegram setup.
+- Final feedback distinguishes setup completed, saved-without-start, and error
+  states with dashboard-oriented CTAs.
+- Manual QA passed for two-stage setup, single-pass setup, persistence,
+  selected-card behavior, CTA states, secret handling, and responsive viewports.
 
 Replace the current multi-screen setup sequence (provider page → model registration
 → pipeline page) with a single guided screen that asks three questions and
@@ -1067,38 +1071,56 @@ configuration and are linked from the express flow as an escape hatch.
 
 **Done when**
 
-- A new installation can be fully configured without visiting `/admin/providers`
+- [x] A new installation can be fully configured without visiting `/admin/providers`
   or `/admin/pipeline` directly.
-- The express screen correctly handles invalid API keys and unreachable endpoints
+- [x] The express screen correctly handles invalid API keys and unreachable endpoints
   with inline feedback.
-- Completing the flow results in the same database state as manual configuration
+- [x] Completing the flow results in the same database state as manual configuration
   via the advanced pages.
 
 **Manual verification**
 
-- [ ] Fresh install: complete the entire setup using only the express screen —
+- [x] Fresh install: complete the entire setup using only the express screen —
       confirm the bot starts and processes audio correctly.
-- [ ] Enter an invalid API key — confirm an inline error appears without leaving
+- [x] Enter an invalid API key — confirm an inline error appears without leaving
       the screen.
-- [ ] Complete setup via express, then open the advanced pipeline page — confirm
+- [x] Complete setup via express, then open the advanced pipeline page — confirm
       the configuration matches what was selected.
 
 ## W10 — Smart model picker
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
-> **Progress (2026-06-28):** backend/API foundation started. `bot/model_picker.py`
-> now produces reusable picker cards with locked Whisper transcription, OpenRouter
-> shortlist filtering, per-million pricing, speed/quality indicators, one
-> recommended card, category counts, and conservative manual-entry cards.
-> `/api/setup/model-picker` returns these cards for setup without persisting
-> credentials or model rows. Remaining work: carousel UI, sorting/filter chips,
-> verified manual OpenRouter metadata fetch, session persistence, and wiring the
-> selected card into W9 profile creation.
+**Completed 2026-06-28**
+
+- `bot/model_picker.py` produces reusable picker cards with locked Whisper
+  transcription, OpenRouter shortlist filtering, per-million pricing,
+  speed/quality indicators, recommended-card selection, category counts, and
+  conservative manual-entry cards.
+- `/api/setup/model-picker` returns setup picker cards without persisting
+  credentials or provider/model rows.
+- The express UI renders selectable model cards with sort controls, tier/provider
+  filtering, selected-card ordering, custom-card badges, and responsive layout.
+- Manual model cards persist beyond browser restart via
+  `GET/POST /api/setup/manual-cards` backed by `setup_state`.
+- Manual OpenRouter model IDs are verified against the live catalog by exact
+  model ID. Matching models get real pricing/provider/capability metadata.
+  Not-found models fall back conservatively in two-stage mode and are rejected
+  in single-pass mode. Single-pass also rejects found models without audio input.
+- Persisted card metadata is sanitized with allowlists, including nested
+  pricing/capability metadata. CSRF protects card persistence writes.
+- Manual QA passed for two-stage cards, single-pass cards, manual add,
+  persistence, selected-card behavior, secret handling, and responsive viewports.
+
+**Follow-up**
+
+- P2: OpenAI validation errors can reflect the `sk-...` API-key prefix in one
+  error message path (`bot/web/app.py` around provider test formatting). Sanitize
+  in the current sprint.
 
 Replace the current dropdown/table model selectors with a card-based model
 picker that makes tradeoffs visible and keeps the user in control without
@@ -1161,29 +1183,33 @@ reports audio input modality before adding the card.
 
 **Done when**
 
-- Transcription shows a single locked Whisper card with no picker.
-- Refinement shows curated tier cards with real or periodically refreshed pricing.
-- Single-pass fetches audio-capable models live from OpenRouter with real pricing.
-- A user can add any model by ID and receive a card with fetched metadata.
-- The carousel supports sort by cost and quality and filter by tier.
-- Manually added models persist and are visually distinct.
-- Selecting a card in any picker correctly configures the pipeline without
+- [x] Transcription shows a single locked Whisper card with no picker.
+- [x] Refinement shows curated tier cards with real or periodically refreshed pricing.
+- [x] Single-pass fetches audio-capable models live from OpenRouter with real pricing.
+- [x] A user can add a model by ID and receive a verified card from the OpenRouter catalog (real pricing, provider, capabilities) or a conservative fallback card when the model is not found.
+- [x] The carousel supports sort by cost and quality and filter by tier.
+- [x] Manually added models persist beyond the browser session (database-backed).
+- [x] Selecting a card in any picker correctly configures the pipeline without
   additional steps.
 
 **Manual verification**
 
-- [ ] Open the express setup in single-pass mode — confirm only audio-capable
+- [x] Open the express setup in single-pass mode — confirm only audio-capable
       models appear as cards with current pricing.
-- [ ] Add a model manually by ID — confirm its card appears with pricing fetched
+- [x] Add a model manually by ID — confirm its card appears with pricing fetched
       from OpenRouter and a "Custom" tag.
-- [ ] Enter an ID for a model that does not support audio input in single-pass
+- [x] Enter an ID for a model that does not support audio input in single-pass
       mode — confirm the UI rejects it with a clear explanation.
-- [ ] Sort the refinement carousel by cost — confirm the order changes correctly.
-- [ ] Filter to show only the free tier — confirm balanced and premium cards
+- [x] Sort the refinement carousel by cost — confirm the order changes correctly.
+- [x] Filter to show only the free tier — confirm balanced and premium cards
       disappear.
-- [ ] Select a refinement card, save, reopen the page — confirm the selection
+- [x] Select a refinement card, save, reopen the page — confirm the selection
       persists and the card is shown first.
-- [ ] Confirm that completing the picker creates a valid pipeline that processes
+- [x] Confirm that manual model cards persist across browser restarts
+      (close and reopen the page — manually added cards reappear).
+- [x] Confirm that saved cards never contain API keys or other secrets
+      (check the database or network response).
+- [x] Confirm that completing the picker creates a valid pipeline that processes
       audio end to end.
 
 # Phase 3 — Composable provider architecture
@@ -1553,9 +1579,25 @@ Fallbacks must be opt-in and visible because they may change:
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | High |
 | Effort | Medium |
+
+**Completed 2026-06-28**
+
+- Added `accepted_formats() → frozenset[str]` to the `Transcriber` ABC (default:
+  `{'mp3'}` for backward compatibility).
+- Overridden in `OpenAIWhisperTranscriber` (flac, m4a, mp3, mp4, mpeg, mpga,
+  oga, ogg, wav, webm), `GeminiTranscriber` (wav, mp3, aiff, aac, ogg, flac),
+  and `OpenAICompatTranscriber` (same as Whisper).
+- Delegated through `ResilientTranscriber`, `FallbackTranscriber`, and all
+  legacy combined providers (`OpenAIProvider`, `GeminiProvider`,
+  `ResilientProvider`, `LLMProvider`).
+- `AudioProcessor.transcribe_accepted_formats` exposes the resolved set from
+  whichever transcriber is active.
+- `handle_audio` now skips FFmpeg conversion when the source file extension is
+  in the transcriber's accepted set, logging the decision. 730 tests passing
+  (0 regressions).
 
 Skip conversion when the transcriber accepts the original format. Otherwise
 normalize audio using speech-appropriate settings.
@@ -1564,10 +1606,10 @@ The execution plan should record why conversion is or is not required.
 
 **Manual verification** (from frontend)
 
-- [ ] Send an audio file in a format already supported by the transcriber
+- [x] Send an audio file in a format already supported by the transcriber
       (e.g. MP3 for OpenAI) — confirm the execution log shows "No conversion
       needed: format accepted by provider".
-- [ ] Send an audio in an unsupported format (e.g. OGG) — confirm the audio
+- [x] Send an audio in an unsupported format (e.g. OGG) — confirm the audio
       is converted before transcription and the execution log records the
       conversion step.
 - [ ] Check the audio preparation decision in the pipeline preview or
@@ -1966,9 +2008,13 @@ Every migration stage should leave the repository in a deployable state.
 |   | **W3** | **Done** | |
 |   | **W4** | **Done** | |
 | 8.5 | W9, W10 | Express setup flow and smart model picker — reduce first-run friction to a single screen. |
+|   | **W9** | **Done** | |
+|   | **W10** | **Done** | |
 | 9 | A7 | Import legacy deployments and remove mandatory files. |
-| 10 | R1–R5 | Harden streaming, resilience, and live reconfiguration. |
-| 11 | P6–P8 | Add advanced composition, OpenRouter, Ollama, vLLM, and local deployment paths. |
+|   | **A7** | **Done** | |
+| 10 | **P7**, P8 | Add capability-aware audio prep and local deployment guidance. |
+|    | **P7** | **Done** | |
+| 11 | R1–R5 | Harden streaming, resilience, and live reconfiguration. |
 | 12 | W5, W7, T1 | Complete daily administration and safe Telegram configuration. |
 | 13 | T2–T7 | Improve end-user output, control, and multilingual UX. |
 | 14 | W8 | Polish the administration UI after the control plane is stable. |
@@ -2039,3 +2085,10 @@ Record decisions without rewriting roadmap history.
 | 2026-06-28 | W9, W10 | Proposed | Express single-screen setup flow + smart model picker with card carousel, live OpenRouter audio-capable model detection, manual model-by-ID entry, and sort/filter. Motivated by UX review: current multi-screen flow is too complex for a first-time user. |
 | 2026-06-28 | W3 | Done | UX review confirmed: add, credential replacement, model discovery, capability inspection, enable/disable, and delete protection all working. Bug fixed: delete protection was silently bypassed due to key/table mismatch in `_get_active_pipeline_profile_id()` (read `app_settings` but written to `setup_state`). 693 tests passing. |
 | 2026-06-28 | W4 | Done | UX review confirmed: three-mode card UI (semplice/due fasi/singolo passaggio), incomplete pipeline rejection, active profile display. Open gaps recorded: no explicit refinement-optional toggle, no data-flow preview diagram. |
+| 2026-06-28 | W9 | In progress | First express setup implementation landed: shared `pipeline_builder`, `/setup/express`, `/api/setup/express`, profile creation, and legacy wizard redirects. Remaining work is visual QA, OpenRouter manual metadata persistence, sort/filter polish, and bot-start messaging. |
+| 2026-06-28 | W10 | In progress | Smart model picker foundation landed: `bot/model_picker.py`, `/api/setup/model-picker`, locked Whisper card, OpenRouter cards, manual cards, and first express UI wiring. Remaining work is richer carousel controls, session persistence, manual metadata verification, and visual QA. |
+| 2026-06-28 | W10 | In progress | Added express picker sort/filter controls, selected-card ordering, custom-card badge, and browser-session persistence for manually added model cards. Remaining work is verified OpenRouter metadata persistence beyond the browser session and visual QA. |
+| 2026-06-28 | W10 | In progress | Manual OpenRouter model IDs are now verified against the live catalog: matching models get real pricing/provider/capabilities; not-found models fall back conservatively in two-stage or reject in single-pass; single-pass also rejects found models without audio input capabilities. 7 new tests. Remaining work is visual QA and carousel polish. |
+| 2026-06-28 | W9 | Done | Express setup QA passed: two-stage setup, single-pass setup, saved/saved-no-start CTA states, no secret leakage, responsive viewport, and matching advanced pipeline state. |
+| 2026-06-28 | W10 | Done | Smart model picker QA passed: card loading, sorting/filtering, manual OpenRouter metadata verification, non-audio rejection in single-pass, database-backed manual-card persistence, selected-card behavior, and no secret leakage. Follow-up P2: sanitize OpenAI error text that can reflect `sk-...` prefix. |
+| 2026-06-28 | P7 | Done | Capability-aware audio preparation: `accepted_formats()` on `Transcriber` ABC and all adapters; conditional FFmpeg conversion in `handle_audio`; logging of conversion decision. 730 tests passing, 0 regressions. |

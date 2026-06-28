@@ -1930,24 +1930,271 @@ def test_api_setup_model_picker_openrouter_cards(fresh_app):
     assert fresh_app.state.db.list_providers() == []
 
 
-def test_api_setup_model_picker_manual_model(fresh_app):
-    """Manual model entry returns a conservative card."""
+def test_api_setup_model_picker_manual_model_non_openrouter(fresh_app):
+    """Manual model entry for non-OpenRouter providers returns a conservative card without API call."""
     with TestClient(fresh_app) as client:
         client.get("/setup")
         resp = client.post(
             "/api/setup/model-picker",
             json={
-                "provider_type": "openrouter",
-                "manual_model_id": "custom/model",
+                "provider_type": "gemini",
+                "manual_model_id": "custom/gemini-model",
             },
         )
 
     data = resp.json()
     assert data["ok"] is True
     assert data["source"] == "manual"
-    assert data["cards"][0]["model_id"] == "custom/model"
+    assert data["cards"][0]["model_id"] == "custom/gemini-model"
     assert data["cards"][0]["speed"] == "unknown"
     assert data["cards"][0]["recommended"] is False
+
+
+def test_api_setup_model_picker_openrouter_manual_found_two_stage(fresh_app):
+    """Manual model found in OpenRouter catalog returns card with real pricing for two-stage."""
+    mock_client = MockHttpxClient({
+        "https://openrouter.ai/api/v1/models": MockHttpxResponse(
+            200, {"data": _openrouter_catalog()},
+        ),
+    })
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        with TestClient(fresh_app) as client:
+            client.get("/setup")
+            resp = client.post(
+                "/api/setup/model-picker",
+                json={
+                    "provider_type": "openrouter",
+                    "api_key": "sk-or-test",
+                    "manual_model_id": "openai/gpt-4o-mini",
+                    "process_mode": "two_stage",
+                },
+            )
+
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["source"] == "openrouter"
+    assert len(data["cards"]) == 1
+    card = data["cards"][0]
+    assert card["model_id"] == "openai/gpt-4o-mini"
+    assert card["pricing"]["input_per_million"] == 0.15
+    assert card["provider"] == "OpenAI"
+    assert card["category"] == "refinement"
+    assert card["capabilities"]["refinement"] is True
+    assert card["source"] == "openrouter"
+
+
+def test_api_setup_model_picker_openrouter_manual_found_single_pass(fresh_app):
+    """Manual model found in catalog with audio support returns card for single-pass."""
+    mock_client = MockHttpxClient({
+        "https://openrouter.ai/api/v1/models": MockHttpxResponse(
+            200, {"data": _openrouter_catalog()},
+        ),
+    })
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        with TestClient(fresh_app) as client:
+            client.get("/setup")
+            resp = client.post(
+                "/api/setup/model-picker",
+                json={
+                    "provider_type": "openrouter",
+                    "api_key": "sk-or-test",
+                    "manual_model_id": "google/gemini-2.0-flash",
+                    "process_mode": "single_pass",
+                },
+            )
+
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["source"] == "openrouter"
+    card = data["cards"][0]
+    assert card["model_id"] == "google/gemini-2.0-flash"
+    assert card["category"] == "single_pass"
+    assert card["capabilities"]["single_pass_audio_to_text"] is True
+    assert data["transcription"] is None  # no locked Whisper in single_pass
+
+
+def test_api_setup_model_picker_openrouter_manual_not_found_two_stage(fresh_app):
+    """Manual model NOT found in OpenRouter catalog returns conservative card for two-stage."""
+    mock_client = MockHttpxClient({
+        "https://openrouter.ai/api/v1/models": MockHttpxResponse(
+            200, {"data": _openrouter_catalog()},
+        ),
+    })
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        with TestClient(fresh_app) as client:
+            client.get("/setup")
+            resp = client.post(
+                "/api/setup/model-picker",
+                json={
+                    "provider_type": "openrouter",
+                    "api_key": "sk-or-test",
+                    "manual_model_id": "unknown/model-404",
+                    "process_mode": "two_stage",
+                },
+            )
+
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["source"] == "manual"
+    card = data["cards"][0]
+    assert card["model_id"] == "unknown/model-404"
+    assert card["speed"] == "unknown"
+    assert card["recommended"] is False
+
+
+def test_api_setup_model_picker_openrouter_manual_not_found_single_pass(fresh_app):
+    """Manual model NOT found in catalog for single-pass returns an error."""
+    mock_client = MockHttpxClient({
+        "https://openrouter.ai/api/v1/models": MockHttpxResponse(
+            200, {"data": _openrouter_catalog()},
+        ),
+    })
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        with TestClient(fresh_app) as client:
+            client.get("/setup")
+            resp = client.post(
+                "/api/setup/model-picker",
+                json={
+                    "provider_type": "openrouter",
+                    "api_key": "sk-or-test",
+                    "manual_model_id": "unknown/model-404",
+                    "process_mode": "single_pass",
+                },
+            )
+
+    data = resp.json()
+    assert data["ok"] is False
+    assert "non trovato" in data["error"].lower()
+    assert "single-pass" in data["error"].lower()
+
+
+def test_api_setup_model_picker_openrouter_manual_found_no_audio_single_pass(fresh_app):
+    """Manual model found but without audio input in single-pass returns an error."""
+    mock_client = MockHttpxClient({
+        "https://openrouter.ai/api/v1/models": MockHttpxResponse(
+            200, {"data": _openrouter_catalog()},
+        ),
+    })
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        with TestClient(fresh_app) as client:
+            client.get("/setup")
+            resp = client.post(
+                "/api/setup/model-picker",
+                json={
+                    "provider_type": "openrouter",
+                    "api_key": "sk-or-test",
+                    "manual_model_id": "openai/gpt-4o-mini",
+                    "process_mode": "single_pass",
+                },
+            )
+
+    data = resp.json()
+    assert data["ok"] is False
+    assert "non supporta" in data["error"].lower()
+    assert "single-pass" in data["error"].lower()
+
+
+def test_api_setup_model_picker_openrouter_manual_no_api_key(fresh_app):
+    """Manual model without API key for OpenRouter returns an error."""
+    with TestClient(fresh_app) as client:
+        client.get("/setup")
+        resp = client.post(
+            "/api/setup/model-picker",
+            json={
+                "provider_type": "openrouter",
+                "manual_model_id": "some/model",
+            },
+        )
+
+    data = resp.json()
+    assert data["ok"] is False
+    assert "chiave api" in data["error"].lower()
+
+
+def test_api_manual_cards_save_and_get(fresh_app):
+    """Manual model cards persist via POST/GET /api/setup/manual-cards."""
+    card = {
+        "kind": "manual",
+        "model_id": "anthropic/claude-sonnet",
+        "name": "claude-sonnet",
+        "provider": "Anthropic",
+        "category": "refinement",
+        "process_mode": "two_stage",
+        "pricing": {"input_per_million": 3.0, "output_per_million": 15.0, "currency": "USD"},
+        "capabilities": {},
+        "speed": "fast",
+        "quality": "high",
+        "recommended": False,
+        "source": "manual",
+    }
+    with TestClient(fresh_app) as client:
+        resp = client.get("/setup")
+        csrf = _extract_csrf(resp.text)
+        resp_save = client.post("/api/setup/manual-cards", json={"cards": [card], "csrf_token": csrf})
+        assert resp_save.status_code == 200
+        data_save = resp_save.json()
+        assert data_save["ok"] is True
+        assert data_save["count"] == 1
+
+        resp_get = client.get("/api/setup/manual-cards")
+        assert resp_get.status_code == 200
+        data_get = resp_get.json()
+        assert data_get["ok"] is True
+        assert len(data_get["cards"]) == 1
+        assert data_get["cards"][0]["model_id"] == "anthropic/claude-sonnet"
+        assert data_get["cards"][0]["source"] == "manual"
+        assert "api_key" not in json.dumps(data_get["cards"])
+
+
+def test_api_manual_cards_empty_when_none_saved(fresh_app):
+    """GET /api/setup/manual-cards returns empty list when no cards saved."""
+    with TestClient(fresh_app) as client:
+        client.get("/setup")
+        resp = client.get("/api/setup/manual-cards")
+
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["cards"] == []
+
+
+def test_api_manual_cards_secret_stripped(fresh_app):
+    """Saving cards strips out any secret-like fields from persisted data."""
+    malicious_card = {
+        "kind": "manual",
+        "model_id": "test/model",
+        "name": "test",
+        "provider": "Test",
+        "api_key": "sk-leaked-12345",
+        "password": "supersecret",
+        "pricing": {},
+        "capabilities": {},
+        "speed": "unknown",
+        "quality": "unknown",
+    }
+    with TestClient(fresh_app) as client:
+        resp = client.get("/setup")
+        csrf = _extract_csrf(resp.text)
+        client.post("/api/setup/manual-cards", json={"cards": [malicious_card], "csrf_token": csrf})
+        resp = client.get("/api/setup/manual-cards")
+
+    data = resp.json()
+    assert data["ok"] is True
+    persisted = json.dumps(data["cards"])
+    assert "sk-leaked-12345" not in persisted
+    assert "supersecret" not in persisted
+    assert "api_key" not in persisted
+
+
+def test_api_manual_cards_requires_session(fresh_app):
+    """GET/POST /api/setup/manual-cards reject requests without a session."""
+    with TestClient(fresh_app) as client:
+        resp_get = client.get("/api/setup/manual-cards")
+        resp_post = client.post("/api/setup/manual-cards", json={"cards": []})
+
+    assert resp_get.status_code == 400
+    assert resp_post.status_code == 400
+    assert resp_get.json()["ok"] is False
+    assert resp_post.json()["ok"] is False
 
 
 def test_setup_express_page_renders(fresh_app):
@@ -2029,6 +2276,7 @@ def test_api_setup_express_creates_two_stage_profile(fresh_app):
 
     data = resp.json()
     assert data["ok"] is True
+    assert data["status"] in ("started", "saved_no_start")
     assert data["profile_id"] > 0
 
     from bot.web.setup_wizard import STEP_DONE, get_current_step
@@ -3367,3 +3615,239 @@ def test_api_discover_models_timeout(ready_app):
     data = resp.json()
     assert data["ok"] is False
     assert "timeout" in data["error"].lower()
+
+
+# ==================================================================
+# Fix pass: manual OpenRouter lookup — exact match only (fix 1)
+# ==================================================================
+
+
+def test_api_setup_model_picker_openrouter_manual_exact_match_only(fresh_app):
+    """Manual OpenRouter lookup must match exact model id, case-insensitive,
+    never substring."""
+    catalog = _openrouter_catalog() + [
+        {"id": "openai/gpt-4o", "name": "GPT-4o",
+         "pricing": {"prompt": "0.0000025", "completion": "0.00001"},
+         "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
+         "supported_parameters": ["stream"]},
+    ]
+    mock_client = MockHttpxClient({
+        "https://openrouter.ai/api/v1/models": MockHttpxResponse(200, {"data": catalog}),
+    })
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        with TestClient(fresh_app) as client:
+            client.get("/setup")
+            # "openai/gpt-4o" must match "openai/gpt-4o" exactly, not "openai/gpt-4o-mini"
+            resp = client.post(
+                "/api/setup/model-picker",
+                json={
+                    "provider_type": "openrouter",
+                    "api_key": "sk-or-test",
+                    "manual_model_id": "openai/gpt-4o",
+                    "process_mode": "two_stage",
+                },
+            )
+
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["source"] == "openrouter"
+    assert data["cards"][0]["model_id"] == "openai/gpt-4o"
+    assert data["cards"][0]["provider"] == "OpenAI"
+
+
+def test_api_setup_model_picker_openrouter_manual_partial_id_falls_back(fresh_app):
+    """Partial model ID that is a substring of a real model does not match it."""
+    # Catalog has "openai/gpt-4o-mini" but NOT "openai/gpt-4o"
+    catalog = [m for m in _openrouter_catalog() if m["id"] != "openai/gpt-4o-mini"]
+    catalog.append({
+        "id": "openai/gpt-4o-mini", "name": "GPT-4o mini",
+        "pricing": {"prompt": "0.00000015", "completion": "0.0000006"},
+        "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
+        "supported_parameters": ["stream"],
+    })
+    mock_client = MockHttpxClient({
+        "https://openrouter.ai/api/v1/models": MockHttpxResponse(200, {"data": catalog}),
+    })
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        with TestClient(fresh_app) as client:
+            client.get("/setup")
+            # "gpt-4o" would substring-match "openai/gpt-4o-mini" — must NOT
+            resp = client.post(
+                "/api/setup/model-picker",
+                json={
+                    "provider_type": "openrouter",
+                    "api_key": "sk-or-test",
+                    "manual_model_id": "gpt-4o",
+                    "process_mode": "two_stage",
+                },
+            )
+
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["source"] == "manual"
+    assert data["cards"][0]["model_id"] == "gpt-4o"
+    assert data["cards"][0]["speed"] == "unknown"
+
+
+# ==================================================================
+# Fix pass: CSRF validation on POST /api/setup/manual-cards (fix 3)
+# ==================================================================
+
+
+def test_api_manual_cards_csrf_rejection(fresh_app):
+    """POST /api/setup/manual-cards without CSRF token returns 403."""
+    with TestClient(fresh_app) as client:
+        client.get("/setup")  # establish session
+        resp = client.post(
+            "/api/setup/manual-cards",
+            json={"cards": [{"model_id": "test/model", "provider": "Test"}], "csrf_token": ""},
+        )
+    assert resp.status_code == 403
+    assert resp.json()["ok"] is False
+
+
+def test_api_manual_cards_csrf_wrong_token(fresh_app):
+    """POST /api/setup/manual-cards with wrong CSRF token returns 403."""
+    with TestClient(fresh_app) as client:
+        client.get("/setup")  # establish session
+        resp = client.post(
+            "/api/setup/manual-cards",
+            json={"cards": [], "csrf_token": "invalid-token"},
+        )
+    assert resp.status_code == 403
+    assert resp.json()["ok"] is False
+
+
+# ==================================================================
+# Fix pass: preserve safe metadata in manual cards (fix 2)
+# ==================================================================
+
+
+def test_api_manual_cards_preserves_source_and_capabilities(fresh_app):
+    """Manual cards with source='openrouter' and dict capabilities are preserved."""
+    card = {
+        "model_id": "anthropic/claude-sonnet",
+        "name": "claude-sonnet",
+        "provider": "Anthropic",
+        "category": "refinement",
+        "process_mode": "two_stage",
+        "source": "openrouter",
+        "capabilities": {"refinement": True, "text_generation": True},
+        "pricing": {"input_per_million": 3.0, "output_per_million": 15.0, "currency": "USD"},
+        "speed": "fast",
+        "quality": "high",
+        "recommended": False,
+    }
+    with TestClient(fresh_app) as client:
+        resp = client.get("/setup/express")
+        csrf = _extract_csrf(resp.text)
+        client.post(
+            "/api/setup/manual-cards",
+            json={"cards": [card], "csrf_token": csrf},
+        )
+        resp = client.get("/api/setup/manual-cards")
+
+    data = resp.json()
+    assert data["ok"] is True
+    persisted = data["cards"][0]
+    assert persisted["source"] == "openrouter"
+    assert persisted["capabilities"] == {"refinement": True, "text_generation": True}
+    assert persisted["pricing"]["input_per_million"] == 3.0
+    assert persisted["model_id"] == "anthropic/claude-sonnet"
+    assert persisted["provider"] == "Anthropic"
+    assert persisted["category"] == "refinement"
+
+
+def test_api_manual_cards_preserves_source_manual(fresh_app):
+    """Card with source='manual' keeps source='manual'."""
+    card = {
+        "model_id": "custom/test",
+        "provider": "Test",
+        "source": "manual",
+        "capabilities": {},
+        "pricing": {},
+    }
+    with TestClient(fresh_app) as client:
+        resp = client.get("/setup/express")
+        csrf = _extract_csrf(resp.text)
+        client.post(
+            "/api/setup/manual-cards",
+            json={"cards": [card], "csrf_token": csrf},
+        )
+        resp = client.get("/api/setup/manual-cards")
+
+    assert resp.json()["cards"][0]["source"] == "manual"
+
+
+def test_api_manual_cards_strips_secrets_still(fresh_app):
+    """Secret-like fields stripped from top-level and nested pricing/capabilities."""
+    card = {
+        "model_id": "leaky/model",
+        "provider": "Leaky",
+        "source": "manual",
+        "api_key": "sk-leaked",
+        "token": "abc123",
+        "secret": "s3cr3t",
+        "password": "p@ss",
+        "capabilities": {
+            "transcription": True,
+            "api_key": "nested-sk-leaked",
+            "secret_token": "nested-token",
+        },
+        "pricing": {
+            "input_per_million": 1.0,
+            "output_per_million": 2.0,
+            "currency": "USD",
+            "api_secret": "nested-pricing-secret",
+            "internal_key": "should-not-leak",
+        },
+    }
+    with TestClient(fresh_app) as client:
+        resp = client.get("/setup/express")
+        csrf = _extract_csrf(resp.text)
+        client.post(
+            "/api/setup/manual-cards",
+            json={"cards": [card], "csrf_token": csrf},
+        )
+        resp = client.get("/api/setup/manual-cards")
+
+    persisted = resp.json()["cards"][0]
+    body = json.dumps(persisted)
+    assert "sk-leaked" not in body
+    assert "abc123" not in body
+    assert "s3cr3t" not in body
+    assert "p@ss" not in body
+    assert "nested-sk-leaked" not in body
+    assert "nested-token" not in body
+    assert "nested-pricing-secret" not in body
+    assert "should-not-leak" not in body
+    assert persisted["capabilities"] == {"transcription": True}
+    assert persisted["pricing"] == {
+        "input_per_million": 1.0,
+        "output_per_million": 2.0,
+        "currency": "USD",
+    }
+
+
+# ==================================================================
+# Fix pass: saved-no-start CTA — no direct link to /admin/providers (fix 4)
+# ==================================================================
+
+
+def test_setup_express_saved_no_start_no_admin_providers_link(fresh_app):
+    """The saved-no-start CTA must not link to /admin/providers before login."""
+    with TestClient(fresh_app) as client:
+        resp = client.get("/setup/express")
+
+    # Verify the JS template text does NOT contain /admin/providers
+    # in the saved-no-start branch
+    assert "Dopo il login puoi avviarlo dalla dashboard" in resp.text
+    # The primary "Accedi alla dashboard" link should be present
+    assert "Accedi alla dashboard" in resp.text
+    # The only link should be the dashboard — /admin/providers must NOT appear
+    # outside the JS that handles the "saved" flow
+    warnings_text = resp.text
+    admin_providers_count = warnings_text.count("/admin/providers")
+    # The template has one static link before login: the "Vai alle impostazioni avanzate"
+    # link in the form footer (line 148 of template) — this is expected
+    assert admin_providers_count <= 1  # only the footer link, not in saved-no-start CTA

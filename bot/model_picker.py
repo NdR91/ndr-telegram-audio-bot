@@ -167,6 +167,16 @@ def build_openrouter_picker_cards(
     return cards
 
 
+def openrouter_card_from_catalog_model(model: dict[str, Any]) -> dict[str, Any]:
+    """Build a single picker card from an OpenRouter catalog model entry.
+
+    Returns a card in the same shape as ``build_openrouter_picker_cards``
+    entries, suitable for returning from ``/api/setup/model-picker`` when a
+    manually entered model ID is found in the OpenRouter catalog.
+    """
+    return _openrouter_picker_card(model)
+
+
 def manual_model_card(model_id: str, provider: str, purpose: str = "refinement") -> dict[str, Any]:
     """Return a conservative card for a manually entered model ID."""
     model_id = model_id.strip()

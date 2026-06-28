@@ -18,7 +18,7 @@
 <div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
-<form id="express-setup-form" class="express-setup" autocomplete="off">
+<form id="express-setup-form" class="express-setup" autocomplete="off" novalidate>
     <input type="hidden" name="csrf_token" id="express-csrf-token" value="{{ csrf_token }}">
     <input type="hidden" name="selected_model" id="express-selected-model" value="">
 
@@ -46,7 +46,7 @@
                 <small class="form-help" id="express-provider-description">OpenAI, Gemini o OpenRouter.</small>
             </div>
 
-            <div class="form-group" id="express-endpoint-group">
+            <div class="form-group" id="express-endpoint-group" style="display:none">
                 <label for="express-provider-endpoint">Endpoint</label>
                 <input type="url" id="express-provider-endpoint" name="endpoint"
                        placeholder="https://api.openai.com/v1" class="font-mono">
@@ -56,9 +56,13 @@
 
         <div class="form-group">
             <label for="express-provider-key">Chiave API</label>
-            <input type="password" id="express-provider-key" name="api_key"
-                   placeholder="Inserisci la chiave API" required class="font-mono">
+            <div class="api-key-row">
+                <input type="password" id="express-provider-key" name="api_key"
+                       placeholder="Inserisci la chiave API" required class="font-mono">
+                <button type="button" class="btn btn-secondary" id="express-test-key">Test connessione</button>
+            </div>
             <small class="form-help">La chiave viene inviata al server solo per verifica e salvataggio criptato.</small>
+            <div id="express-test-result" class="notice-inline" hidden></div>
         </div>
     </section>
 
@@ -115,15 +119,40 @@
             </div>
         </div>
 
-        <div id="express-picker-status" class="notice-inline">Carica i modelli per vedere le opzioni consigliate.</div>
+        <div class="model-picker-toolbar" aria-label="Filtri modello">
+            <div class="form-group model-picker-sort">
+                <label for="express-model-sort">Ordina</label>
+                <select id="express-model-sort">
+                    <option value="recommended">Consigliati</option>
+                    <option value="cost">Costo crescente</option>
+                    <option value="quality">Qualità alta</option>
+                    <option value="provider">Provider</option>
+                </select>
+            </div>
+            <fieldset class="model-picker-filters">
+                <legend>Tier</legend>
+                <label><input type="checkbox" value="free" checked> Free</label>
+                <label><input type="checkbox" value="balanced" checked> Balanced</label>
+                <label><input type="checkbox" value="premium" checked> Premium</label>
+                <label><input type="checkbox" value="refinement" checked> Altri</label>
+                <label><input type="checkbox" value="single_pass" checked> Single-pass</label>
+            </fieldset>
+        </div>
+
+        <div id="express-picker-status" class="notice-inline" role="status" aria-live="polite">Carica i modelli per vedere le opzioni consigliate.</div>
         <div id="express-model-cards" class="model-picker-cards" aria-live="polite"></div>
     </section>
 
     <div id="express-submit-status" class="alert" hidden></div>
 
+    <div id="express-save-provider-status" class="alert" hidden></div>
+
     <div class="form-actions express-actions">
         <button type="submit" class="btn btn-primary btn-lg" id="express-submit" disabled>
             Salva configurazione e avvia
+        </button>
+        <button type="button" class="btn btn-secondary" id="express-save-provider" disabled>
+            Salva provider
         </button>
         <a href="/admin/providers" class="btn btn-secondary">Vai alle impostazioni avanzate</a>
     </div>
@@ -154,6 +183,15 @@
     var submitStatus = document.getElementById('express-submit-status');
     var txCard = document.getElementById('express-transcription-card');
     var modelCopy = document.getElementById('express-model-copy');
+    var testBtn = document.getElementById('express-test-key');
+    var testResult = document.getElementById('express-test-result');
+    var saveProviderBtn = document.getElementById('express-save-provider');
+    var saveProviderStatus = document.getElementById('express-save-provider-status');
+    var sortSelect = document.getElementById('express-model-sort');
+    var filterInputs = Array.prototype.slice.call(document.querySelectorAll('.model-picker-filters input[type="checkbox"]'));
+    var storageKey = 'telegramAudioBot.expressPicker.manualCards';
+    var lastCards = [];
+    var _redirectPending = false;
 
     function mode() {
         var checked = form.querySelector('input[name="process_mode"]:checked');
@@ -171,6 +209,79 @@
         cardsEl.querySelectorAll('.model-picker-card').forEach(function(card) {
             card.classList.remove('selected');
             card.setAttribute('aria-checked', 'false');
+        });
+    }
+
+    function storageAvailable() {
+        try {
+            var key = '__express_picker_test__';
+            window.sessionStorage.setItem(key, key);
+            window.sessionStorage.removeItem(key);
+            return true;
+        } catch (err) {
+            return false;
+        }
+    }
+
+    function readManualCards() {
+        if (!storageAvailable()) return [];
+        try {
+            var parsed = JSON.parse(window.sessionStorage.getItem(storageKey) || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (err) {
+            return [];
+        }
+    }
+
+    function writeManualCards(cards) {
+        if (!storageAvailable()) return;
+        window.sessionStorage.setItem(storageKey, JSON.stringify(cards.slice(0, 12)));
+    }
+
+    function rememberManualCard(card) {
+        if (!card || !card.model_id) return;
+        var cards = readManualCards().filter(function(existing) {
+            return existing.model_id !== card.model_id || existing.process_mode !== mode();
+        });
+        card.process_mode = mode();
+        cards.unshift(card);
+        writeManualCards(cards);
+        saveManualCardsToServer(cards);
+    }
+
+    function loadManualCardsFromServer() {
+        fetch('/api/setup/manual-cards', {
+            method: 'GET',
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.ok || !Array.isArray(data.cards)) return;
+            writeManualCards(data.cards);
+            lastCards = mergeCards(data.cards, lastCards);
+            renderCards(lastCards);
+            applyCardControls();
+            if (lastCards.length) {
+                setStatus('Seleziona una card modello per continuare.', 'success');
+            }
+        })
+        .catch(function() {});
+    }
+
+    function saveManualCardsToServer(cards) {
+        fetch('/api/setup/manual-cards', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cards: cards || [],
+                csrf_token: document.getElementById('express-csrf-token').value,
+            }),
+        })
+        .catch(function() {});
+    }
+
+    function manualCardsForCurrentMode() {
+        return readManualCards().filter(function(card) {
+            return card.process_mode === mode();
         });
     }
 
@@ -203,6 +314,7 @@
         }
 
         clearSelection();
+        cardsEl.innerHTML = '';
         loadBtn.disabled = true;
         loadBtn.textContent = 'Caricamento...';
         setStatus('Caricamento modelli in corso...', '');
@@ -220,8 +332,14 @@
                 return;
             }
             renderTranscription(data.transcription);
-            renderCards(data.cards || []);
-            if ((data.cards || []).length) {
+            if (data.source === 'manual' && (data.cards || []).length) {
+                rememberManualCard(data.cards[0]);
+                lastCards = mergeCards(manualCardsForCurrentMode(), lastCards.concat(data.cards || []));
+            } else {
+                lastCards = mergeCards(manualCardsForCurrentMode(), data.cards || []);
+            }
+            applyCardControls();
+            if (lastCards.length) {
                 setStatus('Seleziona una card modello per continuare.', 'success');
             } else if (mode() === 'single_pass') {
                 setStatus('Nessun modello single-pass disponibile. Prova la modalità due fasi.', 'warn');
@@ -255,25 +373,36 @@
             var btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'model-picker-card';
+            if (card.source === 'manual') btn.classList.add('manual');
             btn.setAttribute('role', 'radio');
             btn.setAttribute('aria-checked', 'false');
             btn.dataset.modelId = card.model_id || '';
             var inputCost = formatCost(card.pricing && card.pricing.input_per_million);
             var outputCost = formatCost(card.pricing && card.pricing.output_per_million);
+            var speedLabel = escapeHtml(card.speed || '—');
+            var qualityLabel = escapeHtml(card.quality || '—');
+            var speedCls = 'sig-speed' + (card.speed ? ' speed-' + card.speed : '');
+            var qualityCls = 'sig-quality' + (card.quality ? ' quality-' + card.quality : '');
             btn.innerHTML =
                 '<span class="model-card-top">' +
                     '<strong>' + escapeHtml(card.name || card.model_id) + '</strong>' +
-                    (card.recommended ? '<em>Recommended</em>' : '') +
+                    (card.recommended ? '<span class="model-card-badge">Recommended</span>' : '') +
+                    (card.source === 'manual' ? '<span class="model-card-badge tag-custom">Custom</span>' : '') +
                 '</span>' +
                 '<span class="model-card-provider">' + escapeHtml(card.provider || providerLabel()) + '</span>' +
                 '<span class="model-card-meta">' +
                     '<b>Input</b> ' + inputCost + ' <b>Output</b> ' + outputCost +
                 '</span>' +
                 '<span class="model-card-signals">' +
-                    '<span>' + escapeHtml(card.speed || 'unknown') + '</span>' +
-                    '<span>' + escapeHtml(card.quality || 'unknown') + '</span>' +
-                    '<span>' + escapeHtml(card.category || '') + '</span>' +
+                    '<span title="Velocità" class="' + speedCls + '">' + speedLabel + '</span>' +
+                    '<span title="Qualità" class="' + qualityCls + '">' + qualityLabel + '</span>' +
+                    '<span title="Categoria">' + escapeHtml(displayCardCategory(card)) + '</span>' +
                 '</span>';
+            if (selectedInput.value && selectedInput.value === btn.dataset.modelId) {
+                btn.classList.add('selected');
+                btn.setAttribute('aria-checked', 'true');
+                submitBtn.disabled = false;
+            }
             btn.addEventListener('click', function() {
                 clearSelection();
                 btn.classList.add('selected');
@@ -283,6 +412,103 @@
             });
             cardsEl.appendChild(btn);
         });
+    }
+
+    function mergeCards(manualCards, cards) {
+        var seen = {};
+        var merged = [];
+        manualCards.concat(cards).forEach(function(card) {
+            if (!card || !card.model_id || seen[card.model_id]) return;
+            seen[card.model_id] = true;
+            merged.push(card);
+        });
+        return merged;
+    }
+
+    function displayCategory(category) {
+        var labels = {
+            free: 'free',
+            balanced: 'balanced',
+            premium: 'premium',
+            refinement: 'refinement',
+            single_pass: 'single-pass',
+        };
+        return labels[category] || category || 'manual';
+    }
+
+    function displayCardCategory(card) {
+        if (card.source === 'manual') return 'custom';
+        if (card.category === 'single_pass') return displayCategory('single_pass');
+        return displayCategory(tierCategory(card));
+    }
+
+    function visibleCategories() {
+        return filterInputs
+            .filter(function(input) { return input.checked; })
+            .map(function(input) { return input.value; });
+    }
+
+    function categoryVisible(card, categories) {
+        if (card.source === 'manual') return true;
+        var category = card.category || 'refinement';
+        if (category === 'single_pass') return categories.indexOf('single_pass') >= 0;
+        var tier = tierCategory(card);
+        return categories.indexOf(tier) >= 0 ||
+            (tier === 'unknown' && categories.indexOf('refinement') >= 0);
+    }
+
+    function qualityRank(value) {
+        return { high: 0, medium: 1, low: 2, unknown: 3 }[value] || 3;
+    }
+
+    function cardCost(card) {
+        var pricing = card.pricing || {};
+        var input = pricing.input_per_million;
+        var output = pricing.output_per_million;
+        var total = Number(input == null ? 999999 : input) + Number(output == null ? 0 : output);
+        return isNaN(total) ? 999999 : total;
+    }
+
+    function tierCategory(card) {
+        var pricing = card.pricing || {};
+        var input = pricing.input_per_million;
+        var output = pricing.output_per_million;
+        if (input == null && output == null) return 'unknown';
+        var total = Number(input || 0) + Number(output || 0);
+        if (total <= 0) return 'free';
+        if (total <= 5) return 'balanced';
+        return 'premium';
+    }
+
+    function cardProvider(card) {
+        return String(card.provider || '').toLowerCase();
+    }
+
+    function recommendedRank(card) {
+        if (selectedInput.value && card.model_id === selectedInput.value) return -2;
+        if (card.source === 'manual') return -1;
+        return card.recommended ? 0 : 1;
+    }
+
+    function applyCardControls() {
+        var categories = visibleCategories();
+        var cards = lastCards.filter(function(card) {
+            return categoryVisible(card, categories);
+        });
+        var sort = sortSelect.value;
+        cards.sort(function(a, b) {
+            if (recommendedRank(a) !== recommendedRank(b)) {
+                return recommendedRank(a) - recommendedRank(b);
+            }
+            if (sort === 'cost') return cardCost(a) - cardCost(b);
+            if (sort === 'quality') return qualityRank(a.quality) - qualityRank(b.quality);
+            if (sort === 'provider') return cardProvider(a).localeCompare(cardProvider(b));
+            return 0;
+        });
+        renderCards(cards);
+        if (!cards.length && lastCards.length) {
+            setStatus('Nessuna card visibile con i filtri selezionati.', 'warn');
+        }
     }
 
     function formatCost(value) {
@@ -304,6 +530,8 @@
         endpointGroup.style.display = ['openrouter', 'ollama', 'vllm', 'custom'].indexOf(providerType.value) >= 0 ? 'block' : 'none';
         cardsEl.innerHTML = '';
         renderTranscription(null);
+        lastCards = manualCardsForCurrentMode();
+        renderCards(lastCards);
         clearSelection();
     });
 
@@ -317,11 +545,17 @@
                 : 'Whisper è bloccato per la trascrizione; scegli il modello di refinement.';
             cardsEl.innerHTML = '';
             renderTranscription(null);
+            lastCards = manualCardsForCurrentMode();
+            renderCards(lastCards);
             clearSelection();
         });
     });
 
     loadBtn.addEventListener('click', function() { loadModels(); });
+    sortSelect.addEventListener('change', applyCardControls);
+    filterInputs.forEach(function(input) {
+        input.addEventListener('change', applyCardControls);
+    });
     queryInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -335,6 +569,105 @@
             return;
         }
         loadModels({ manual_model_id: modelId });
+    });
+
+    testBtn.addEventListener('click', function() {
+        if (!providerType.value) {
+            testResult.hidden = false;
+            testResult.className = 'notice-inline notice-error';
+            testResult.textContent = 'Seleziona un provider prima di testare.';
+            return;
+        }
+        var key = apiKey.value.trim();
+        if (!key) {
+            testResult.hidden = false;
+            testResult.className = 'notice-inline notice-error';
+            testResult.textContent = 'Inserisci una chiave API.';
+            return;
+        }
+        testBtn.disabled = true;
+        testBtn.textContent = 'Test in corso...';
+        testResult.hidden = true;
+
+        fetch('/api/setup/test-provider', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                provider_type: providerType.value,
+                api_key: key,
+                endpoint: endpoint.value.trim(),
+            }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            testResult.hidden = false;
+            if (data.auth_ok) {
+                testResult.className = 'notice-inline notice-success';
+                var msg = '✅ Connessione riuscita';
+                if (data.models_ok) {
+                    msg += ' — ' + (data.models || []).length + ' modelli rilevati.';
+                }
+                if (data.capabilities && data.capabilities.transcription) {
+                    msg += ' Supporta trascrizione audio.';
+                }
+                testResult.innerHTML = msg;
+                saveProviderBtn.disabled = false;
+                if (data.models && data.models.length) {
+                    setStatus('Modelli rilevati: ' + data.models.slice(0, 5).join(', ') + '. Carica o cerca per selezionarne uno.', 'success');
+                }
+            } else {
+                testResult.className = 'notice-inline notice-error';
+                testResult.innerHTML = '❌ ' + escapeHtml(data.user_message || data.error || 'Connessione fallita.');
+                saveProviderBtn.disabled = true;
+            }
+        })
+        .catch(function(err) {
+            testResult.hidden = false;
+            testResult.className = 'notice-inline notice-error';
+            testResult.innerHTML = '❌ Errore di rete: ' + escapeHtml(err.message);
+        })
+        .finally(function() {
+            testBtn.disabled = false;
+            testBtn.textContent = 'Test connessione';
+        });
+    });
+
+    saveProviderBtn.addEventListener('click', function() {
+        saveProviderBtn.disabled = true;
+        saveProviderBtn.textContent = 'Salvataggio...';
+        saveProviderStatus.hidden = true;
+
+        fetch('/api/setup/save-provider', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: document.getElementById('express-csrf-token').value,
+                provider_type: providerType.value,
+                api_key: apiKey.value.trim(),
+                endpoint: endpoint.value.trim(),
+            }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            saveProviderStatus.hidden = false;
+            if (data.ok) {
+                saveProviderStatus.className = 'alert alert-success';
+                saveProviderStatus.innerHTML = '<strong>✅ Provider salvato</strong>'
+                    + '<p>Puoi proseguire con la selezione del modello o completare dopo dalla dashboard.</p>';
+            } else {
+                saveProviderStatus.className = 'alert alert-error';
+                saveProviderStatus.innerHTML = '<strong>❌ ' + escapeHtml(data.error || 'Salvataggio fallito.') + '</strong>';
+            }
+        })
+        .catch(function(err) {
+            saveProviderStatus.hidden = false;
+            saveProviderStatus.className = 'alert alert-error';
+            saveProviderStatus.innerHTML = '<strong>❌ Errore di rete: ' + escapeHtml(err.message) + '</strong>';
+        })
+        .finally(function() {
+            saveProviderBtn.disabled = false;
+            saveProviderBtn.textContent = 'Salva provider';
+        });
     });
 
     form.addEventListener('submit', function(e) {
@@ -360,28 +693,60 @@
             submitStatus.hidden = false;
             if (!data.ok) {
                 submitStatus.className = 'alert alert-error';
-                submitStatus.textContent = data.error || 'Setup non completato.';
+                submitStatus.innerHTML = '<strong>❌ ' + escapeHtml(data.error || 'Setup non completato.') + '</strong>'
+                    + '<p>Verifica i dati inseriti e riprova, oppure usa la configurazione guidata.</p>'
+                    + '<div class="alert-actions">'
+                    + '<a href="/setup?step=step_provider" class="btn btn-secondary">Configurazione guidata</a>'
+                    + '</div>';
                 submitBtn.disabled = false;
                 return;
             }
-            submitStatus.className = data.started ? 'alert alert-success' : 'alert alert-warn';
-            submitStatus.textContent = data.started
-                ? 'Configurazione salvata e bot avviato.'
-                : 'Configurazione salvata. Avvio bot da completare dalla dashboard: ' + (data.start_error || 'stato non pronto');
-            window.setTimeout(function() {
-                window.location.href = data.redirect || '/login?setup=ok';
-            }, 1200);
+            if (data.started) {
+                _redirectPending = true;
+                submitStatus.className = 'alert alert-success';
+                submitStatus.innerHTML = '<strong>✅ Configurazione completata</strong>'
+                    + '<p>Provider attivo, pipeline configurata, bot in esecuzione.</p>'
+                    + '<div class="alert-actions">'
+                    + '<a href="' + escapeHtml(data.redirect || '/login?setup=ok') + '" class="btn btn-primary">Accedi alla dashboard</a>'
+                    + '</div>'
+                    + '<p class="alert-ftnote">Reindirizzamento automatico tra 3 secondi...</p>';
+                window.setTimeout(function() {
+                    window.location.href = data.redirect || '/login?setup=ok';
+                }, 3000);
+            } else {
+                submitStatus.className = 'alert alert-warn';
+                submitStatus.innerHTML = '<strong>⚠️ Configurazione salvata</strong>'
+                    + '<p>Il bot non è stato avviato: <em>' + escapeHtml(data.start_error || 'stato non pronto') + '</em>.</p>'
+                    + '<p>Dopo il login puoi avviarlo dalla dashboard.</p>'
+                    + '<div class="alert-actions">'
+                    + '<a href="' + escapeHtml(data.redirect || '/login?setup=ok') + '" class="btn btn-primary">Accedi alla dashboard</a>'
+                    + '</div>';
+            }
+            submitBtn.disabled = false;
         })
         .catch(function(err) {
             submitStatus.hidden = false;
             submitStatus.className = 'alert alert-error';
-            submitStatus.textContent = 'Errore di rete: ' + err.message;
+            submitStatus.innerHTML = '<strong>❌ Errore di rete</strong>'
+                + '<p>' + escapeHtml(err.message) + '</p>'
+                + '<div class="alert-actions">'
+                + '<button type="button" class="btn btn-primary" onclick="document.getElementById(\'express-submit\').click()">Riprova</button>'
+                + '</div>';
             submitBtn.disabled = false;
         })
         .finally(function() {
-            submitBtn.textContent = 'Salva configurazione e avvia';
+            if (!_redirectPending) {
+                submitBtn.textContent = 'Salva configurazione e avvia';
+            }
         });
     });
+
+    lastCards = manualCardsForCurrentMode();
+    renderCards(lastCards);
+    if (lastCards.length) {
+        setStatus('Seleziona una card modello per continuare.', 'success');
+    }
+    loadManualCardsFromServer();
 })();
 </script>
 {% endblock %}

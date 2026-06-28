@@ -36,6 +36,7 @@ from bot.model_picker import (
     build_openrouter_picker_cards,
     manual_model_card,
     openrouter_catalog_item,
+    openrouter_card_from_catalog_model,
     openrouter_counts,
     openrouter_matches_purpose,
     openrouter_model_category,
@@ -266,8 +267,12 @@ def create_app(
         legacy_config=config if not getattr(config, '_relaxed', False) else None,
     )
 
-    # A6 — generate setup code on blank data volume
-    if is_first_run(database_manager) and not is_code_generated(database_manager):
+    # A6 — generate setup code on blank data volume.
+    # Always regenerate on every startup while setup is pending so the
+    # code is always visible in the logs, even after a container restart.
+    if is_first_run(database_manager):
+        if is_code_generated(database_manager):
+            invalidate_setup_code(database_manager)
         setup_code = generate_setup_code(database_manager)
         _print_setup_code(setup_code)
 
@@ -660,6 +665,57 @@ def create_app(
         purpose = "single_pass" if process_mode == "single_pass" else "refinement"
 
         if manual_model_id:
+            if provider_type == "openrouter":
+                if not api_key:
+                    return JSONResponse(
+                        {"ok": False, "error": "Inserisci una chiave API OpenRouter per cercare il modello nel catalogo."},
+                    )
+                import httpx
+                catalog_endpoint = endpoint or PROVIDER_PRESETS["openrouter"]["default_endpoint"]
+                url = f"{catalog_endpoint.rstrip('/')}/models"
+                headers = {"Authorization": f"Bearer {api_key}"}
+                try:
+                    async with httpx.AsyncClient(timeout=15) as client:
+                        resp = await client.get(url, headers=headers)
+                        if resp.status_code != 200:
+                            return JSONResponse({
+                                "ok": False,
+                                "error": f"OpenRouter ha risposto con HTTP {resp.status_code} durante la ricerca del modello.",
+                            })
+                        data = resp.json().get("data", [])
+                    raw_models = [m for m in data if isinstance(m, dict) and m.get("id")]
+                    model_by_id = {m.get("id", "").lower(): m for m in raw_models}
+                    matched = model_by_id.get(manual_model_id.lower().strip())
+                    if matched is None:
+                        if process_mode == "single_pass":
+                            return JSONResponse({
+                                "ok": False,
+                                "error": f"Modello \"{manual_model_id}\" non trovato nel catalogo OpenRouter. "
+                                         "In modalità single-pass è richiesto un modello con supporto audio. "
+                                         "Verifica l'ID o passa alla modalità due fasi.",
+                            })
+                        card = manual_model_card(manual_model_id, _provider_label(provider_type), purpose)
+                    else:
+                        if process_mode == "single_pass":
+                            meta = _classify_openrouter_metadata(matched)
+                            if not meta.get("single_pass_audio_to_text"):
+                                return JSONResponse({
+                                    "ok": False,
+                                    "error": f"Modello \"{manual_model_id}\" non supporta l'audio in single-pass. "
+                                             "Scegli un modello con input audio o passa alla modalità due fasi.",
+                                })
+                        card = openrouter_card_from_catalog_model(matched)
+                    return JSONResponse({
+                        "ok": True,
+                        "transcription": transcription_locked_card() if process_mode != "single_pass" else None,
+                        "cards": [card],
+                        "counts": {},
+                        "source": "openrouter" if matched else "manual",
+                    })
+                except httpx.TimeoutException:
+                    return JSONResponse({"ok": False, "error": "Timeout durante la connessione a OpenRouter."})
+                except httpx.RequestError as exc:
+                    return JSONResponse({"ok": False, "error": f"Errore di connessione: {exc}"})
             return JSONResponse({
                 "ok": True,
                 "transcription": transcription_locked_card() if process_mode != "single_pass" else None,
@@ -717,6 +773,96 @@ def create_app(
             return JSONResponse({"ok": False, "error": "Timeout durante la connessione a OpenRouter."})
         except httpx.RequestError as exc:
             return JSONResponse({"ok": False, "error": f"Errore di connessione: {exc}"})
+
+    @app.get("/api/setup/manual-cards")
+    async def api_get_manual_cards(request: Request):
+        """Return persisted manual model cards for the express setup."""
+        session = _session(request)
+        if session is None:
+            return JSONResponse({"ok": False, "error": "Sessione non valida."}, status_code=400)
+        raw = database_manager.get_setup_state("express_manual_cards")
+        if raw is None:
+            return JSONResponse({"ok": True, "cards": []})
+        try:
+            cards = json.loads(raw)
+            if not isinstance(cards, list):
+                cards = []
+        except (json.JSONDecodeError, ValueError):
+            cards = []
+        return JSONResponse({"ok": True, "cards": cards})
+
+    @app.post("/api/setup/manual-cards")
+    async def api_save_manual_cards(request: Request):
+        """Persist manual model cards for the express setup across sessions."""
+        session = _session(request)
+        if session is None:
+            return JSONResponse({"ok": False, "error": "Sessione non valida."}, status_code=400)
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return JSONResponse({"ok": False, "error": "Richiesta JSON non valida."}, status_code=400)
+
+        csrf = body.get("csrf_token", "")
+        if not validate_csrf_token(session, csrf):
+            return JSONResponse({"ok": False, "error": "CSRF token non valido."}, status_code=403)
+
+        cards = body.get("cards", [])
+        if not isinstance(cards, list):
+            return JSONResponse({"ok": False, "error": "Il campo cards deve essere una lista."}, status_code=400)
+
+        _SAFE_KEYS = {
+            "kind", "model_id", "name", "provider", "description",
+            "category", "process_mode", "speed", "quality", "recommended",
+        }
+        _SECRET_PATTERNS = ("key", "token", "secret", "password", "credential", "api_")
+
+        safe_cards = []
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            safe_card = {k: card[k] for k in _SAFE_KEYS if k in card}
+            safe_card.setdefault("kind", "manual")
+            safe_card.setdefault("model_id", "")
+            safe_card.setdefault("provider", "")
+            safe_card.setdefault("category", "refinement")
+            safe_card.setdefault("process_mode", "two_stage")
+
+            source = card.get("source", "manual")
+            safe_card["source"] = source if source in ("manual", "openrouter") else "manual"
+
+            _CAPABILITY_KEYS = {
+                "transcription", "text_generation", "refinement",
+                "streaming_refinement", "single_pass_audio_to_text",
+            }
+            _PRICING_KEYS = {"input_per_million", "output_per_million", "currency"}
+
+            raw_caps = card.get("capabilities")
+            safe_card["capabilities"] = (
+                {k: raw_caps[k] for k in _CAPABILITY_KEYS if k in raw_caps}
+                if isinstance(raw_caps, dict)
+                else {}
+            )
+
+            raw_pricing = card.get("pricing")
+            safe_card["pricing"] = (
+                {k: raw_pricing[k] for k in _PRICING_KEYS if k in raw_pricing}
+                if isinstance(raw_pricing, dict)
+                else {
+                    "input_per_million": None,
+                    "output_per_million": None,
+                    "currency": "USD",
+                }
+            )
+
+            for key in list(safe_card.keys()):
+                key_lower = key.lower()
+                if any(pat in key_lower for pat in _SECRET_PATTERNS):
+                    del safe_card[key]
+
+            safe_cards.append(safe_card)
+
+        database_manager.set_setup_state("express_manual_cards", json.dumps(safe_cards))
+        return JSONResponse({"ok": True, "count": len(safe_cards)})
 
     @app.post("/api/setup/express")
     async def api_setup_express(request: Request):
@@ -820,11 +966,66 @@ def create_app(
 
         return JSONResponse({
             "ok": True,
+            "status": "started" if started else "saved_no_start",
             "profile_id": profile_id,
             "started": started,
             "start_error": start_error,
             "redirect": "/login?setup=ok",
             "warnings": test_result.get("warnings", []),
+        })
+
+    @app.post("/api/setup/save-provider")
+    async def api_setup_save_provider(request: Request):
+        """Save just the provider connection from the express setup,
+        without creating a pipeline profile or starting the bot."""
+        body = await request.json()
+        provider_type = (body.get("provider_type") or "").strip()
+        api_key = (body.get("api_key") or "").strip()
+        endpoint = (body.get("endpoint") or "").strip()
+        model_name = (body.get("model_name") or "").strip()
+
+        if not provider_type:
+            return JSONResponse({"ok": False, "error": "Seleziona un provider."})
+        if not api_key:
+            return JSONResponse({"ok": False, "error": "Inserisci una chiave API."})
+
+        if provider_type not in PROVIDER_PRESETS:
+            return JSONResponse({"ok": False, "error": "Provider non valido."})
+
+        adapter_type = _adapter_type_for_provider(provider_type)
+        display_name = PROVIDER_PRESETS[provider_type]["label"]
+        if not endpoint:
+            endpoint = PROVIDER_PRESETS[provider_type].get("default_endpoint", "")
+
+        try:
+            if provider_type == "openrouter":
+                probed, _ = await probe_openrouter_capabilities(api_key, endpoint, model_name)
+                capabilities = probed.to_dict()
+            else:
+                capabilities = detect_capabilities(adapter_type, model_name).to_dict()
+            if model_name:
+                capabilities["models"] = [model_name]
+
+            provider_id = database_manager.add_provider(
+                name=display_name,
+                adapter_type=adapter_type,
+                endpoint=endpoint or None,
+                credentials=api_key,
+                capabilities=capabilities,
+                enabled=True,
+            )
+            logger.info(
+                "Setup wizard: saved provider '%s' (id=%s, adapter=%s)",
+                display_name, provider_id, adapter_type,
+            )
+        except Exception as exc:
+            logger.exception("Failed to save provider from setup wizard")
+            return JSONResponse({"ok": False, "error": f"Salvataggio provider fallito: {exc}"})
+
+        return JSONResponse({
+            "ok": True,
+            "provider_id": provider_id,
+            "capabilities": capabilities,
         })
 
     # Non-JS fallback: form-based step processing
@@ -2746,7 +2947,7 @@ def _print_setup_code(code: str) -> None:
     print(f"\n{sep}", flush=True)
     print(f"  SETUP CODE: {code}", flush=True)
     print(f"  Valido per {bot.setup.SETUP_CODE_TTL_SECONDS} secondi.", flush=True)
-    print(f"  Apri http://localhost:8080 per completare la configurazione.", flush=True)
+    print(f"  Apri l'interfaccia web per completare la configurazione.", flush=True)
     print(f"{sep}\n", flush=True)
     logger.info(
         "One-time setup code generated — valid for %s seconds",
