@@ -1,0 +1,387 @@
+{% extends "base.html" %}
+{% block title %} — Setup express{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Setup express</h1>
+        <p class="section-copy">
+            Configura il provider AI, scegli come processare l'audio e attiva la pipeline in un solo passaggio.
+        </p>
+    </div>
+    <div class="page-actions">
+        <a href="/setup?step=step_provider" class="btn btn-secondary">Configurazione guidata</a>
+    </div>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<form id="express-setup-form" class="express-setup" autocomplete="off">
+    <input type="hidden" name="csrf_token" id="express-csrf-token" value="{{ csrf_token }}">
+    <input type="hidden" name="selected_model" id="express-selected-model" value="">
+
+    <section class="surface-section express-section">
+        <div class="section-header">
+            <div>
+                <h2>Servizio AI</h2>
+                <p>Seleziona il provider e verifica la chiave prima di scegliere il modello.</p>
+            </div>
+        </div>
+
+        <div class="express-grid">
+            <div class="form-group">
+                <label for="express-provider-type">Provider</label>
+                <select id="express-provider-type" name="provider_type" required>
+                    <option value="">Seleziona un provider</option>
+                    {% for key, preset in provider_presets.items() %}
+                    <option value="{{ key }}"
+                            data-endpoint="{{ preset.default_endpoint }}"
+                            data-description="{{ preset.description }}">
+                        {{ preset.label }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small class="form-help" id="express-provider-description">OpenAI, Gemini o OpenRouter.</small>
+            </div>
+
+            <div class="form-group" id="express-endpoint-group">
+                <label for="express-provider-endpoint">Endpoint</label>
+                <input type="url" id="express-provider-endpoint" name="endpoint"
+                       placeholder="https://api.openai.com/v1" class="font-mono">
+                <small class="form-help">Precompilato quando il provider espone un endpoint noto.</small>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="express-provider-key">Chiave API</label>
+            <input type="password" id="express-provider-key" name="api_key"
+                   placeholder="Inserisci la chiave API" required class="font-mono">
+            <small class="form-help">La chiave viene inviata al server solo per verifica e salvataggio criptato.</small>
+        </div>
+    </section>
+
+    <section class="surface-section express-section">
+        <div class="section-header">
+            <div>
+                <h2>Processamento audio</h2>
+                <p>Scegli la pipeline di partenza. Le pagine avanzate restano disponibili dopo il setup.</p>
+            </div>
+        </div>
+
+        <div class="express-mode-group" role="radiogroup" aria-label="Modalità processamento audio">
+            <label class="express-mode selected">
+                <input type="radio" name="process_mode" value="two_stage" checked>
+                <span>
+                    <strong>Due fasi</strong>
+                    <small>Whisper trascrive, un modello testo rifinisce. Più trasparente e consigliato.</small>
+                </span>
+            </label>
+            <label class="express-mode">
+                <input type="radio" name="process_mode" value="single_pass">
+                <span>
+                    <strong>Singolo passaggio</strong>
+                    <small>Un modello multimodale riceve l'audio e restituisce testo rifinito.</small>
+                </span>
+            </label>
+        </div>
+    </section>
+
+    <section class="surface-section express-section">
+        <div class="section-header">
+            <div>
+                <h2>Modello</h2>
+                <p id="express-model-copy">Whisper è bloccato per la trascrizione; scegli il modello di refinement.</p>
+            </div>
+            <div class="page-actions">
+                <button type="button" class="btn btn-secondary" id="express-load-models">Carica modelli</button>
+            </div>
+        </div>
+
+        <div id="express-transcription-card" class="locked-model" hidden></div>
+
+        <div class="express-model-tools">
+            <div class="form-group">
+                <label for="express-model-query">Cerca nel catalogo</label>
+                <input type="search" id="express-model-query" placeholder="gpt-4o, gemini, claude..." class="font-mono">
+            </div>
+            <div class="form-group">
+                <label for="express-manual-model">ID modello manuale</label>
+                <div class="manual-model-row">
+                    <input type="text" id="express-manual-model" placeholder="provider/model-id" class="font-mono">
+                    <button type="button" class="btn btn-secondary" id="express-add-manual">Aggiungi</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="express-picker-status" class="notice-inline">Carica i modelli per vedere le opzioni consigliate.</div>
+        <div id="express-model-cards" class="model-picker-cards" aria-live="polite"></div>
+    </section>
+
+    <div id="express-submit-status" class="alert" hidden></div>
+
+    <div class="form-actions express-actions">
+        <button type="submit" class="btn btn-primary btn-lg" id="express-submit" disabled>
+            Salva configurazione e avvia
+        </button>
+        <a href="/admin/providers" class="btn btn-secondary">Vai alle impostazioni avanzate</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    var form = document.getElementById('express-setup-form');
+    if (!form) return;
+
+    var providerType = document.getElementById('express-provider-type');
+    var endpoint = document.getElementById('express-provider-endpoint');
+    var endpointGroup = document.getElementById('express-endpoint-group');
+    var description = document.getElementById('express-provider-description');
+    var apiKey = document.getElementById('express-provider-key');
+    var loadBtn = document.getElementById('express-load-models');
+    var manualBtn = document.getElementById('express-add-manual');
+    var manualInput = document.getElementById('express-manual-model');
+    var queryInput = document.getElementById('express-model-query');
+    var selectedInput = document.getElementById('express-selected-model');
+    var cardsEl = document.getElementById('express-model-cards');
+    var statusEl = document.getElementById('express-picker-status');
+    var submitBtn = document.getElementById('express-submit');
+    var submitStatus = document.getElementById('express-submit-status');
+    var txCard = document.getElementById('express-transcription-card');
+    var modelCopy = document.getElementById('express-model-copy');
+
+    function mode() {
+        var checked = form.querySelector('input[name="process_mode"]:checked');
+        return checked ? checked.value : 'two_stage';
+    }
+
+    function setStatus(text, kind) {
+        statusEl.textContent = text;
+        statusEl.className = 'notice-inline' + (kind ? ' notice-' + kind : '');
+    }
+
+    function clearSelection() {
+        selectedInput.value = '';
+        submitBtn.disabled = true;
+        cardsEl.querySelectorAll('.model-picker-card').forEach(function(card) {
+            card.classList.remove('selected');
+            card.setAttribute('aria-checked', 'false');
+        });
+    }
+
+    function providerLabel() {
+        var opt = providerType.options[providerType.selectedIndex];
+        return opt ? opt.textContent.trim() : 'Provider';
+    }
+
+    function requestPayload(extra) {
+        var payload = {
+            provider_type: providerType.value,
+            api_key: apiKey.value.trim(),
+            endpoint: endpoint.value.trim(),
+            process_mode: mode(),
+            query: queryInput.value.trim(),
+            limit: 5,
+        };
+        Object.keys(extra || {}).forEach(function(k) { payload[k] = extra[k]; });
+        return payload;
+    }
+
+    function loadModels(extra) {
+        if (!providerType.value) {
+            setStatus('Seleziona un provider prima di caricare i modelli.', 'warn');
+            return;
+        }
+        if (!apiKey.value.trim() && providerType.value === 'openrouter') {
+            setStatus('Inserisci la chiave API OpenRouter per leggere il catalogo.', 'warn');
+            return;
+        }
+
+        clearSelection();
+        loadBtn.disabled = true;
+        loadBtn.textContent = 'Caricamento...';
+        setStatus('Caricamento modelli in corso...', '');
+
+        fetch('/api/setup/model-picker', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestPayload(extra || {})),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.ok) {
+                cardsEl.innerHTML = '';
+                setStatus(data.error || 'Impossibile caricare i modelli.', 'error');
+                return;
+            }
+            renderTranscription(data.transcription);
+            renderCards(data.cards || []);
+            if ((data.cards || []).length) {
+                setStatus('Seleziona una card modello per continuare.', 'success');
+            } else if (mode() === 'single_pass') {
+                setStatus('Nessun modello single-pass disponibile. Prova la modalità due fasi.', 'warn');
+            } else {
+                setStatus('Nessun modello suggerito. Puoi inserire un ID manualmente.', 'warn');
+            }
+        })
+        .catch(function(err) {
+            setStatus('Errore di rete: ' + err.message, 'error');
+        })
+        .finally(function() {
+            loadBtn.disabled = false;
+            loadBtn.textContent = 'Carica modelli';
+        });
+    }
+
+    function renderTranscription(card) {
+        if (!card) {
+            txCard.hidden = true;
+            txCard.innerHTML = '';
+            return;
+        }
+        txCard.hidden = false;
+        txCard.innerHTML = '<strong>' + escapeHtml(card.name) + '</strong><span>' +
+            escapeHtml(card.description) + '</span>';
+    }
+
+    function renderCards(cards) {
+        cardsEl.innerHTML = '';
+        cards.forEach(function(card) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'model-picker-card';
+            btn.setAttribute('role', 'radio');
+            btn.setAttribute('aria-checked', 'false');
+            btn.dataset.modelId = card.model_id || '';
+            var inputCost = formatCost(card.pricing && card.pricing.input_per_million);
+            var outputCost = formatCost(card.pricing && card.pricing.output_per_million);
+            btn.innerHTML =
+                '<span class="model-card-top">' +
+                    '<strong>' + escapeHtml(card.name || card.model_id) + '</strong>' +
+                    (card.recommended ? '<em>Recommended</em>' : '') +
+                '</span>' +
+                '<span class="model-card-provider">' + escapeHtml(card.provider || providerLabel()) + '</span>' +
+                '<span class="model-card-meta">' +
+                    '<b>Input</b> ' + inputCost + ' <b>Output</b> ' + outputCost +
+                '</span>' +
+                '<span class="model-card-signals">' +
+                    '<span>' + escapeHtml(card.speed || 'unknown') + '</span>' +
+                    '<span>' + escapeHtml(card.quality || 'unknown') + '</span>' +
+                    '<span>' + escapeHtml(card.category || '') + '</span>' +
+                '</span>';
+            btn.addEventListener('click', function() {
+                clearSelection();
+                btn.classList.add('selected');
+                btn.setAttribute('aria-checked', 'true');
+                selectedInput.value = btn.dataset.modelId;
+                submitBtn.disabled = !selectedInput.value;
+            });
+            cardsEl.appendChild(btn);
+        });
+    }
+
+    function formatCost(value) {
+        if (value === null || value === undefined) return 'n/d';
+        return '$' + Number(value).toFixed(value < 1 ? 2 : 1) + '/M';
+    }
+
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, function(ch) {
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
+        });
+    }
+
+    providerType.addEventListener('change', function() {
+        var opt = providerType.options[providerType.selectedIndex];
+        var defaultEndpoint = opt ? opt.dataset.endpoint || '' : '';
+        if (endpoint && defaultEndpoint) endpoint.value = defaultEndpoint;
+        if (description) description.textContent = opt ? opt.dataset.description || '' : '';
+        endpointGroup.style.display = ['openrouter', 'ollama', 'vllm', 'custom'].indexOf(providerType.value) >= 0 ? 'block' : 'none';
+        cardsEl.innerHTML = '';
+        renderTranscription(null);
+        clearSelection();
+    });
+
+    form.querySelectorAll('input[name="process_mode"]').forEach(function(radio) {
+        radio.addEventListener('change', function() {
+            form.querySelectorAll('.express-mode').forEach(function(label) {
+                label.classList.toggle('selected', label.contains(radio) && radio.checked);
+            });
+            modelCopy.textContent = mode() === 'single_pass'
+                ? 'Scegli un modello multimodale che accetta audio in input.'
+                : 'Whisper è bloccato per la trascrizione; scegli il modello di refinement.';
+            cardsEl.innerHTML = '';
+            renderTranscription(null);
+            clearSelection();
+        });
+    });
+
+    loadBtn.addEventListener('click', function() { loadModels(); });
+    queryInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            loadModels();
+        }
+    });
+    manualBtn.addEventListener('click', function() {
+        var modelId = manualInput.value.trim();
+        if (!modelId) {
+            setStatus('Inserisci un ID modello manuale.', 'warn');
+            return;
+        }
+        loadModels({ manual_model_id: modelId });
+    });
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Salvataggio...';
+        submitStatus.hidden = true;
+
+        fetch('/api/setup/express', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: document.getElementById('express-csrf-token').value,
+                provider_type: providerType.value,
+                api_key: apiKey.value.trim(),
+                endpoint: endpoint.value.trim(),
+                process_mode: mode(),
+                selected_model: selectedInput.value,
+            }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            submitStatus.hidden = false;
+            if (!data.ok) {
+                submitStatus.className = 'alert alert-error';
+                submitStatus.textContent = data.error || 'Setup non completato.';
+                submitBtn.disabled = false;
+                return;
+            }
+            submitStatus.className = data.started ? 'alert alert-success' : 'alert alert-warn';
+            submitStatus.textContent = data.started
+                ? 'Configurazione salvata e bot avviato.'
+                : 'Configurazione salvata. Avvio bot da completare dalla dashboard: ' + (data.start_error || 'stato non pronto');
+            window.setTimeout(function() {
+                window.location.href = data.redirect || '/login?setup=ok';
+            }, 1200);
+        })
+        .catch(function(err) {
+            submitStatus.hidden = false;
+            submitStatus.className = 'alert alert-error';
+            submitStatus.textContent = 'Errore di rete: ' + err.message;
+            submitBtn.disabled = false;
+        })
+        .finally(function() {
+            submitBtn.textContent = 'Salva configurazione e avvia';
+        });
+    });
+})();
+</script>
+{% endblock %}

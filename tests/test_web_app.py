@@ -1950,6 +1950,98 @@ def test_api_setup_model_picker_manual_model(fresh_app):
     assert data["cards"][0]["recommended"] is False
 
 
+def test_setup_express_page_renders(fresh_app):
+    """GET /setup/express renders the single-screen setup surface."""
+    with TestClient(fresh_app) as client:
+        resp = client.get("/setup/express")
+
+    assert resp.status_code == 200
+    assert "Setup express" in resp.text
+    assert "express-setup-form" in resp.text
+    assert "csrf_token" in resp.text
+
+
+def test_setup_provider_step_redirects_to_express(fresh_app):
+    """Legacy provider/capability/pipeline setup steps now use express."""
+    from bot.web.setup_wizard import STEP_PROVIDER, set_current_step
+
+    set_current_step(fresh_app.state.db, STEP_PROVIDER)
+
+    with TestClient(fresh_app) as client:
+        resp = client.get("/setup", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/setup/express"
+
+
+def test_api_setup_step_telegram_redirects_to_express(fresh_app):
+    """JS setup flow jumps from Telegram token to the express screen."""
+    with TestClient(fresh_app) as client:
+        client.get("/setup")
+        resp = client.post(
+            "/api/setup/step",
+            json={
+                "step": "step_telegram",
+                "data": {"token": "123:abc"},
+            },
+        )
+
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["next_step"] == "step_provider"
+    assert data["redirect"] == "/setup/express"
+
+
+def test_api_setup_express_creates_two_stage_profile(fresh_app):
+    """Express submit stores provider, model rows, stages, and completes setup."""
+    provider_result = {
+        "ok": True,
+        "auth_ok": True,
+        "models_ok": True,
+        "capabilities": {
+            "transcription": True,
+            "text_generation": True,
+            "refinement": True,
+            "streaming_refinement": True,
+            "single_pass_audio_to_text": False,
+        },
+        "warnings": [],
+    }
+
+    async def fake_test_provider(*args, **kwargs):
+        return provider_result
+
+    with patch("bot.web.app._test_provider_connection", fake_test_provider):
+        with TestClient(fresh_app) as client:
+            resp = client.get("/setup/express")
+            csrf = _extract_csrf(resp.text)
+            resp = client.post(
+                "/api/setup/express",
+                json={
+                    "csrf_token": csrf,
+                    "provider_type": "openai",
+                    "api_key": "sk-test",
+                    "endpoint": "https://api.openai.com/v1",
+                    "process_mode": "two_stage",
+                    "selected_model": "gpt-4o-mini",
+                },
+            )
+
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["profile_id"] > 0
+
+    from bot.web.setup_wizard import STEP_DONE, get_current_step
+
+    assert get_current_step(fresh_app.state.db) == STEP_DONE
+    profile = fresh_app.state.db.get_pipeline_profile(data["profile_id"])
+    assert profile["mode"] == "two_stage"
+    stages = fresh_app.state.db.list_pipeline_stages(profile["id"])
+    assert [s["stage_type"] for s in stages] == ["transcription", "refinement"]
+    provider = fresh_app.state.db.get_provider(profile["transcription_provider_id"])
+    assert provider["name"] == "OpenAI (express setup)"
+
+
 def test_api_openrouter_catalog_query_searches_all_compatible_models(ready_app):
     """Catalog query can find compatible models outside the active tab."""
     provider_id = _create_provider(

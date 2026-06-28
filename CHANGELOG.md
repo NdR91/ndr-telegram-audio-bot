@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `create_express_pipeline_from_wizard()` to register the selected provider,
   create explicit `provider_models`, and activate either a two-stage
   Whisper+refinement profile or a single-pass profile using the shared builder.
+- **Express setup screen (W9/W10)**: Added `/setup/express`, a single-screen
+  provider/process/model flow with model-picker cards, locked Whisper
+  transcription card, manual model entry, inline submit feedback, and
+  `/api/setup/express` submission. The legacy provider/capability/pipeline
+  wizard steps now redirect to the express screen after Telegram setup.
 - **Remove mandatory `.env` and `authorized.json` (A7)**: The application
   now starts without any environment files. `Config(relaxed=True)` provides
   empty defaults for all missing values (Telegram token, API keys,

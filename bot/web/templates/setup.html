@@ -510,6 +510,10 @@
         .then(function(r) { return r.json(); })
         .then(function(result) {
             if (result.ok) {
+                if (result.redirect) {
+                    window.location.href = result.redirect;
+                    return;
+                }
                 if (result.next_step) {
                     advanceToStep(result.next_step);
                 }

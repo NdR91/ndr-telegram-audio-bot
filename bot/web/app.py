@@ -83,6 +83,7 @@ from bot.web.pipeline_builder import (
 from bot.web.setup_wizard import (
     PROVIDER_PRESETS,
     build_summary,
+    create_express_pipeline_from_wizard,
     create_pipeline_from_wizard,
     get_active_pipeline_profile_id,
     get_capabilities,
@@ -104,6 +105,11 @@ from bot.web.setup_wizard import (
     save_telegram_token,
     set_active_pipeline_profile_id,
     set_current_step,
+    STEP_PROVIDER,
+    STEP_CAPABILITIES,
+    STEP_PIPELINE,
+    STEP_VERIFY,
+    STEP_DONE,
 )
 
 logger = logging.getLogger(__name__)
@@ -358,6 +364,9 @@ def create_app(
         ):
             current_step = requested_step
 
+        if current_step in {STEP_PROVIDER, STEP_CAPABILITIES, STEP_PIPELINE, STEP_VERIFY}:
+            return RedirectResponse(url="/setup/express", status_code=303)
+
         # Ensure a session cookie exists (CSRF storage)
         if session is None:
             session = {"csrf_token": generate_csrf_token()}
@@ -396,6 +405,44 @@ def create_app(
                 "provider_presets": PROVIDER_PRESETS,
                 "error": request.query_params.get("error", ""),
                 "success": request.query_params.get("success", ""),
+            },
+        )
+
+    @app.get("/setup/express", response_class=HTMLResponse)
+    async def setup_express(request: Request):
+        """Render the W9 single-screen provider/model setup flow."""
+        session = _session(request)
+        admin_exists = has_admin(database_manager)
+        wizard_done = is_wizard_complete(database_manager)
+
+        if session is not None and session.get("admin") and admin_exists and wizard_done:
+            return RedirectResponse(url="/admin/dashboard", status_code=303)
+        if admin_exists and wizard_done:
+            return RedirectResponse(url="/login", status_code=303)
+
+        if session is None:
+            session = {"csrf_token": generate_csrf_token()}
+            response = templates.TemplateResponse(
+                request,
+                "setup_express.html",
+                {
+                    "csrf_token": session["csrf_token"],
+                    "provider_presets": PROVIDER_PRESETS,
+                    "wizard_data": _build_wizard_context(database_manager, secret_store),
+                    "error": request.query_params.get("error", ""),
+                },
+            )
+            _session_response(response, session)
+            return response
+
+        return templates.TemplateResponse(
+            request,
+            "setup_express.html",
+            {
+                "csrf_token": session.get("csrf_token", generate_csrf_token()),
+                "provider_presets": PROVIDER_PRESETS,
+                "wizard_data": _build_wizard_context(database_manager, secret_store),
+                "error": request.query_params.get("error", ""),
             },
         )
 
@@ -438,6 +485,8 @@ def create_app(
             next_step = get_next_step(step)
             if next_step:
                 set_current_step(database_manager, next_step)
+                if next_step == STEP_PROVIDER:
+                    result["redirect"] = "/setup/express"
                 result["next_step"] = next_step
                 result["next_step_meta"] = get_step_meta(next_step)
             else:
@@ -669,6 +718,115 @@ def create_app(
         except httpx.RequestError as exc:
             return JSONResponse({"ok": False, "error": f"Errore di connessione: {exc}"})
 
+    @app.post("/api/setup/express")
+    async def api_setup_express(request: Request):
+        """Complete provider/model/pipeline setup from the W9 express screen."""
+        session = _session(request)
+        if session is None:
+            return JSONResponse(
+                {"ok": False, "error": "Sessione non valida. Ricarica la pagina."},
+                status_code=400,
+            )
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return JSONResponse({"ok": False, "error": "Richiesta JSON non valida."},
+                                status_code=400)
+
+        csrf = body.get("csrf_token", "")
+        if not validate_csrf_token(session, csrf):
+            return JSONResponse({"ok": False, "error": "CSRF token non valido."},
+                                status_code=403)
+
+        provider_type = (body.get("provider_type") or "").strip()
+        api_key = (body.get("api_key") or "").strip()
+        endpoint = (body.get("endpoint") or "").strip()
+        process_mode = (body.get("process_mode") or "two_stage").strip()
+        selected_model = (body.get("selected_model") or "").strip()
+
+        if process_mode not in {"two_stage", "single_pass"}:
+            return JSONResponse({"ok": False, "error": "Modalità audio non valida."})
+        if not provider_type:
+            return JSONResponse({"ok": False, "error": "Seleziona un servizio AI."})
+        if not api_key:
+            return JSONResponse({"ok": False, "error": "Inserisci una chiave API."})
+        if not selected_model:
+            return JSONResponse({"ok": False, "error": "Seleziona un modello."})
+
+        try:
+            test_result = await _test_provider_connection(
+                provider_type,
+                api_key,
+                endpoint,
+                selected_model,
+            )
+        except Exception as exc:
+            logger.exception("Express setup provider validation failed")
+            return JSONResponse({
+                "ok": False,
+                "error": f"Verifica provider fallita: {exc}",
+            })
+
+        if not test_result.get("ok") or not test_result.get("auth_ok"):
+            return JSONResponse({
+                "ok": False,
+                "error": test_result.get("user_message")
+                or test_result.get("error")
+                or "Chiave API o endpoint non validi.",
+                "warnings": test_result.get("warnings", []),
+            })
+
+        save_provider_config(
+            database_manager,
+            provider_type,
+            api_key,
+            endpoint,
+            secret_store,
+        )
+        save_pipeline_mode(database_manager, process_mode)
+        save_provider_model(database_manager, selected_model)
+        save_capabilities(database_manager, test_result.get("capabilities", {}))
+
+        try:
+            config_service.update_setting("llm_provider", provider_type)
+            config_service.update_setting("llm_model", selected_model)
+        except Exception:
+            logger.warning("Could not save express provider settings to ConfigService")
+
+        try:
+            profile_id = create_express_pipeline_from_wizard(
+                database_manager,
+                secret_store,
+                process_mode=process_mode,
+                selected_model=selected_model,
+            )
+        except Exception as exc:
+            logger.exception("Express setup profile creation failed")
+            return JSONResponse({
+                "ok": False,
+                "error": f"Salvataggio pipeline fallito: {exc}",
+            })
+
+        set_current_step(database_manager, STEP_DONE)
+        start_error = ""
+        started = False
+        try:
+            await runtime_manager.start_async()
+            started = True
+        except Exception as exc:
+            start_error = str(exc)
+            logger.warning("Express setup saved but bot start failed: %s", exc)
+
+        return JSONResponse({
+            "ok": True,
+            "profile_id": profile_id,
+            "started": started,
+            "start_error": start_error,
+            "redirect": "/login?setup=ok",
+            "warnings": test_result.get("warnings", []),
+        })
+
     # Non-JS fallback: form-based step processing
     @app.post("/setup")
     async def setup_post(request: Request):
@@ -743,6 +901,9 @@ def create_app(
         next_step = get_next_step(step) if not error_param else step
         if next_step:
             set_current_step(database_manager, next_step)
+
+        if next_step == STEP_PROVIDER:
+            return RedirectResponse(url="/setup/express", status_code=303)
 
         if next_step == "step_done" or step == "step_verify":
             return RedirectResponse(url="/login?setup=ok", status_code=303)

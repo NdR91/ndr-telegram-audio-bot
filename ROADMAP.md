@@ -1040,9 +1040,11 @@ Preferred direction:
 > for two-stage, single-pass, same-provider, and advanced profile creation.
 > `create_express_pipeline_from_wizard()` now also registers the selected
 > provider, creates explicit model rows, and activates two-stage or single-pass
-> profiles through that shared path. Remaining work: the actual single-screen
-> express UI/API submission, inline provider/model validation, and bot start
-> feedback.
+> profiles through that shared path. `/setup/express` and `/api/setup/express`
+> now provide the first single-screen flow, and legacy provider/capability/
+> pipeline wizard steps redirect there. Remaining work: full visual QA,
+> verified manual OpenRouter metadata fetch/persistence, sort/filter chips, and
+> stronger bot-start status messaging.
 
 Replace the current multi-screen setup sequence (provider page → model registration
 → pipeline page) with a single guided screen that asks three questions and
