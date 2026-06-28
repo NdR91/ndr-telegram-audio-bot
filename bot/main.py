@@ -50,7 +50,7 @@ def initialize_configuration() -> Config:
     
     Returns:
         Validated configuration object
-        
+         
     Raises:
         ConfigError: If configuration is invalid or missing
         RuntimeError: If configuration fails to load
@@ -64,8 +64,14 @@ def initialize_configuration() -> Config:
         return config
         
     except (ConfigError, RuntimeError) as e:
-        logger.error(f"Configuration error: {e}")
-        raise
+        logger.warning(
+            "Configuration error: %s. "
+            "Falling back to relaxed mode — setup wizard required.",
+            e,
+        )
+        config = Config(relaxed=True)
+        _warn_if_sensitive_logging_enabled()
+        return config
 
 
 def _get_database_path(config) -> str:
@@ -99,7 +105,11 @@ def _init_database(
     logger.info("Unified application database ready at %s", db_path)
 
     # Bootstrap whitelist from legacy data if the tables are empty.
-    db.import_whitelist_from_dict(config.authorized_data)
+    # When config is relaxed (no .env), authorized_data is empty — this is fine;
+    # the setup wizard will create the first administrator.
+    authorized_data = getattr(config, "authorized_data", {})
+    if authorized_data:
+        db.import_whitelist_from_dict(authorized_data)
 
     return db
 
@@ -188,8 +198,15 @@ def main() -> None:
         # backward compatibility (A4.1).  When the unified database has
         # not yet recorded admin_created, the state checker will treat
         # the legacy .env + authorized.json deployment as READY.
+        # When config is relaxed (no .env), do NOT pass legacy_config —
+        # the state checker will evaluate from the database instead.
+        is_legacy = (
+            not getattr(config, "_relaxed", False)
+            and getattr(config, "telegram_token", "")
+        )
         state_checker = StateChecker(
-            config_service, database_manager, legacy_config=config,
+            config_service, database_manager,
+            legacy_config=config if is_legacy else None,
         )
 
         # Cleanup temporary audio files from previous runs
@@ -234,8 +251,23 @@ def main() -> None:
                 _print_recovery_code(recovery_code)
 
         # Start bot (blocking — legacy CLI mode)
-        logger.info("Starting Telegram bot polling...")
-        manager.run_until_stopped()
+        # When state is SETUP_REQUIRED, the web frontend handles setup; the
+        # legacy CLI just logs the setup code and waits for the web server.
+        if app_state.state == AppState.SETUP_REQUIRED:
+            logger.info(
+                "Application is in SETUP_REQUIRED state. "
+                "Use the web frontend (http://localhost:8086) to complete setup. "
+                "The CLI will wait for a signal."
+            )
+            try:
+                while True:
+                    import time as _time
+                    _time.sleep(60)
+            except KeyboardInterrupt:
+                pass
+        else:
+            logger.info("Starting Telegram bot polling...")
+            manager.run_until_stopped()
         
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")

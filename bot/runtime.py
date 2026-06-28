@@ -12,6 +12,7 @@ they started with, even if settings are changed during processing.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -83,7 +84,7 @@ class RuntimeSnapshot:
     def from_config_service(
         cls,
         config_service: ConfigService,
-        config: Config,
+        config: Config | None = None,
     ) -> RuntimeSnapshot:
         """Build a snapshot from the ``ConfigService``, falling back to
         ``Config`` for values not yet managed by the new control plane.
@@ -91,17 +92,33 @@ class RuntimeSnapshot:
         This is the path used once the new control plane is active and
         ``.env`` is no longer required.
         """
-        # Provider — prefer DB value over Config
         db_provider = config_service._db.get_setting("llm_provider")
-        provider_name = db_provider if db_provider else config.provider_name
+        provider_name = (
+            db_provider
+            if db_provider
+            else (config.provider_name if config else "")
+        )
 
-        # API key still from Config for now; in the future it will come
-        # from the provider connections table.
-        api_key = config.get_api_key(provider_name)
+        # API key — prefer DB-stored value (provider_connections), then Config.
+        api_key = ""
+        if provider_name:
+            # Try provider_connections table first (credentials stored during setup).
+            providers = config_service._db.list_providers()
+            enabled = [p for p in providers if p.get("enabled") and p.get("credentials")]
+            if enabled:
+                api_key = enabled[0].get("credentials", "")
+        if not api_key and config is not None:
+            try:
+                api_key = config.get_api_key(provider_name)
+            except Exception:
+                pass
 
-        # Model — prefer DB value over Config
         db_model = config_service._db.get_setting("llm_model")
-        model_name = db_model if db_model else config.model_name
+        model_name = (
+            db_model
+            if db_model is not None
+            else (config.model_name if config else None)
+        )
 
         # Prompts — prefer DB-stored value, fall back to Config
         prompts: Dict[str, str] = {}
@@ -112,7 +129,7 @@ class RuntimeSnapshot:
             db_value = config_service._db.get_setting(setting_key)
             if db_value is not None:
                 prompts[prompt_key] = db_value
-            else:
+            elif config is not None:
                 prompts[prompt_key] = config.prompts.get(prompt_key, "")
 
         # Rate limits
@@ -125,11 +142,19 @@ class RuntimeSnapshot:
         db_streaming = config_service._db.get_setting("telegram_draft_streaming")
         if db_streaming is not None:
             streaming_enabled = db_streaming.lower() in ("1", "true", "yes")
-        else:
+        elif config is not None:
             streaming_enabled = config.telegram_progressive_output_config.get(
                 "enabled", False
             )
+        else:
+            streaming_enabled = False
         telegram_progressive_output = {"enabled": streaming_enabled}
+
+        # Audio dir — prefer Config, fallback to env/default
+        if config is not None:
+            audio_dir = config.audio_dir
+        else:
+            audio_dir = os.getenv("AUDIO_DIR", "audio_files")
 
         return cls(
             provider_name=provider_name,
@@ -139,7 +164,7 @@ class RuntimeSnapshot:
             rate_limit_config=rate_limits,
             provider_resilience_config=resilience,
             telegram_progressive_output_config=telegram_progressive_output,
-            audio_dir=config.audio_dir,
+            audio_dir=audio_dir,
         )
 
     # ------------------------------------------------------------------
@@ -149,7 +174,7 @@ class RuntimeSnapshot:
     @staticmethod
     def _resolve_rate_limits(
         config_service: ConfigService,
-        config: Config,
+        config: Config | None = None,
     ) -> Dict[str, Any]:
         """Resolve rate-limit settings from ConfigService or Config."""
         result: Dict[str, Any] = {}
@@ -166,8 +191,10 @@ class RuntimeSnapshot:
             db_val = config_service._db.get_setting(key)
             if db_val is not None:
                 result[attr] = int(db_val)
-            else:
+            elif config is not None:
                 result[attr] = config.rate_limit_config.get(attr, default)
+            else:
+                result[attr] = default
 
         bool_keys = [
             ("rate_limit_queue_enabled", "queue_enabled", True),
@@ -176,15 +203,17 @@ class RuntimeSnapshot:
             db_val = config_service._db.get_setting(key)
             if db_val is not None:
                 result[attr] = db_val.lower() in ("1", "true", "yes")
-            else:
+            elif config is not None:
                 result[attr] = config.rate_limit_config.get(attr, default)
+            else:
+                result[attr] = default
 
         return result
 
     @staticmethod
     def _resolve_resilience(
         config_service: ConfigService,
-        config: Config,
+        config: Config | None = None,
     ) -> Dict[str, Any]:
         """Resolve provider-resilience settings from ConfigService or Config."""
         result: Dict[str, Any] = {}
@@ -194,8 +223,10 @@ class RuntimeSnapshot:
             db_val = config_service._db.get_setting(key)
             if db_val is not None:
                 result[attr] = db_val.lower() in ("1", "true", "yes")
-            else:
+            elif config is not None:
                 result[attr] = config.provider_resilience_config.get(attr, default)
+            else:
+                result[attr] = default
 
         int_keys = [
             ("provider_resilience_failure_threshold", "failure_threshold", 3),
@@ -205,7 +236,9 @@ class RuntimeSnapshot:
             db_val = config_service._db.get_setting(key)
             if db_val is not None:
                 result[attr] = int(db_val)
-            else:
+            elif config is not None:
                 result[attr] = config.provider_resilience_config.get(attr, default)
+            else:
+                result[attr] = default
 
         return result

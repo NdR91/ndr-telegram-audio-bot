@@ -18,8 +18,8 @@ No Cursor rules or Copilot instructions are currently present in:
 - Providers: OpenAI Whisper plus GPT refinement, or Google Gemini multimodal
   transcription and refinement.
 - Entry point: `bot/main.py`.
-- Runtime configuration comes from `.env`.
-- `authorized.json` is required as the bootstrap access-control file.
+- Runtime configuration is stored in the unified SQLite database.
+- `authorized.json` is an optional bootstrap input for initial whitelist import.
 - Runtime access-control changes are persisted in SQLite.
 
 ## Build, run, and operations
@@ -44,9 +44,10 @@ installed, but new documentation should use `docker compose`.
 
 - Python 3.10 or newer.
 - FFmpeg available on `PATH`.
-- Valid `TELEGRAM_TOKEN`.
-- The API key required by the selected provider.
-- A valid `authorized.json` containing `admin`, `users`, and `groups` arrays.
+- Valid `TELEGRAM_TOKEN` (or configure via `/setup` command after first start).
+- The API key required by the selected provider (or configure via `/setup`).
+- A valid `authorized.json` containing `admin`, `users`, and `groups` arrays
+  (optional bootstrap input; whitelist is managed in SQLite at runtime).
 
 ## Tests
 

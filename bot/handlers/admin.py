@@ -31,12 +31,12 @@ class WhitelistManager:
     the legacy ``SQLiteWhitelistStore`` during migration.
     """
     
-    def __init__(self, config, db_manager: DatabaseManager | None = None):
+    def __init__(self, config=None, db_manager: DatabaseManager | None = None):
         """
         Initialize whitelist manager with configuration.
         
         Args:
-            config: Bot configuration object
+            config: Bot configuration object (optional after A7).
             db_manager: Optional unified DatabaseManager (preferred).
         """
         self.config = config
@@ -46,12 +46,16 @@ class WhitelistManager:
             # Use the unified application database.
             self.authorized_data = db_manager.load_authorized_data()
             logger.info("WhitelistManager using unified database")
-        else:
+        elif config is not None:
             # Legacy SQLite fallback.
             self.store = SQLiteWhitelistStore(config.authorized_db)
             self.authorized_data = self.store.bootstrap_if_empty(config.authorized_data)
             self.config.authorized_data = self.authorized_data
             logger.info("WhitelistManager using legacy SQLite store")
+        else:
+            # No config and no db — empty whitelist.
+            self.authorized_data = {"admin": [], "users": [], "groups": []}
+            logger.warning("WhitelistManager initialised with empty whitelist (no config, no DB)")
 
         self._lock = asyncio.Lock()
     

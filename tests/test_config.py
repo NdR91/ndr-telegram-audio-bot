@@ -131,3 +131,87 @@ def test_config_accepts_explicit_boolean_values(monkeypatch, tmp_path):
     assert config.rate_limit_config["queue_enabled"] is False
     assert config.provider_resilience_config["enabled"] is True
     assert config.telegram_progressive_output_config["enabled"] is True
+
+
+# ------------------------------------------------------------------
+# A7 — Relaxed mode tests
+# ------------------------------------------------------------------
+
+
+def test_relaxed_config_with_no_env(monkeypatch, tmp_path):
+    """Config(relaxed=True) succeeds with no env vars or authorized.json."""
+    monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("AUTHORIZED_FILE", str(tmp_path / "nonexistent.json"))
+    monkeypatch.setenv("AUDIO_DIR", str(tmp_path / "audio_files"))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout="ok", stderr=""),
+    )
+
+    config = Config(relaxed=True)
+
+    assert config._relaxed is True
+    assert config.telegram_token == ""
+    # LLM_PROVIDER defaults to "openai" when not set — valid provider name is kept.
+    assert config.provider_name == "openai"
+    assert config.api_keys == {}
+    assert config.authorized_file == ""
+    assert config.authorized_data == {"admin": [], "users": [], "groups": []}
+    assert config.audio_dir == str(tmp_path / "audio_files")
+
+
+def test_relaxed_config_get_api_key_returns_empty(monkeypatch, tmp_path):
+    """Config(relaxed=True).get_api_key() returns empty string."""
+    monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("AUTHORIZED_FILE", raising=False)
+    monkeypatch.setenv("AUDIO_DIR", str(tmp_path / "audio_files"))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout="ok", stderr=""),
+    )
+
+    config = Config(relaxed=True)
+    assert config.get_api_key() == ""
+    assert config.get_api_key("openai") == ""
+
+
+def test_strict_config_still_fails_without_token(monkeypatch, tmp_path):
+    """Config() (strict) still raises when TELEGRAM_TOKEN is missing."""
+    monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AUTHORIZED_FILE", raising=False)
+    monkeypatch.setenv("AUDIO_DIR", str(tmp_path / "audio_files"))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout="ok", stderr=""),
+    )
+
+    from bot.exceptions import MissingRequiredConfig
+    with pytest.raises(MissingRequiredConfig):
+        Config()
+
+
+def test_relaxed_config_audio_dir_created(monkeypatch, tmp_path):
+    """Config(relaxed=True) creates the audio directory."""
+    monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("AUTHORIZED_FILE", raising=False)
+    audio_dir = tmp_path / "relaxed_audio"
+    monkeypatch.setenv("AUDIO_DIR", str(audio_dir))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout="ok", stderr=""),
+    )
+
+    config = Config(relaxed=True)
+    assert audio_dir.exists()

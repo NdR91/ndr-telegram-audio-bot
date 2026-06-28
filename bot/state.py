@@ -211,11 +211,15 @@ class StateChecker:
 
     def _evaluate(self) -> StateInfo:
         # 0. Legacy compatibility mode
-        # When a legacy Config is available AND the unified database has not
-        # yet recorded admin_created, we are running in legacy .env mode.
-        # The legacy Config has already validated presence of Telegram token,
-        # provider, and authorized.json — treat as READY.
-        if self._legacy_config is not None:
+        # When a strict (non-relaxed) legacy Config is available AND the unified
+        # database has not yet recorded admin_created, we are running in legacy
+        # .env mode.  The legacy Config has already validated presence of
+        # Telegram token, provider, and authorized.json — treat as READY.
+        if (
+            self._legacy_config is not None
+            and not getattr(self._legacy_config, "_relaxed", False)
+            and getattr(self._legacy_config, "telegram_token", "")
+        ):
             admin_created = self._db.get_setup_state("admin_created")
             if admin_created is None:
                 return self._build_info(AppState.READY)

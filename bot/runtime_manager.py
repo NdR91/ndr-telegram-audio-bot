@@ -44,8 +44,8 @@ class RuntimeManager:
     Parameters
     ----------
     config:
-        Legacy configuration object (required in the current migration
-        stage; will become optional once A7 is complete).
+        Optional legacy configuration object.  When ``None``, all
+        configuration is resolved from the database via ``ConfigService``.
     db_manager:
         Initialised :class:`~bot.database.DatabaseManager`.
     secret_store:
@@ -58,7 +58,7 @@ class RuntimeManager:
 
     def __init__(
         self,
-        config: Config,
+        config: Config | None,
         db_manager: DatabaseManager,
         secret_store: SecretStore | None,
         config_service: ConfigService,
@@ -372,11 +372,31 @@ class RuntimeManager:
         that the legacy code path uses, ensuring consistency between
         legacy and frontend-managed modes.
         """
+        token = ""
+        if self._config is not None:
+            token = getattr(self._config, "telegram_token", "")
+
+        # When token is empty (relaxed mode), resolve from database.
+        if not token and self._config_service is not None:
+            token = self._resolve_token_from_db()
+
         return create_application(
-            self._config.telegram_token,
+            token,
             self._config,
             database_manager=self._db,
             secret_store=self._secret_store,
             config_service=self._config_service,
             state_checker=self._state_checker,
         )
+
+    def _resolve_token_from_db(self) -> str:
+        """Decrypt and return the Telegram token stored in the database."""
+        encrypted = self._config_service._db.get_setting("telegram_token")
+        if not encrypted:
+            return ""
+        if self._secret_store is not None and self._secret_store.key_available:
+            try:
+                return self._secret_store.decrypt(encrypted)
+            except Exception:
+                logger.exception("Failed to decrypt telegram_token from database")
+        return ""

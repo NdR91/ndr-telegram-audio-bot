@@ -617,7 +617,7 @@ The setup code is stored only as a hash.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | Medium |
 
@@ -634,6 +634,32 @@ Provide a one-time migration/import path for:
 
 Legacy files become optional import sources and are never required after a
 successful migration.
+
+**Completed 2026-06-28**
+
+- `Config(relaxed=True)` produces empty defaults for missing values
+  (Telegram token, API keys, `authorized.json`) instead of raising.
+  `get_api_key()` returns `""` in relaxed mode. FFmpeg and audio directory
+  validation remain enforced.
+- `bot/main.py` catches `ConfigError` and falls back to relaxed mode.
+  When state is `SETUP_REQUIRED`, the CLI logs the setup code and waits
+  instead of attempting to start the bot.
+- `RuntimeManager` accepts optional `config`. When token is empty, resolves
+  the Telegram token from the database via `ConfigService` + `SecretStore`
+  decryption.
+- `RuntimeSnapshot.from_config_service()` accepts optional Config. Resolves
+  API keys from `provider_connections.encrypted_credentials` (decrypted) when
+  Config is unavailable. Rate-limit and resilience helpers accept optional
+  Config with sensible defaults.
+- `WhitelistManager` accepts optional config. When `db_manager` is available
+  and config is `None`, uses only the unified database.
+- `create_application()` accepts optional Config. When `None`, skips legacy
+  provider component creation (PipelineResolver handles it at request time).
+- `StateChecker` legacy shortcut now requires non-relaxed Config with a
+  non-empty `telegram_token` attribute.
+- `bot/web/app.py` uses `Config(relaxed=True)` instead of `SimpleNamespace`
+  fallback for blank-volume startup.
+- 4 new relaxed-mode tests. 693 passing tests (0 regressions).
 
 # Phase 2 — Frontend control plane
 
@@ -755,6 +781,13 @@ Allow administrators to:
 Provider deletion must be blocked while referenced by an active pipeline unless
 a replacement is selected.
 
+> **Note (2026-06-28):** largely covered by P6. The admin provider pages
+> (`/admin/providers`, `/admin/providers/{id}`) already support add, credential
+> entry/replacement, model discovery and manual registration, capability
+> inspection, enable/disable, and `ResourceInUseError` deletion protection.
+> Remaining gap: dedicated UX review against the checklist below before marking
+> Done.
+
 **Manual verification** (from frontend)
 
 - [ ] Add an OpenAI provider connection — confirm the form asks for name,
@@ -765,9 +798,9 @@ a replacement is selected.
 - [ ] Replace the API key — confirm the UI asks for a new key (does not show
       the old one in full) and the updated key works.
 - [ ] Add a Gemini provider and confirm both are listed.
-- [ ] Delete a provider that is not referenced by any pipeline — confirm it is
+- [x] Delete a provider that is not referenced by any pipeline — confirm it is
       removed immediately.
-- [ ] Try to delete a provider that IS referenced by an active pipeline —
+- [x] Try to delete a provider that IS referenced by an active pipeline —
       confirm the UI shows a blocking error or requires a replacement first.
 - [ ] Test a connectivity check on a provider with valid and invalid
       credentials — confirm success/failure feedback.
@@ -792,6 +825,12 @@ Advanced mode:
 - independently select transcription and text-processing connections/models;
 - configure explicit fallback behavior;
 - preview the resolved pipeline and expected data flow.
+
+> **Note (2026-06-28):** largely covered by P5/P6. The admin pipeline page
+> (`/admin/pipeline`) already offers single-provider default mode plus an
+> advanced mode with per-stage model selectors and fallback pickers, and
+> rejects incomplete configurations. Remaining gap: UX review against the
+> checklist below before marking Done.
 
 **Manual verification** (from frontend)
 
@@ -964,6 +1003,145 @@ Preferred direction:
 - [ ] The selected template/library is documented with rationale and upgrade
       notes.
 
+## W9 — Express setup flow
+
+| Field | Value |
+| --- | --- |
+| Status | Proposed |
+| Priority | Critical |
+| Effort | Medium |
+
+Replace the current multi-screen setup sequence (provider page → model registration
+→ pipeline page) with a single guided screen that asks three questions and
+configures everything behind the scenes.
+
+The screen asks, in order:
+
+1. **Which AI service?** — select provider type and enter an API key.
+2. **How do you want to process audio?** — choose between:
+   - *Two stages*: Whisper transcribes, a text model refines.
+   - *Single pass*: one multimodal model handles everything.
+3. **Which model?** — the model picker described in W10.
+
+On save the system automatically registers the selected models, builds the
+pipeline profile, and starts the bot. No separate provider or pipeline pages are
+required for a first-time setup.
+
+The existing provider and pipeline admin pages remain available for advanced
+configuration and are linked from the express flow as an escape hatch.
+
+**Done when**
+
+- A new installation can be fully configured without visiting `/admin/providers`
+  or `/admin/pipeline` directly.
+- The express screen correctly handles invalid API keys and unreachable endpoints
+  with inline feedback.
+- Completing the flow results in the same database state as manual configuration
+  via the advanced pages.
+
+**Manual verification**
+
+- [ ] Fresh install: complete the entire setup using only the express screen —
+      confirm the bot starts and processes audio correctly.
+- [ ] Enter an invalid API key — confirm an inline error appears without leaving
+      the screen.
+- [ ] Complete setup via express, then open the advanced pipeline page — confirm
+      the configuration matches what was selected.
+
+## W10 — Smart model picker
+
+| Field | Value |
+| --- | --- |
+| Status | Proposed |
+| Priority | Critical |
+| Effort | High |
+
+Replace the current dropdown/table model selectors with a card-based model
+picker that makes tradeoffs visible and keeps the user in control without
+requiring expertise.
+
+### Transcription card
+
+Whisper is auto-selected and shown as a single locked card. No picker is
+displayed. The card reads: *"Whisper — standard industriale per la trascrizione
+vocale"*. The user cannot deselect it; if a different transcription model is
+needed the advanced pipeline page handles that case.
+
+### Refinement carousel
+
+Three to five curated model cards displayed in a horizontal carousel. Each card
+shows:
+
+- model name and provider;
+- cost per million input and output tokens (from OpenRouter pricing);
+- a qualitative speed indicator (fast / medium / slow);
+- a qualitative quality indicator;
+- a "Recommended" badge on one card.
+
+Tier structure (always shown in this order):
+
+| Tier | Example | Signal |
+| --- | --- | --- |
+| Free | Llama 3.x, Gemma | Zero cost, good quality for text cleanup |
+| Balanced | GPT-4o mini, Gemini Flash | Low cost, reliable quality — default selection |
+| Premium | Claude Sonnet, GPT-4o | Higher cost, best quality |
+
+The user can also add a model manually by entering its OpenRouter ID. The system
+fetches the model's metadata from OpenRouter, creates a card with real pricing,
+and inserts it into the carousel. Manually added cards are visually distinct
+(e.g. a "Custom" tag) and persist across sessions.
+
+The carousel can be sorted by: cost (ascending), quality (descending), or
+provider. A filter chip row lets the user hide free, balanced, or premium tiers.
+
+### Single-pass picker
+
+When single-pass mode is selected, the picker makes a live call to the
+OpenRouter `/models` endpoint and filters to models where
+`architecture.input_modalities` contains `"audio"`. Results are displayed as
+cards with real-time pricing. The user sees only models that can actually accept
+audio input — no manual capability configuration required.
+
+If no audio-capable models are found (e.g. wrong provider or API key issue),
+the UI explains the situation and falls back to suggesting two-stage mode.
+
+The user can also add a model manually by ID; the system verifies that it
+reports audio input modality before adding the card.
+
+### Card ordering and persistence
+
+- The selected model card is always shown first.
+- Manually added cards follow the selected card.
+- Curated cards follow in tier order.
+- Sort and filter state is remembered per session.
+
+**Done when**
+
+- Transcription shows a single locked Whisper card with no picker.
+- Refinement shows curated tier cards with real or periodically refreshed pricing.
+- Single-pass fetches audio-capable models live from OpenRouter with real pricing.
+- A user can add any model by ID and receive a card with fetched metadata.
+- The carousel supports sort by cost and quality and filter by tier.
+- Manually added models persist and are visually distinct.
+- Selecting a card in any picker correctly configures the pipeline without
+  additional steps.
+
+**Manual verification**
+
+- [ ] Open the express setup in single-pass mode — confirm only audio-capable
+      models appear as cards with current pricing.
+- [ ] Add a model manually by ID — confirm its card appears with pricing fetched
+      from OpenRouter and a "Custom" tag.
+- [ ] Enter an ID for a model that does not support audio input in single-pass
+      mode — confirm the UI rejects it with a clear explanation.
+- [ ] Sort the refinement carousel by cost — confirm the order changes correctly.
+- [ ] Filter to show only the free tier — confirm balanced and premium cards
+      disappear.
+- [ ] Select a refinement card, save, reopen the page — confirm the selection
+      persists and the card is shown first.
+- [ ] Confirm that completing the picker creates a valid pipeline that processes
+      audio end to end.
+
 # Phase 3 — Composable provider architecture
 
 ## P1 — Separate transcription and text processing
@@ -1069,11 +1247,28 @@ Detected and manually overridden values must remain distinguishable.
   heuristics.
 - 36 new tests (365 total, 0 regressions).
 
+**P2 extension — OpenRouter capability probing (2026-06-27)**
+
+- ``openai-compat`` adapter ``default_for_adapter`` changed:
+  ``transcription=False`` (conservative — not every compat endpoint has
+  audio).  Detection for ``openai-compat`` now requires explicit audio
+  keywords (``"whisper"`` / ``"audio"``) in the model name to set
+  ``transcription=True``.
+- Added ``probe_openrouter_capabilities(api_key, endpoint, model_name)`` —
+  async helper that fetches model metadata from the OpenRouter Models API
+  and classifies capabilities conservatively based on ``input_modalities``,
+  ``output_modalities``, and ``supported_parameters``.
+- Admin provider creation (``/admin/providers/create``) and setup wizard
+  capability detection (``/api/setup/detect-capabilities``,
+  ``/api/setup/test-provider``) now probe model metadata for OpenRouter
+  instead of using static defaults.
+- 31 new tests (480 total, 0 regressions).
+
 ## P3 — Adapter registry
 
 | Field | Value |
 | --- | --- |
-| Status | In progress |
+| Status | Done |
 | Priority | High |
 | Effort | Medium |
 
@@ -1090,6 +1285,23 @@ Initial adapters:
 Provider presets such as OpenRouter, Ollama, and vLLM configure these adapters
 without duplicating the core protocol implementation.
 
+**Completed 2026-06-28**
+
+- Added `bot/adapters/` package:
+  - `registry.py` — `TranscriberRegistry` and `TextProcessorRegistry` with
+    `register()` (callable or decorator form), `create()`, and `has_type()`.
+    Replaces the previous `if/elif` factory chain.
+  - `defaults.py` — `register_defaults()` registers the four built-in adapter
+    types: `openai-native` (alias `openai`), `gemini-native` (alias `gemini`),
+    and `openai-compat` (transcription and text processing).
+  - `openai_compat.py` — OpenAI-compatible adapters reused by the OpenRouter,
+    Ollama, and vLLM presets without duplicating the protocol implementation.
+- Both `create_provider_components()` (`bot/utils.py`) and the model-level
+  resolver (`bot/pipeline_resolver.py`) now create adapters through the global
+  registries instead of hardcoded branching.
+- Covered by `tests/test_adapter_registry.py` and `tests/test_openai_compat.py`
+  (693 total passing, 0 regressions).
+
 ## P4 — Automatic pipeline resolver
 
 | Field | Value |
@@ -1100,11 +1312,11 @@ without duplicating the core protocol implementation.
 
 | File | Role |
 | ---- | ---- |
-| `bot/pipeline_resolver.py` | Core resolver: `PipelineResolver`, `ExecutionPlan`, `PipelineRequest`, `RequestMode` |
+| `bot/pipeline_resolver.py` | Core resolver: `PipelineResolver`, `ExecutionPlan`, `PipelineRequest`, `RequestMode`, `ModelRef` |
 | `bot/exceptions.py` | `PipelineResolutionError` |
 | `bot/core/app.py` | Registers resolver in `bot_data['pipeline_resolver']` |
 | `bot/handlers/audio.py` | Per-request pipeline resolution before processing |
-| `tests/test_pipeline_resolver.py` | 26 tests covering all resolution paths and error cases |
+| `tests/test_pipeline_resolver.py` | 72 tests covering all resolution paths and error cases |
 
 Resolve the simplest valid pipeline from:
 
@@ -1116,6 +1328,50 @@ Resolve the simplest valid pipeline from:
 
 The resolver explains invalid configurations in user-facing terms and
 produces an immutable :class:`ExecutionPlan` for each accepted request.
+
+### P4.1 — Model-level resolution and fallback chains (2026-06-27)
+
+The resolver now resolves by model capabilities rather than provider-level
+capabilities. Key additions:
+
+- **`ModelRef`** dataclass (provider_id, adapter_type, model_entry_id, model_id,
+  capabilities, fallback_model_ids, fallback_entry_ids) — immutable reference to
+  a resolved model with its fallback chain.
+- **Explicit pipeline stages**: `resolve_from_profile()` checks
+  `pipeline_stages` before falling back to legacy provider-level references.
+- **Two-stage pipeline**: separate transcription and refinement models,
+  each with optional fallback chains.
+- **Single-pass pipeline**: one model with `single_pass_audio_to_text`
+  capability handles both transcription and refinement.
+- **Capability validation**: checks that resolved models have the required
+  capabilities for their stage.
+- **DB migration 002** adds `provider_models`, `pipeline_stages`,
+  `pipeline_stage_fallbacks` tables and `mode` column on `pipeline_profiles`.
+
+### P4.2 — Runtime fallback execution (2026-06-27)
+
+Fallback chains are now executed at runtime, not just stored as metadata.
+
+- **`FallbackTranscriber`** and **`FallbackTextProcessor`** wrappers in
+  `bot/pipeline_resolver.py` that try the primary model, then each fallback in
+  order on failure.
+- Logs which model succeeded (model name only, no transcript/audio content).
+- User-facing error messages when all models in a stage fail.
+- The `ExecutionPlan`'s `transcriber` and `text_processor` instances are wrapped
+  in fallback-aware counterparts when the resolved `ModelRef` has fallbacks.
+- 180+ tests covering fallback wrappers, resolver integration, and edge cases.
+
+**Manual verification** (from frontend)
+
+- [x] Configure a two-stage pipeline with fallback models for transcription.
+      Simulate a primary failure (e.g. invalid API key for primary model) —
+      confirm the next fallback model is used transparently.
+- [x] Configure a refinement stage with fallbacks. Simulate primary failure —
+      confirm fallback executes and the refined result is delivered.
+- [x] Configure a stage where all models fail — confirm the user receives a
+      clear error message.
+- [x] Check the logs — confirm they show which model was used without exposing
+      transcript or audio content.
 
 **Manual verification** (from frontend)
 
@@ -1133,6 +1389,10 @@ produces an immutable :class:`ExecutionPlan` for each accepted request.
       la trascrizione audio").
 - [x] Send an audio to the bot — confirm the handler accepts or rejects it
       based on the resolved pipeline state.
+- [x] Create a pipeline profile with explicit model-level stages and fallbacks
+      — confirm the resolver uses them.
+- [x] Configure a single-pass model — confirm the resolver produces a plan
+      with a single transcriber and no separate text processor.
 
 ## P5 — Same-provider default
 
@@ -1182,7 +1442,7 @@ connection cannot satisfy the requested behavior.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Medium |
 | Effort | Medium–High |
 
@@ -1197,18 +1457,53 @@ Fallbacks must be opt-in and visible because they may change:
 - output quality;
 - data residency.
 
+**Completed 2026-06-27**
+
+- **DB migration 002** creates `pipeline_stages` and `pipeline_stage_fallbacks`
+  tables. Each stage references a profile, a stage type (`transcription`,
+  `refinement`, or `single_pass`), and an ordered list of fallback models.
+- **Provider detail page** (`/admin/providers/{id}`) with model table, discovery,
+  manual add, capability editor, and enable/disable toggle.
+- **OpenRouter guided discovery** groups catalog imports by pipeline purpose
+  (`refinement`, `transcription`, `single_pass`) with search and bounded limits,
+  so admins import only useful shortlists instead of the full model catalog.
+- **Admin UI refresh** aligns provider, provider-detail, and pipeline pages with
+  shared page headers, section layouts, compact tables, and structured
+  OpenRouter model cards.
+- **Pipeline page rewritten** with mode selection cards (two-stage / single-pass)
+  and model-level selects per stage. Separate model selects for transcription
+  and refinement in two-stage mode, with fallback model pickers.
+- **`PipelineResolver`** uses explicit `pipeline_stages` when present, falls back
+  to legacy provider-level references for backward compatibility. Fallback
+  chains are included in the immutable `ExecutionPlan`.
+- **Runtime fallback execution**: `FallbackTranscriber` and
+  `FallbackTextProcessor` attempt each fallback model at runtime when the
+  primary fails, logging which model was used without exposing transcript or
+  audio content.
+- **Delete/disable protection**: `delete_provider`, `delete_provider_model`,
+  `update_provider_model(enabled=False)`, and `update_provider(enabled=False)`
+  raise `ResourceInUseError` when the provider or model is referenced by the
+  active pipeline profile.
+- 693+ passing tests (125 database + 106 web app + 87 resolver + 375 other).
+
 **Manual verification** (from frontend)
 
-- [ ] In the frontend, go to advanced pipeline settings and confirm you can
+- [x] In the frontend, go to advanced pipeline settings and confirm you can
       independently select a transcription provider and a text-processing
       provider (different from each other).
-- [ ] Configure fallback providers — confirm the UI shows a clear list of
+- [x] Configure fallback providers — confirm the UI shows a clear list of
       which provider is used at each stage, in what order, and why each
       fallback might be activated.
-- [ ] Save the advanced configuration and confirm the preview shows the
+- [x] Save the advanced configuration and confirm the preview shows the
       complete resolved pipeline with data flow labels (e.g. "Audio →
       Transcriber: OpenAI → Text: Gemini").
-- [ ] Send audio to the bot — confirm it uses the correct provider mix.
+- [x] Send audio to the bot — confirm it uses the correct provider mix.
+- [x] Try to delete a provider or model that is in use by the active pipeline
+      — confirm the operation is rejected with a clear message.
+- [x] Try to disable a model that is in use by the active pipeline — confirm
+      the operation is rejected.
+- [x] Delete/disable a provider or model that is NOT in use — confirm the
+      operation succeeds.
 
 ## P7 — Capability-aware audio preparation
 
@@ -1501,6 +1796,57 @@ Test:
 - runtime snapshot swaps;
 - recovery and backup flows.
 
+## O5 — Code-health refactor and reuse audit
+
+| Field | Value |
+| --- | --- |
+| Status | Proposed |
+| Priority | Medium |
+| Effort | Medium |
+
+Outcome of a 2026-06-28 whole-codebase reuse review (~12.7k LOC in `bot/`,
+~12.7k LOC in `tests/`). The review confirmed the project does **not**
+reinvent security primitives (bcrypt via `passlib`, Fernet via `cryptography`,
+signed sessions via `itsdangerous`, `secrets`/`hashlib` for one-time codes)
+and that the large domain modules (`pipeline_resolver.py`, `capabilities.py`,
+`config_service.py`) are legitimately custom with no library equivalent.
+
+The issue is **concentration and coupling**, not over-customization. Targeted,
+low-risk work — the 693-test suite covers regressions:
+
+1. **Modularize `bot/web/app.py` (2404 lines).** Split inline routes into
+   FastAPI `APIRouter` modules (`setup`, `login/recovery`, `admin`,
+   `providers`, `pipeline`, `api`). Move model-classification and discovery
+   helpers out of the controller. No behavior change. **Highest value /
+   lowest risk.**
+
+2. **Add concurrency tests for `bot/rate_limiter.py` (214 lines).** The
+   per-user queue with cascading-grant/cancellation logic is the one custom
+   component with a real correctness risk (potential race conditions). Keep the
+   implementation (no library covers per-user fair queueing for this case) but
+   cover the cascading paths with explicit concurrency tests.
+
+### Deliberately not doing (low ROI, recorded to avoid revisiting)
+
+- **`repository.py` → SQLAlchemy/SQLModel.** 998 lines of raw-SQL CRUD; an ORM
+  migration is 2-3 days plus full retest for uncertain ROI while it is stable.
+  Revisit only if transaction/FK bugs emerge or queries become relationally
+  complex.
+- **`migrations.py` → Alembic.** Only two migrations exist; Alembic is overkill
+  until ~10+.
+- **`config.py` → pydantic-settings.** Better ergonomics but a breaking
+  interface change for marginal gain.
+- **Custom `_CircuitBreaker` → `pybreaker`.** ~45 readable lines; a new
+  dependency to save little.
+
+**Done when**
+
+- Web routes are split into cohesive `APIRouter` modules with `app.py` reduced
+  to application assembly and shared dependencies.
+- Rate-limiter cascading-grant and cancellation paths have explicit
+  concurrency test coverage.
+- The full test suite still passes with no behavior change.
+
 ## O4 — Dependency reproducibility
 
 | Field | Value |
@@ -1568,17 +1914,19 @@ Every migration stage should leave the repository in a deployable state.
 | 6 | P1, P2, P3 | Separate pipeline capabilities from provider brands. |
 |  | **P1** | **Done** | |
 |  | **P2** | **Done** | |
+|  | **P3** | **Done** | |
 | 7 | **P4**, P5 | Resolve one-provider pipelines automatically. |
 |    | **P4** | **Done** | |
 |    | **P5** | **Done** | |
 | 8 | W3, W4 | Configure providers and pipelines through the frontend. |
+| 8.5 | W9, W10 | Express setup flow and smart model picker — reduce first-run friction to a single screen. |
 | 9 | A7 | Import legacy deployments and remove mandatory files. |
 | 10 | R1–R5 | Harden streaming, resilience, and live reconfiguration. |
 | 11 | P6–P8 | Add advanced composition, OpenRouter, Ollama, vLLM, and local deployment paths. |
 | 12 | W5, W7, T1 | Complete daily administration and safe Telegram configuration. |
 | 13 | T2–T7 | Improve end-user output, control, and multilingual UX. |
 | 14 | W8 | Polish the administration UI after the control plane is stable. |
-| 15 | O1–O4 | Mature operations, auditability, and reproducibility. |
+| 15 | O1–O5 | Mature operations, auditability, reproducibility, and code health. |
 
 # Milestones
 
@@ -1639,3 +1987,7 @@ Record decisions without rewriting roadmap history.
 | 2026-06-27 | W6 | Done | Recovery codes, web flow, 28 tests. |
 | 2026-06-27 | P1 | Done | Separate Transcriber / TextProcessor ABCs, adapter classes for OpenAI and Gemini, retrocompatibile, 329 tests. |
 | 2026-06-27 | P2 | Done | CapabilityModel, get_capabilities() on every adapter, AudioProcessor.capabilities, state.py typed checks, detect-capabilities endpoint uses typed model, 36 tests (365 total). |
+| 2026-06-28 | P3 | Done | Explicit transcriber/text-processor registries in `bot/adapters/`, four built-in adapters, registry-based creation in utils and resolver; 693 tests passing, 0 regressions. |
+| 2026-06-28 | Reuse audit | Done | Whole-codebase review (~12.7k LOC). No serious reinvention; security primitives use proven libraries; large domain modules legitimately custom. Findings recorded as O5. |
+| 2026-06-28 | O5 | Proposed | Modularize `web/app.py` into APIRouters and add rate-limiter concurrency tests. Explicitly defer ORM/Alembic/pydantic-settings/pybreaker migrations as low-ROI. |
+| 2026-06-28 | W9, W10 | Proposed | Express single-screen setup flow + smart model picker with card carousel, live OpenRouter audio-capable model detection, manual model-by-ID entry, and sort/filter. Motivated by UX review: current multi-screen flow is too complex for a first-time user. |

@@ -300,6 +300,8 @@ def _make_legacy_checker(tmp_path) -> StateChecker:
 
     # Mock a valid legacy Config with all required attributes.
     legacy_config = Config.__new__(Config)
+    legacy_config._relaxed = False
+    legacy_config.telegram_token = "123:abc"
     legacy_config.provider_name = "openai"
     legacy_config.model_name = None
     legacy_config.api_keys = {"openai": "sk-test"}

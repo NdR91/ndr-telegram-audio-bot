@@ -9,6 +9,172 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Remove mandatory `.env` and `authorized.json` (A7)**: The application
+  now starts without any environment files. `Config(relaxed=True)` provides
+  empty defaults for all missing values (Telegram token, API keys,
+  `authorized.json`). The CLI path (`bot/main.py`) catches `ConfigError`
+  and falls back to relaxed mode. `RuntimeManager` resolves the Telegram
+  token from the database via `ConfigService` + `SecretStore` decryption
+  when the Config is relaxed. `RuntimeSnapshot.from_config_service()` accepts
+  an optional Config parameter and resolves API keys from
+  `provider_connections` when Config is unavailable. `WhitelistManager` and
+  `create_application()` accept optional Config. The `StateChecker` legacy
+  shortcut now requires a non-relaxed Config with a non-empty Telegram
+  token. 693 passing tests (4 new, 0 regressions).
+- **Runtime fallback execution (P4.2)**: `FallbackTranscriber` and
+  `FallbackTextProcessor` wrappers in `bot/pipeline_resolver.py` that try
+  the primary model then each fallback in order at runtime. Logs which model
+  was used without exposing transcript/audio content. Raises clear user-facing
+  errors when all models in a stage fail.
+- **Delete/disable protection**: `delete_provider`, `delete_provider_model`,
+  `update_provider_model(enabled=False)`, and `update_provider(enabled=False)`
+  in the repository layer now raise `ResourceInUseError` when the provider or
+  model is referenced by the active pipeline profile. Web endpoints handle the
+  error and return a clear message. New `ResourceInUseError` exception in
+  `bot/exceptions.py`.
+- **Runtime fallback tests**: 12 new tests covering
+  `FallbackTranscriber`/`FallbackTextProcessor` wrappers (primary succeeds,
+  primary fails+fallback succeeds, all fail, no fallbacks) and resolver
+  integration (fallback wrapper type checks).
+- **Delete/disable protection tests**: 13 new tests covering provider deletion
+  block, model deletion block, model disable block, fallback model deletion
+  block, provider disable block, provider disable success paths, and UI
+  integration for provider disable protection.
+- **ROADMAP.md**: P4.2 section documenting runtime fallback execution. P6
+  section updated with runtime fallback and delete/disable protection status.
+  Test counts updated.
+- **693 passing tests** (0 regressions).
+
+- **Provider model management** (P3): New DB migration 002 creates
+  `provider_models`, `pipeline_stages`, and `pipeline_stage_fallbacks` tables.
+  `pipeline_profiles` gains a `mode` column (`two_stage` | `single_pass`).
+  Existing profiles get `mode='two_stage'`; Gemini same-provider profiles
+  auto-set to `single_pass`.
+- **Repository methods**: `add/list/get/update/delete_provider_model`,
+  `set_model_capabilities`, `toggle_model`, `add/list/update/delete_pipeline_stage`,
+  `add/list/remove/reorder_stage_fallback`, `set/get_pipeline_profile_mode`.
+- **Provider detail page** at `/admin/providers/{id}` with model table, discovery
+  button, manual add, capability editor, and enable/disable toggle.
+- **Pipeline page rewritten** with mode selection cards (two-stage / single-pass)
+  and model-level selects per stage instead of provider-level references.
+- **PipelineResolver rewritten** to use `ModelRef` with model-level capabilities,
+  explicit pipeline stage resolution, fallback chain support, and single-pass
+  pipeline mode.
+- **CapabilityModel**: new `single_pass_audio_to_text` field for models that can
+  transcribe and refine in a single API call.
+- **OpenRouter metadata classification** (`_classify_openrouter_metadata`):
+  new `single_pass_audio_to_text` field in returned dict.
+- **OpenRouter guided model discovery**: provider model discovery now supports
+  purpose-based filtering (`refinement`, `transcription`, `single_pass`,
+  `all_recommended`, `all`) plus search and bounded limits. The admin UI imports
+  small, role-specific shortlists instead of the full OpenRouter catalog.
+- **OpenRouter catalog preview**: provider detail pages now support live
+  OpenRouter catalog search before import, showing compact model candidates with
+  capabilities, pricing, context length, and explicit per-model import actions.
+- **Admin UI refresh**: provider, provider-detail, and pipeline pages now share
+  a consistent page header, section layout, compact operational tables, and
+  structured OpenRouter catalog cards for model discovery.
+
+### Changed
+
+- **Pipeline resolver (`resolve_from_profile`)** now resolves by model
+  capabilities rather than provider-level capabilities. Supports explicit
+  `pipeline_stages` with fallback chains. Falls back to legacy provider-level
+  references when no stages exist.
+- **Admin pipeline page** POST handler expects `model_entry_id` values instead
+  of provider IDs for two-stage and single-pass modes.
+- **Setup wizard** updated to create provider model entries alongside provider
+  connections and pipeline profiles.
+- **OpenRouter discovery UX** now guides administrators by pipeline role and
+  explains that audio input is not the same as verified speech-to-text. The
+  OpenRouter flow now previews a short searchable catalog before registering
+  models, instead of making "search" immediately mutate the local model list.
+
+- **Setup provider test & admin provider test now share exact same response
+  schema** (`_test_provider_connection` in `bot/web/app.py`): both return
+  `ok`, `auth_ok`, `models_ok`, `capabilities`, `pipeline_status`,
+  `user_message`, `warnings`, and `models`.
+- **OpenRouter metadata classification** (`_classify_openrouter_metadata`) now
+  returned alongside `CapabilityModel` from `probe_openrouter_capabilities`,
+  enabling callers to distinguish `audio_input` (audio input modality) from
+  `transcription` (explicit STT). Audio-input-only models (e.g. Gemini on
+  OpenRouter) no longer auto-set `transcription=True`.
+- Setup UI: pipeline status badge, inline warnings, streaming badge, and
+  disabled "Continue" for `not_compatible` / warning-enabled for
+  `refinement_only`.
+
+### Added
+
+- New test suite `TestClassifyOpenRouterMetadata` (6 tests) covering
+  audio-input vs transcription distinction.
+- New integration tests for setup provider test: schema parity,
+  audio-input-no-STT warning, transcription model flow, API key leak check.
+- `_blank_test_result()` factory for consistent error response shape across
+  provider test endpoints.
+
+### Changed
+
+- **OpenRouter capability detection made reliable (P2 extension)**:
+  ``openai-compat`` adapter default ``transcription`` changed from ``True``
+  to ``False`` (conservative), since not every OpenAI-compatible endpoint
+  supports audio transcription. Existing provider connections with stored
+  capability overrides are unaffected; the change only applies to the static
+  default and to newly created providers that do not probe metadata.
+
+- Docker Compose no longer requires local `.env` or `authorized.json` files
+  for first-run setup. `.env` is now an optional override file, and the web
+  setup wizard creates the first administrator instead of relying on a
+  bind-mounted bootstrap ACL file.
+
+### Added
+
+- **OpenRouter capability probe** (``bot.capabilities.probe_openrouter_capabilities``):
+  New async helper that fetches model metadata from the OpenRouter Models API
+  (``GET /v1/models?output_modalities=all``) and classifies capabilities
+  conservatively based on ``input_modalities``, ``output_modalities``,
+  ``supported_parameters``, and model id/name heuristics.
+
+  - ``transcription=True`` only when ``input_modalities`` includes ``"audio"``
+    or the model id/name contains ``"whisper"`` / ``"audio"``.
+  - ``text_generation=True`` / ``refinement=True`` when
+    ``output_modalities`` explicitly includes ``"text"``.
+  - ``streaming_refinement=True`` when ``supported_parameters`` includes
+    ``"stream"`` (``False`` if absent or unknown).
+  - Returns an all-``False`` model on API errors or unknown models.
+
+- **Admin provider creation uses probe for OpenRouter**:
+  ``/admin/providers/create`` now calls ``probe_openrouter_capabilities``
+  when ``provider_type`` is ``"openrouter"``, storing accurate detected
+  capabilities instead of optimistic static defaults.
+
+- **Setup wizard capability detection probes OpenRouter**:
+  ``/api/setup/detect-capabilities`` and ``/api/setup/test-provider``
+  now probe model metadata for OpenRouter when provider credentials are
+  available in the wizard state.
+
+- **``detect_capabilities`` updated for ``openai-compat``**:
+  Static detection for ``openai-compat`` now requires explicit audio
+  keywords (``"whisper"``, ``"audio"``) in the model name to set
+  ``transcription=True``, matching the conservative default.
+
+- **31 new tests** (480 total, 0 regressions) covering:
+  - ``_find_openrouter_model`` exact/substring/no-match logic.
+  - ``_classify_openrouter_model`` for text-only, audio, multimodal,
+    image-only, null-architecture, and keyword-detection scenarios.
+  - ``probe_openrouter_capabilities`` with mocked HTTP (success, 403,
+    network error, empty model list, empty model name).
+  - Provider creation stores probed capabilities for text-only, audio,
+    and probe-failure cases.
+  - OpenAI and Gemini provider creation remains unchanged.
+  - Setup wizard detect-capabilities probes OpenRouter correctly.
+
+- **Provider management foundation (W3)**: Added an authenticated
+  `/admin/providers` page for creating provider connections from the web UI,
+  linked from the dashboard and pipeline pages. The initial form supports
+  provider presets, endpoint/API-key/model fields, static capability
+  detection, encrypted credential storage through `SecretStore`, and redirect
+  back to pipeline activation.
+
 - **Same-provider default (P5)**: Automatic same-provider pipeline
   resolution with profile-based configuration and simplified onboarding.
 

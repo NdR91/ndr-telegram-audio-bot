@@ -48,13 +48,13 @@ def create_application(
 ) -> Application:
     """
     Create and configure the Telegram application.
-    
+
     Args:
-        token: Telegram bot token
-        config: Bot configuration object
+        token: Telegram bot token (may be empty string in setup mode).
+        config: Bot configuration object (may be ``None`` after A7).
         database_manager: Optional unified database manager (A1).
         secret_store: Optional secret store for at-rest encryption (A2).
-        
+
     Returns:
         Configured Application instance
     """
@@ -124,18 +124,30 @@ def create_application(
     # Runtime objects built from the snapshot (A4.1).
     # P1 — prefer separate Transcriber + TextProcessor components
     # when available (all current providers support both).
-    try:
-        components = create_provider_components(config)
-        app.bot_data['audio_processor'] = AudioProcessor(
-            config,
-            transcriber=components.transcriber,
-            text_processor=components.text_processor,
-            provider_name=components.provider_name,
-            model_name=components.model_name,
-        )
-    except Exception:
-        logger.warning("Falling back to legacy AudioProcessor")
-        app.bot_data['audio_processor'] = AudioProcessor(config)
+    if config is not None:
+        try:
+            components = create_provider_components(config)
+            app.bot_data['audio_processor'] = AudioProcessor(
+                config,
+                transcriber=components.transcriber,
+                text_processor=components.text_processor,
+                provider_name=components.provider_name,
+                model_name=components.model_name,
+            )
+        except Exception:
+            logger.warning("Falling back to legacy AudioProcessor")
+            app.bot_data['audio_processor'] = AudioProcessor(config)
+    else:
+        # No Config available — create a minimal AudioProcessor; actual
+        # providers will be resolved per-request by the PipelineResolver.
+        app.bot_data['audio_processor'] = AudioProcessor.__new__(AudioProcessor)
+        app.bot_data['audio_processor'].config = snapshot
+        app.bot_data['audio_processor']._transcriber = None
+        app.bot_data['audio_processor']._text_processor = None
+        app.bot_data['audio_processor']._model_name_override = None
+        app.bot_data['audio_processor'].provider = object()
+        app.bot_data['audio_processor']._provider_name = snapshot.provider_name or "unknown"
+
     app.bot_data['delivery_adapter'] = TelegramDeliveryAdapter(
         progressive_enabled=snapshot.telegram_progressive_output_config["enabled"],
     )

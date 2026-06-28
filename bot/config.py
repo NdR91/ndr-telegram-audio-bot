@@ -31,10 +31,20 @@ FALSE_VALUES = {"0", "false", "no"}
 
 
 class Config:
-    """Centralized configuration class with comprehensive validation."""
-    
-    def __init__(self):
+    """Centralized configuration class with comprehensive validation.
+
+    Parameters
+    ----------
+    relaxed:
+        When ``True``, missing mandatory values (Telegram token, API keys,
+        ``authorized.json``) produce empty defaults instead of raising.
+        Use this for blank-data-volume startups where the application will
+        guide the user through the setup wizard.
+    """
+
+    def __init__(self, relaxed: bool = False):
         """Initialize and validate all configuration parameters."""
+        self._relaxed = relaxed
         self.telegram_token = self._validate_telegram_token()
         self.provider_name = self._validate_provider_name()
         self.api_keys = self._validate_api_keys()
@@ -48,13 +58,19 @@ class Config:
         self.prompts = self._load_prompts()
         self.authorized_data = self._load_authorized_data()
         self._validate_ffmpeg()
-        
-        logger.info(f"Configuration loaded successfully for provider: {self.provider_name}")
+
+        if relaxed:
+            logger.info("Configuration loaded in relaxed mode (missing values defaulted)")
+        else:
+            logger.info(f"Configuration loaded successfully for provider: {self.provider_name}")
     
     def _validate_telegram_token(self) -> str:
         """Validate Telegram bot token is present."""
         token = os.getenv('TELEGRAM_TOKEN')
         if not token:
+            if self._relaxed:
+                logger.warning("TELEGRAM_TOKEN not set (relaxed mode)")
+                return ""
             raise MissingRequiredConfig(
                 "TELEGRAM_TOKEN is required. Set it in your .env file. "
                 "Get your token from @BotFather on Telegram."
@@ -63,10 +79,18 @@ class Config:
     
     def _validate_provider_name(self) -> str:
         """Validate LLM provider name."""
-        provider = os.getenv('LLM_PROVIDER', 'openai').lower()
+        raw = os.getenv('LLM_PROVIDER', 'openai')
+        provider = raw.lower()
         valid_providers = ['openai', 'gemini']
-        
+
         if provider not in valid_providers:
+            if self._relaxed:
+                logger.warning(
+                    "LLM_PROVIDER '%s' not recognised (relaxed mode); "
+                    "defaulting to empty",
+                    raw,
+                )
+                return ""
             raise InvalidConfig(
                 f"LLM_PROVIDER must be one of {valid_providers}. "
                 f"Got: '{provider}'"
@@ -75,26 +99,35 @@ class Config:
     
     def _validate_api_keys(self) -> Dict[str, str]:
         """Validate API key for the selected provider is present."""
+        if self._relaxed and not self.provider_name:
+            return {}
+
         if self.provider_name == 'openai':
             api_key = os.getenv('OPENAI_API_KEY')
             if not api_key:
+                if self._relaxed:
+                    return {}
                 raise MissingRequiredConfig(
                     "OPENAI_API_KEY is required when LLM_PROVIDER is 'openai'. "
                     "Get your key from https://platform.openai.com/api-keys"
                 )
             return {'openai': api_key}
-        
+
         elif self.provider_name == 'gemini':
             api_key = os.getenv('GEMINI_API_KEY')
             if not api_key:
+                if self._relaxed:
+                    return {}
                 raise MissingRequiredConfig(
                     "GEMINI_API_KEY is required when LLM_PROVIDER is 'gemini'. "
                     "Get your key from https://makersuite.google.com/app/apikey"
                 )
             return {'gemini': api_key}
-        
+
         else:
             # This should never happen due to _validate_provider_name
+            if self._relaxed:
+                return {}
             raise InvalidConfig(f"Unknown provider: {self.provider_name}")
     
     def _get_model_name(self) -> Optional[str]:
@@ -107,13 +140,15 @@ class Config:
     def _validate_authorized_file_path(self) -> str:
         """Validate authorized.json file path and existence."""
         file_path = os.getenv('AUTHORIZED_FILE', 'authorized.json')
-        
+
         if not os.path.exists(file_path):
+            if self._relaxed:
+                return ""
             raise MissingRequiredConfig(
                 f"Authorized file '{file_path}' not found. "
                 "Create it with at least one admin user ID."
             )
-        
+
         return file_path
 
     def _get_authorized_db_path(self) -> str:
@@ -273,6 +308,13 @@ class Config:
     
     def _load_authorized_data(self) -> Dict[str, Any]:
         """Load and validate authorized.json structure."""
+        if not self.authorized_file:
+            if self._relaxed:
+                return {"admin": [], "users": [], "groups": []}
+            # Should not reach here — _validate_authorized_file_path would
+            # have raised, but guard defensively.
+            return {"admin": [], "users": [], "groups": []}
+
         try:
             with open(self.authorized_file, 'r') as f:
                 data = json.load(f)
@@ -354,5 +396,7 @@ class Config:
         """Get API key for specified provider or current provider."""
         provider = provider or self.provider_name
         if provider not in self.api_keys:
+            if self._relaxed:
+                return ""
             raise APIProviderError(f"No API key available for provider: {provider}")
         return self.api_keys[provider]
