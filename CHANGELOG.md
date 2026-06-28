@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so the advanced pipeline form and future express setup flow create the same
   provider/profile/stage database shape for two-stage, single-pass,
   same-provider, and advanced profiles.
+- **Express setup profile creation (W9)**: Added
+  `create_express_pipeline_from_wizard()` to register the selected provider,
+  create explicit `provider_models`, and activate either a two-stage
+  Whisper+refinement profile or a single-pass profile using the shared builder.
 - **Remove mandatory `.env` and `authorized.json` (A7)**: The application
   now starts without any environment files. `Config(relaxed=True)` provides
   empty defaults for all missing values (Telegram token, API keys,

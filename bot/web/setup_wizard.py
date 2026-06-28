@@ -23,6 +23,11 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from bot.database import DatabaseManager, SecretStore, SecretStoreError
+from bot.capabilities import detect_capabilities
+from bot.web.pipeline_builder import (
+    create_single_pass_profile,
+    create_two_stage_profile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -474,6 +479,140 @@ def create_pipeline_from_wizard(
     set_active_pipeline_profile_id(db, profile_id)
 
     return profile_id
+
+
+def create_express_pipeline_from_wizard(
+    db: DatabaseManager,
+    secret_store: SecretStore | None,
+    *,
+    process_mode: str,
+    selected_model: str,
+    transcription_model: str = "whisper-1",
+) -> int:
+    """Create provider, model rows, and active profile for express setup.
+
+    Unlike the legacy wizard helper, this creates explicit ``provider_models``
+    and ``pipeline_stages`` so the resulting database state matches the
+    advanced pipeline form.
+    """
+    provider_config = get_provider_config(db, secret_store)
+    ptype = provider_config.get("provider_type", "")
+    api_key = provider_config.get("api_key", "")
+    endpoint = provider_config.get("endpoint", "")
+
+    if not ptype or not api_key:
+        raise ValueError(
+            "Impossibile creare il profilo express: dati del provider "
+            "incompleti."
+        )
+    if not selected_model:
+        raise ValueError("Seleziona un modello per completare il setup express.")
+
+    adapter_type = _adapter_type_for_provider_type(ptype)
+    provider_id = db.add_provider(
+        name=_display_name_for_provider_type(ptype),
+        adapter_type=adapter_type,
+        endpoint=endpoint or None,
+        credentials=api_key,
+        capabilities=get_capabilities(db) or detect_capabilities(
+            adapter_type,
+            selected_model,
+        ).to_dict(),
+        enabled=True,
+    )
+
+    if process_mode == "single_pass":
+        model_entry_id = db.add_provider_model(
+            provider_id=provider_id,
+            model_id=selected_model,
+            display_name=selected_model,
+            capabilities=_model_capabilities(
+                adapter_type,
+                selected_model,
+                force_single_pass=True,
+            ),
+            detected=True,
+            enabled=True,
+        )
+        return create_single_pass_profile(
+            db,
+            model_id=model_entry_id,
+            name="Express setup - singolo passaggio",
+        )
+
+    tx_entry_id = db.add_provider_model(
+        provider_id=provider_id,
+        model_id=transcription_model,
+        display_name="Whisper",
+        capabilities={
+            "transcription": True,
+            "text_generation": False,
+            "refinement": False,
+            "streaming_refinement": False,
+            "single_pass_audio_to_text": False,
+        },
+        detected=True,
+        enabled=True,
+    )
+    ref_entry_id = db.add_provider_model(
+        provider_id=provider_id,
+        model_id=selected_model,
+        display_name=selected_model,
+        capabilities=_model_capabilities(adapter_type, selected_model),
+        detected=True,
+        enabled=True,
+    )
+    return create_two_stage_profile(
+        db,
+        tx_model_id=tx_entry_id,
+        ref_model_id=ref_entry_id,
+        name="Express setup - due fasi",
+    )
+
+
+def _adapter_type_for_provider_type(provider_type: str) -> str:
+    return {
+        "openai": "openai-native",
+        "gemini": "gemini-native",
+        "openrouter": "openai-compat",
+        "ollama": "openai-compat",
+        "vllm": "openai-compat",
+        "custom": "openai-compat",
+    }.get(provider_type, provider_type)
+
+
+def _display_name_for_provider_type(provider_type: str) -> str:
+    return {
+        "openai": "OpenAI (express setup)",
+        "gemini": "Gemini (express setup)",
+        "openrouter": "OpenRouter (express setup)",
+        "ollama": "Ollama (express setup)",
+        "vllm": "vLLM (express setup)",
+        "custom": "Endpoint personalizzato (express setup)",
+    }.get(provider_type, f"{provider_type} (express setup)")
+
+
+def _model_capabilities(
+    adapter_type: str,
+    model_name: str,
+    *,
+    force_single_pass: bool = False,
+) -> dict[str, bool]:
+    caps = detect_capabilities(adapter_type, model_name).to_dict()
+    if force_single_pass:
+        caps.update({
+            "transcription": True,
+            "text_generation": True,
+            "refinement": True,
+            "single_pass_audio_to_text": True,
+        })
+    elif not caps.get("refinement") and not caps.get("text_generation"):
+        caps.update({
+            "text_generation": True,
+            "refinement": True,
+            "streaming_refinement": True,
+        })
+    return caps
 
 
 # ---------------------------------------------------------------------------

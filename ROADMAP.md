@@ -1038,9 +1038,11 @@ Preferred direction:
 > **Progress (2026-06-28):** pipeline creation has been extracted into
 > `bot/web/pipeline_builder.py`, giving setup and admin flows one shared path
 > for two-stage, single-pass, same-provider, and advanced profile creation.
-> Remaining work: the actual single-screen express UI, inline provider/model
-> validation, automatic model registration from the W10 picker selection, and
-> bot start feedback.
+> `create_express_pipeline_from_wizard()` now also registers the selected
+> provider, creates explicit model rows, and activates two-stage or single-pass
+> profiles through that shared path. Remaining work: the actual single-screen
+> express UI/API submission, inline provider/model validation, and bot start
+> feedback.
 
 Replace the current multi-screen setup sequence (provider page → model registration
 → pipeline page) with a single guided screen that asks three questions and
