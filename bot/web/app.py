@@ -32,6 +32,17 @@ from bot.config import Config
 from bot.config_service import ConfigService
 from bot.database import DatabaseManager, SecretStore
 from bot.exceptions import ConfigError, ResourceInUseError
+from bot.model_picker import (
+    build_openrouter_picker_cards,
+    manual_model_card,
+    openrouter_catalog_item,
+    openrouter_counts,
+    openrouter_matches_purpose,
+    openrouter_model_category,
+    openrouter_model_score,
+    select_openrouter_models,
+    transcription_locked_card,
+)
 from bot.runtime_manager import RuntimeManager
 from bot.setup import (
     generate_setup_code,
@@ -563,6 +574,94 @@ def create_app(
         result = caps.to_dict()
         result["models"] = relevant_models
         return JSONResponse({"ok": True, "capabilities": result})
+
+    @app.post("/api/setup/model-picker")
+    async def api_setup_model_picker(request: Request):
+        """Return smart model-picker cards for the express setup flow.
+
+        The endpoint does not persist credentials or selected models.  It only
+        shapes provider catalog data into the W10 card schema.
+        """
+        session = _session(request)
+        if session is None:
+            return JSONResponse(
+                {"ok": False, "error": "Sessione non valida. Ricarica la pagina."},
+                status_code=400,
+            )
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return JSONResponse({"ok": False, "error": "Richiesta JSON non valida."},
+                                status_code=400)
+
+        provider_type = (body.get("provider_type") or body.get("type") or "").strip()
+        api_key = (body.get("api_key") or "").strip()
+        endpoint = (body.get("endpoint") or "").strip()
+        process_mode = (body.get("process_mode") or "two_stage").strip()
+        query = (body.get("query") or "").strip()
+        manual_model_id = (body.get("manual_model_id") or "").strip()
+        limit = _parse_discovery_limit(str(body.get("limit") or "5"))
+        purpose = "single_pass" if process_mode == "single_pass" else "refinement"
+
+        if manual_model_id:
+            return JSONResponse({
+                "ok": True,
+                "transcription": transcription_locked_card() if process_mode != "single_pass" else None,
+                "cards": [manual_model_card(manual_model_id, _provider_label(provider_type), purpose)],
+                "counts": {},
+                "source": "manual",
+            })
+
+        if not provider_type:
+            return JSONResponse({"ok": False, "error": "Seleziona un provider."})
+
+        if provider_type != "openrouter":
+            cards = _static_picker_cards(provider_type, purpose)
+            return JSONResponse({
+                "ok": True,
+                "transcription": transcription_locked_card() if process_mode != "single_pass" else None,
+                "cards": cards[:limit],
+                "counts": {},
+                "source": "static",
+            })
+
+        if not api_key:
+            return JSONResponse({"ok": False, "error": "Inserisci una chiave API."})
+
+        import httpx
+
+        try:
+            catalog_endpoint = endpoint or PROVIDER_PRESETS["openrouter"]["default_endpoint"]
+            url = f"{catalog_endpoint.rstrip('/')}/models"
+            headers = {"Authorization": f"Bearer {api_key}"}
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code != 200:
+                    return JSONResponse({
+                        "ok": False,
+                        "error": f"OpenRouter ha risposto con HTTP {resp.status_code}.",
+                    })
+                data = resp.json().get("data", [])
+
+            raw_models = [m for m in data if isinstance(m, dict) and m.get("id")]
+            cards = build_openrouter_picker_cards(
+                raw_models,
+                purpose=purpose,
+                query=query,
+                limit=limit,
+            )
+            return JSONResponse({
+                "ok": True,
+                "transcription": transcription_locked_card() if process_mode != "single_pass" else None,
+                "cards": cards,
+                "counts": openrouter_counts(raw_models),
+                "source": "openrouter",
+            })
+        except httpx.TimeoutException:
+            return JSONResponse({"ok": False, "error": "Timeout durante la connessione a OpenRouter."})
+        except httpx.RequestError as exc:
+            return JSONResponse({"ok": False, "error": f"Errore di connessione: {exc}"})
 
     # Non-JS fallback: form-based step processing
     @app.post("/setup")
@@ -2038,72 +2137,22 @@ def _parse_discovery_limit(raw: str | None) -> int:
 
 def _openrouter_model_category(model: dict[str, Any] | None) -> str:
     """Bucket an OpenRouter model by the pipeline role it can serve."""
-    if model is None:
-        return "not_recommended"
-    meta = _classify_openrouter_metadata(model)
-    if meta.get("transcription"):
-        return "transcription"
-    if meta.get("single_pass_audio_to_text"):
-        return "single_pass"
-    if meta.get("refinement"):
-        return "refinement"
-    return "not_recommended"
+    return openrouter_model_category(model)
 
 
 def _openrouter_matches_purpose(model: dict[str, Any], purpose: str) -> bool:
-    category = _openrouter_model_category(model)
-    if purpose == "refinement":
-        return category == "refinement"
-    if purpose == "transcription":
-        return category == "transcription"
-    if purpose == "single_pass":
-        return category == "single_pass"
-    if purpose == "all":
-        return category != "not_recommended"
-    return category in {"refinement", "transcription", "single_pass"}
+    return openrouter_matches_purpose(model, purpose)
 
 
 def _openrouter_model_score(model: dict[str, Any]) -> tuple[int, str]:
     """Sort useful OpenRouter models before catalog long-tail entries."""
-    mid = (model.get("id") or "").lower()
-    name = (model.get("name") or "").lower()
-    category = _openrouter_model_category(model)
-    category_score = {
-        "refinement": 0,
-        "transcription": 1,
-        "single_pass": 2,
-        "not_recommended": 3,
-    }.get(category, 3)
-    preferred = 0 if any(token in mid or token in name for token in _OPENROUTER_PREFERRED_TEXT) else 1
-    return (category_score * 10 + preferred, mid)
+    score = openrouter_model_score(model)
+    return (score[0] * 10 + score[1], score[3])
 
 
 def _openrouter_catalog_item(model: dict[str, Any]) -> dict[str, Any]:
     """Return the compact model shape used by the OpenRouter catalog UI."""
-    arch = model.get("architecture") or {}
-    pricing = model.get("pricing") or {}
-    top_provider = model.get("top_provider") or {}
-    meta = _classify_openrouter_metadata(model)
-    caps = _classify_openrouter_model(model).to_dict()
-    return {
-        "model_id": model.get("id") or "",
-        "name": model.get("name") or model.get("id") or "",
-        "description": model.get("description") or "",
-        "category": _openrouter_model_category(model),
-        "capabilities": caps,
-        "metadata": meta,
-        "context_length": model.get("context_length"),
-        "max_completion_tokens": top_provider.get("max_completion_tokens"),
-        "pricing": {
-            "prompt": pricing.get("prompt"),
-            "completion": pricing.get("completion"),
-            "request": pricing.get("request"),
-            "image": pricing.get("image"),
-        },
-        "input_modalities": arch.get("input_modalities") or [],
-        "output_modalities": arch.get("output_modalities") or [],
-        "supported_parameters": model.get("supported_parameters") or [],
-    }
+    return openrouter_catalog_item(model)
 
 
 def _select_openrouter_models(
@@ -2114,22 +2163,12 @@ def _select_openrouter_models(
     limit: int,
 ) -> list[dict[str, Any]]:
     """Return a small, guided OpenRouter model shortlist."""
-    allowed = {"refinement", "transcription", "single_pass", "all", "all_recommended"}
-    if purpose not in allowed:
-        purpose = "all_recommended"
-
-    selected: list[dict[str, Any]] = []
-    for model in models:
-        mid = (model.get("id") or "").lower()
-        name = (model.get("name") or "").lower()
-        if query and query not in mid and query not in name:
-            continue
-        if not _openrouter_matches_purpose(model, purpose):
-            continue
-        selected.append(model)
-
-    selected.sort(key=_openrouter_model_score)
-    return selected[:limit]
+    return select_openrouter_models(
+        models,
+        purpose=purpose,
+        query=query,
+        limit=limit,
+    )
 
 
 async def _test_provider_connection(
@@ -2360,6 +2399,92 @@ def _adapter_type_for_provider(provider_type: str) -> str:
         "vllm": "openai-compat",
         "custom": "openai-compat",
     }.get(provider_type, provider_type)
+
+
+def _provider_label(provider_type: str) -> str:
+    preset = PROVIDER_PRESETS.get(provider_type)
+    if preset:
+        return preset.get("label", provider_type)
+    return provider_type or "Provider"
+
+
+def _static_picker_cards(provider_type: str, purpose: str) -> list[dict[str, Any]]:
+    """Return deterministic picker cards for non-OpenRouter providers."""
+    if provider_type == "gemini":
+        models = [
+            ("gemini-2.0-flash", "Gemini 2.0 Flash", "fast", "medium"),
+            ("gemini-2.5-flash", "Gemini 2.5 Flash", "fast", "high"),
+            ("gemini-2.5-pro", "Gemini 2.5 Pro", "slow", "high"),
+        ]
+        return [
+            _static_picker_card(
+                model_id=model_id,
+                name=name,
+                provider="Google Gemini",
+                purpose="single_pass" if purpose == "single_pass" else "refinement",
+                speed=speed,
+                quality=quality,
+                recommended=idx == 1,
+            )
+            for idx, (model_id, name, speed, quality) in enumerate(models)
+        ]
+
+    if purpose == "single_pass":
+        return []
+
+    models = [
+        ("gpt-4o-mini", "GPT-4o mini", "fast", "high"),
+        ("gpt-4o", "GPT-4o", "medium", "high"),
+    ]
+    return [
+        _static_picker_card(
+            model_id=model_id,
+            name=name,
+            provider="OpenAI",
+            purpose=purpose,
+            speed=speed,
+            quality=quality,
+            recommended=idx == 0,
+        )
+        for idx, (model_id, name, speed, quality) in enumerate(models)
+    ]
+
+
+def _static_picker_card(
+    *,
+    model_id: str,
+    name: str,
+    provider: str,
+    purpose: str,
+    speed: str,
+    quality: str,
+    recommended: bool,
+) -> dict[str, Any]:
+    single_pass = purpose == "single_pass"
+    return {
+        "kind": "model",
+        "model_id": model_id,
+        "name": name,
+        "provider": provider,
+        "description": "",
+        "category": purpose,
+        "capabilities": {
+            "transcription": single_pass,
+            "text_generation": True,
+            "refinement": True,
+            "streaming_refinement": True,
+            "single_pass_audio_to_text": single_pass,
+        },
+        "pricing": {
+            "input_per_million": None,
+            "output_per_million": None,
+            "currency": "USD",
+        },
+        "speed": speed,
+        "quality": quality,
+        "recommended": recommended,
+        "source": "static",
+    }
 
 
 def _process_step(

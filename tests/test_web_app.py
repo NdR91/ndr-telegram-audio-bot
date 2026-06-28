@@ -1897,6 +1897,59 @@ def test_api_openrouter_catalog_preview_does_not_import(ready_app):
     assert ready_app.state.db.list_provider_models(provider_id) == []
 
 
+def test_api_setup_model_picker_openrouter_cards(fresh_app):
+    """Express setup model picker returns OpenRouter cards without import."""
+    mock_client = MockHttpxClient({
+        "https://openrouter.ai/api/v1/models": MockHttpxResponse(
+            200, {"data": _openrouter_catalog()},
+        ),
+    })
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        with TestClient(fresh_app) as client:
+            # Establish setup session.
+            client.get("/setup")
+            resp = client.post(
+                "/api/setup/model-picker",
+                json={
+                    "provider_type": "openrouter",
+                    "api_key": "sk-or-test",
+                    "endpoint": "https://openrouter.ai/api/v1",
+                    "process_mode": "two_stage",
+                    "limit": 5,
+                },
+            )
+
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["source"] == "openrouter"
+    assert data["transcription"]["model_id"] == "whisper-1"
+    assert [card["model_id"] for card in data["cards"]] == ["openai/gpt-4o-mini"]
+    assert data["cards"][0]["pricing"]["input_per_million"] == 0.15
+    assert data["cards"][0]["recommended"] is True
+    assert fresh_app.state.db.list_providers() == []
+
+
+def test_api_setup_model_picker_manual_model(fresh_app):
+    """Manual model entry returns a conservative card."""
+    with TestClient(fresh_app) as client:
+        client.get("/setup")
+        resp = client.post(
+            "/api/setup/model-picker",
+            json={
+                "provider_type": "openrouter",
+                "manual_model_id": "custom/model",
+            },
+        )
+
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["source"] == "manual"
+    assert data["cards"][0]["model_id"] == "custom/model"
+    assert data["cards"][0]["speed"] == "unknown"
+    assert data["cards"][0]["recommended"] is False
+
+
 def test_api_openrouter_catalog_query_searches_all_compatible_models(ready_app):
     """Catalog query can find compatible models outside the active tab."""
     provider_id = _create_provider(

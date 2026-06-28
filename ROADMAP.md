@@ -1080,6 +1080,15 @@ configuration and are linked from the express flow as an escape hatch.
 | Priority | Critical |
 | Effort | High |
 
+> **Progress (2026-06-28):** backend/API foundation started. `bot/model_picker.py`
+> now produces reusable picker cards with locked Whisper transcription, OpenRouter
+> shortlist filtering, per-million pricing, speed/quality indicators, one
+> recommended card, category counts, and conservative manual-entry cards.
+> `/api/setup/model-picker` returns these cards for setup without persisting
+> credentials or model rows. Remaining work: carousel UI, sorting/filter chips,
+> verified manual OpenRouter metadata fetch, session persistence, and wiring the
+> selected card into W9 profile creation.
+
 Replace the current dropdown/table model selectors with a card-based model
 picker that makes tradeoffs visible and keeps the user in control without
 requiring expertise.

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Smart model picker foundation (W10)**: Added `bot/model_picker.py` with
+  reusable card shaping for the express setup model picker: locked Whisper
+  transcription card, OpenRouter shortlist filtering, per-million token pricing,
+  qualitative speed/quality indicators, recommended-card selection, category
+  counts, and conservative manual model cards. Added `/api/setup/model-picker`
+  to return picker cards without persisting credentials or models.
 - **Remove mandatory `.env` and `authorized.json` (A7)**: The application
   now starts without any environment files. `Config(relaxed=True)` provides
   empty defaults for all missing values (Telegram token, API keys,
