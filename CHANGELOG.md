@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   qualitative speed/quality indicators, recommended-card selection, category
   counts, and conservative manual model cards. Added `/api/setup/model-picker`
   to return picker cards without persisting credentials or models.
+- **Shared pipeline profile builder (W9)**: Added `bot/web/pipeline_builder.py`
+  so the advanced pipeline form and future express setup flow create the same
+  provider/profile/stage database shape for two-stage, single-pass,
+  same-provider, and advanced profiles.
 - **Remove mandatory `.env` and `authorized.json` (A7)**: The application
   now starts without any environment files. `Config(relaxed=True)` provides
   empty defaults for all missing values (Telegram token, API keys,

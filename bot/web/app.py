@@ -74,6 +74,12 @@ from bot.web.auth import (
     verify_admin_password,
     validate_csrf_token,
 )
+from bot.web.pipeline_builder import (
+    create_advanced_provider_profile,
+    create_same_provider_profile,
+    create_single_pass_profile,
+    create_two_stage_profile,
+)
 from bot.web.setup_wizard import (
     PROVIDER_PRESETS,
     build_summary,
@@ -1807,31 +1813,12 @@ def create_app(
                         "Admin pipeline: refinement marked optional for profile"
                     )
 
-                # Find the provider IDs for the models
-                tx_model = database_manager.get_provider_model(tx_model_id) if tx_model_id else None
-                ref_model = database_manager.get_provider_model(ref_model_id) if ref_model_id else None
-
-                tx_pid = tx_model["provider_id"] if tx_model else None
-                ref_pid = ref_model["provider_id"] if ref_model else (tx_pid if tx_pid else None)
-
-                new_id = database_manager.add_pipeline_profile(
+                new_id = create_two_stage_profile(
+                    database_manager,
+                    tx_model_id=tx_model_id,
+                    ref_model_id=ref_model_id,
                     name="Pipeline due fasi",
-                    transcription_provider_id=tx_pid,
-                    text_provider_id=ref_pid,
-                    mode="two_stage",
                 )
-
-                # Create explicit stages
-                if tx_model_id:
-                    tx_stage_id = database_manager.add_pipeline_stage(
-                        new_id, "transcription", tx_model_id,
-                    )
-                if ref_model_id:
-                    ref_stage_id = database_manager.add_pipeline_stage(
-                        new_id, "refinement", ref_model_id,
-                    )
-
-                set_active_pipeline_profile_id(database_manager, new_id)
                 logger.info(
                     "Admin pipeline: saved two_stage profile id=%s "
                     "(tx_model=%s, ref_model=%s)",
@@ -1848,22 +1835,11 @@ def create_app(
                         status_code=303,
                     )
 
-                sp_model = database_manager.get_provider_model(sp_model_id)
-                sp_pid = sp_model["provider_id"] if sp_model else None
-
-                new_id = database_manager.add_pipeline_profile(
+                new_id = create_single_pass_profile(
+                    database_manager,
+                    model_id=sp_model_id,
                     name="Pipeline singolo passaggio",
-                    transcription_provider_id=sp_pid,
-                    text_provider_id=sp_pid,
-                    mode="single_pass",
                 )
-
-                # Create stage
-                database_manager.add_pipeline_stage(
-                    new_id, "single_pass", sp_model_id,
-                )
-
-                set_active_pipeline_profile_id(database_manager, new_id)
                 logger.info(
                     "Admin pipeline: saved single_pass profile id=%s "
                     "(model=%s)",
@@ -1878,14 +1854,11 @@ def create_app(
                         status_code=303,
                     )
 
-                new_id = database_manager.add_pipeline_profile(
+                new_id = create_same_provider_profile(
+                    database_manager,
+                    provider_id=pid,
                     name="Pipeline predefinita",
-                    transcription_provider_id=pid,
-                    text_provider_id=pid,
-                    mode="two_stage",
                 )
-
-                set_active_pipeline_profile_id(database_manager, new_id)
                 logger.info(
                     "Admin pipeline: saved same-provider profile id=%s "
                     "with provider=%s",
@@ -1905,13 +1878,12 @@ def create_app(
                         status_code=303,
                     )
 
-                new_id = database_manager.add_pipeline_profile(
-                    name="Pipeline avanzata",
+                new_id = create_advanced_provider_profile(
+                    database_manager,
                     transcription_provider_id=tx_pid,
                     text_provider_id=ref_pid,
-                    mode="two_stage",
+                    name="Pipeline avanzata",
                 )
-                set_active_pipeline_profile_id(database_manager, new_id)
                 logger.info(
                     "Admin pipeline: saved advanced profile id=%s "
                     "(tx=%s, ref=%s)",
