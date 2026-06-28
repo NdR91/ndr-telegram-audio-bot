@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from bot.database.migrations import run_pending
 from bot.database.secret_store import SecretStore
+from bot.exceptions import ResourceInUseError
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +282,16 @@ class DatabaseManager:
 
         When a :class:`SecretStore` is configured, *credentials* (plaintext)
         is encrypted automatically.  Returns ``True`` if the row existed.
+
+        Raises :class:`ResourceInUseError` if disabling an enabled provider
+        that is referenced by the active pipeline profile.
         """
+        # Before disabling, check that the provider is not in use.
+        if enabled is False:
+            provider = self.get_provider(provider_id)
+            if provider and provider.get("enabled"):
+                self._check_provider_not_in_use(provider_id)
+
         fields: List[str] = []
         params: List[Any] = []
 
@@ -314,13 +324,436 @@ class DatabaseManager:
         self.connection.commit()
         return cur.rowcount > 0
 
+    def _get_active_pipeline_profile_id(self) -> Optional[int]:
+        """Return the active pipeline profile ID from settings, or ``None``."""
+        val = self.get_setup_state("active_pipeline_profile")
+        return int(val) if val else None
+
+    def _check_provider_not_in_use(self, provider_id: int) -> None:
+        """Raise :class:`ResourceInUseError` if *provider_id* is referenced
+        by the active pipeline profile."""
+        active_id = self._get_active_pipeline_profile_id()
+        if active_id is None:
+            return
+        profile = self.get_pipeline_profile(active_id)
+        if profile is None:
+            return
+        # Check provider-level references on profile
+        if profile.get("transcription_provider_id") == provider_id:
+            raise ResourceInUseError(
+                f"Provider id={provider_id} is used as transcription provider "
+                f"in the active pipeline profile (id={active_id}). "
+                f"Remove or change the pipeline first."
+            )
+        if profile.get("text_provider_id") == provider_id:
+            raise ResourceInUseError(
+                f"Provider id={provider_id} is used as text provider "
+                f"in the active pipeline profile (id={active_id}). "
+                f"Remove or change the pipeline first."
+            )
+        # Check model-level references — any model owned by this provider
+        # used as primary or fallback in the active pipeline.
+        models = self.list_provider_models(provider_id)
+        model_ids = [m["id"] for m in models]
+        if not model_ids:
+            return
+        stages = self.list_pipeline_stages(active_id)
+        for stage in stages:
+            if stage.get("primary_model_id") in model_ids:
+                raise ResourceInUseError(
+                    f"Provider id={provider_id} has model id={stage['primary_model_id']} "
+                    f"used as primary model in pipeline stage '{stage['stage_type']}' "
+                    f"of the active profile (id={active_id})."
+                )
+            for fb in stage.get("fallbacks", []):
+                if fb["model_id"] in model_ids:
+                    raise ResourceInUseError(
+                        f"Provider id={provider_id} has model id={fb['model_id']} "
+                        f"used as fallback in pipeline stage '{stage['stage_type']}' "
+                        f"of the active profile (id={active_id})."
+                    )
+
+    def _check_model_not_in_use(self, model_entry_id: int) -> None:
+        """Raise :class:`ResourceInUseError` if *model_entry_id* is
+        referenced by the active pipeline profile."""
+        active_id = self._get_active_pipeline_profile_id()
+        if active_id is None:
+            return
+        stages = self.list_pipeline_stages(active_id)
+        for stage in stages:
+            if stage.get("primary_model_id") == model_entry_id:
+                raise ResourceInUseError(
+                    f"Model id={model_entry_id} is used as primary model "
+                    f"in pipeline stage '{stage['stage_type']}' "
+                    f"of the active profile (id={active_id})."
+                )
+            for fb in stage.get("fallbacks", []):
+                if fb["model_id"] == model_entry_id:
+                    raise ResourceInUseError(
+                        f"Model id={model_entry_id} is used as fallback "
+                        f"in pipeline stage '{stage['stage_type']}' "
+                        f"of the active profile (id={active_id})."
+                    )
+
     def delete_provider(self, provider_id: int) -> bool:
-        """Delete a provider connection.  Returns ``True`` if the row existed."""
+        """Delete a provider connection.  Returns ``True`` if the row existed.
+
+        Raises :class:`ResourceInUseError` if the provider is referenced
+        by the active pipeline profile.
+        """
+        self._check_provider_not_in_use(provider_id)
         cur = self.connection.execute(
             "DELETE FROM provider_connections WHERE id = ?", (provider_id,)
         )
         self.connection.commit()
         return cur.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Provider models (per-connection model registry)
+    # ------------------------------------------------------------------
+
+    def add_provider_model(
+        self,
+        provider_id: int,
+        model_id: str,
+        display_name: Optional[str] = None,
+        capabilities: Optional[Dict[str, Any]] = None,
+        detected: bool = True,
+        enabled: bool = True,
+    ) -> int:
+        """Register a model under a provider connection.
+
+        Returns the new ``provider_models.id``.
+        """
+        cur = self.connection.execute(
+            "INSERT OR REPLACE INTO provider_models "
+            "(provider_id, model_id, display_name, capabilities, detected, "
+            " manually_overridden, enabled, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, 0, ?, datetime('now'))",
+            (
+                provider_id,
+                model_id,
+                display_name or model_id,
+                json.dumps(capabilities) if capabilities else None,
+                1 if detected else 0,
+                1 if enabled else 0,
+            ),
+        )
+        self.connection.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
+    def get_provider_model(self, model_entry_id: int) -> Optional[Dict[str, Any]]:
+        """Return a single provider model entry by its ID, or ``None``."""
+        row = self.connection.execute(
+            "SELECT * FROM provider_models WHERE id = ?", (model_entry_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_with_model_caps(row)
+
+    def list_provider_models(
+        self,
+        provider_id: Optional[int] = None,
+        *,
+        only_enabled: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Return provider model entries, optionally filtered by provider.
+
+        Results are ordered by ``model_id``.
+        """
+        q = "SELECT * FROM provider_models"
+        params: list[Any] = []
+        where: list[str] = []
+        if provider_id is not None:
+            where.append("provider_id = ?")
+            params.append(provider_id)
+        if only_enabled:
+            where.append("enabled = 1")
+        if where:
+            q += " WHERE " + " AND ".join(where)
+        q += " ORDER BY model_id"
+        rows = self.connection.execute(q, params).fetchall()
+        return [self._row_with_model_caps(row) for row in rows]
+
+    def update_provider_model(
+        self,
+        model_entry_id: int,
+        *,
+        display_name: Optional[str] = None,
+        capabilities: Optional[Dict[str, Any]] = None,
+        detected: Optional[bool] = None,
+        manually_overridden: Optional[bool] = None,
+        enabled: Optional[bool] = None,
+    ) -> bool:
+        """Update fields on a provider model entry.
+
+        When disabling an enabled model (``enabled=False``), checks that
+        the model is not referenced by the active pipeline profile.
+
+        Returns ``True`` if the row existed.
+        """
+        # Before disabling, check that the model is not in use.
+        if enabled is False:
+            entry = self.get_provider_model(model_entry_id)
+            if entry and entry.get("enabled"):
+                self._check_model_not_in_use(model_entry_id)
+
+        fields: List[str] = []
+        params: List[Any] = []
+
+        if display_name is not None:
+            fields.append("display_name = ?")
+            params.append(display_name)
+        if capabilities is not None:
+            fields.append("capabilities = ?")
+            params.append(json.dumps(capabilities))
+        if detected is not None:
+            fields.append("detected = ?")
+            params.append(1 if detected else 0)
+        if manually_overridden is not None:
+            fields.append("manually_overridden = ?")
+            params.append(1 if manually_overridden else 0)
+        if enabled is not None:
+            fields.append("enabled = ?")
+            params.append(1 if enabled else 0)
+
+        if not fields:
+            return False
+
+        fields.append("updated_at = datetime('now')")
+        params.append(model_entry_id)
+
+        cur = self.connection.execute(
+            f"UPDATE provider_models SET {', '.join(fields)} WHERE id = ?",
+            params,
+        )
+        self.connection.commit()
+        return cur.rowcount > 0
+
+    def delete_provider_model(self, model_entry_id: int) -> bool:
+        """Delete a provider model entry.  Returns ``True`` if the row existed.
+
+        Raises :class:`ResourceInUseError` if the model is referenced
+        by the active pipeline profile.
+        """
+        self._check_model_not_in_use(model_entry_id)
+        cur = self.connection.execute(
+            "DELETE FROM provider_models WHERE id = ?", (model_entry_id,)
+        )
+        self.connection.commit()
+        return cur.rowcount > 0
+
+    def set_model_capabilities(
+        self,
+        model_entry_id: int,
+        capabilities: Dict[str, Any],
+        *,
+        mark_overridden: bool = True,
+    ) -> bool:
+        """Set capabilities on a provider model, optionally marking it as
+        manually overridden."""
+        return self.update_provider_model(
+            model_entry_id,
+            capabilities=capabilities,
+            manually_overridden=mark_overridden,
+        )
+
+    # ------------------------------------------------------------------
+    # Pipeline stages
+    # ------------------------------------------------------------------
+
+    def add_pipeline_stage(
+        self,
+        profile_id: int,
+        stage_type: str,
+        primary_model_id: Optional[int] = None,
+    ) -> int:
+        """Add a stage to a pipeline profile.
+
+        *stage_type* must be ``"transcription"``, ``"refinement"``, or
+        ``"single_pass"``.
+        """
+        cur = self.connection.execute(
+            "INSERT INTO pipeline_stages "
+            "(profile_id, stage_type, primary_model_id) "
+            "VALUES (?, ?, ?)",
+            (profile_id, stage_type, primary_model_id),
+        )
+        self.connection.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
+    def get_pipeline_stage(self, stage_id: int) -> Optional[Dict[str, Any]]:
+        """Return a pipeline stage by ID, or ``None``."""
+        row = self.connection.execute(
+            "SELECT * FROM pipeline_stages WHERE id = ?", (stage_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        result = self._row_as_dict(row)
+        result["fallbacks"] = self.list_stage_fallbacks(stage_id)
+        return result
+
+    def list_pipeline_stages(
+        self,
+        profile_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return pipeline stages, optionally filtered by profile."""
+        q = "SELECT * FROM pipeline_stages"
+        params: list[Any] = []
+        if profile_id is not None:
+            q += " WHERE profile_id = ?"
+            params.append(profile_id)
+        q += " ORDER BY id"
+        rows = self.connection.execute(q, params).fetchall()
+        results = []
+        for row in rows:
+            result = self._row_as_dict(row)
+            result["fallbacks"] = self.list_stage_fallbacks(row["id"])
+            results.append(result)
+        return results
+
+    def update_pipeline_stage(
+        self,
+        stage_id: int,
+        *,
+        primary_model_id: Optional[int] = None,
+    ) -> bool:
+        """Update a pipeline stage's primary model.
+
+        Returns ``True`` if the row existed.
+        """
+        cur = self.connection.execute(
+            "UPDATE pipeline_stages SET primary_model_id = ?, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (primary_model_id, stage_id),
+        )
+        self.connection.commit()
+        return cur.rowcount > 0
+
+    def delete_pipeline_stage(self, stage_id: int) -> bool:
+        """Delete a pipeline stage.  Returns ``True`` if the row existed."""
+        cur = self.connection.execute(
+            "DELETE FROM pipeline_stages WHERE id = ?", (stage_id,)
+        )
+        self.connection.commit()
+        return cur.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Stage fallbacks (ordered fallback model chains)
+    # ------------------------------------------------------------------
+
+    def add_stage_fallback(
+        self,
+        stage_id: int,
+        model_id: int,
+        fallback_order: Optional[int] = None,
+    ) -> int:
+        """Add a fallback model to a pipeline stage.
+
+        When *fallback_order* is ``None``, the fallback is appended at the
+        end of the existing chain.
+        """
+        if fallback_order is None:
+            max_row = self.connection.execute(
+                "SELECT COALESCE(MAX(fallback_order), 0) AS max_order "
+                "FROM pipeline_stage_fallbacks WHERE stage_id = ?",
+                (stage_id,),
+            ).fetchone()
+            fallback_order = (max_row["max_order"] if max_row else 0) + 1
+
+        cur = self.connection.execute(
+            "INSERT INTO pipeline_stage_fallbacks "
+            "(stage_id, model_id, fallback_order) "
+            "VALUES (?, ?, ?)",
+            (stage_id, model_id, fallback_order),
+        )
+        self.connection.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
+    def list_stage_fallbacks(self, stage_id: int) -> List[Dict[str, Any]]:
+        """Return fallback models for a stage, ordered by ``fallback_order``."""
+        rows = self.connection.execute(
+            "SELECT * FROM pipeline_stage_fallbacks "
+            "WHERE stage_id = ? ORDER BY fallback_order",
+            (stage_id,),
+        ).fetchall()
+        return [self._row_as_dict(row) for row in rows]
+
+    def remove_stage_fallback(self, fallback_id: int) -> bool:
+        """Remove a fallback entry.  Returns ``True`` if the row existed."""
+        cur = self.connection.execute(
+            "DELETE FROM pipeline_stage_fallbacks WHERE id = ?",
+            (fallback_id,),
+        )
+        self.connection.commit()
+        return cur.rowcount > 0
+
+    def reorder_stage_fallbacks(
+        self,
+        stage_id: int,
+        model_ids_in_order: List[int],
+    ) -> None:
+        """Replace the fallback chain for *stage_id* with the given order.
+
+        Atomically deletes existing fallbacks and inserts the new order
+        in a single transaction.
+        """
+        conn = self.connection
+        conn.execute("BEGIN")
+        try:
+            conn.execute(
+                "DELETE FROM pipeline_stage_fallbacks WHERE stage_id = ?",
+                (stage_id,),
+            )
+            for order, model_id in enumerate(model_ids_in_order, start=1):
+                conn.execute(
+                    "INSERT INTO pipeline_stage_fallbacks "
+                    "(stage_id, model_id, fallback_order) VALUES (?, ?, ?)",
+                    (stage_id, model_id, order),
+                )
+            conn.commit()
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+
+    # ------------------------------------------------------------------
+    # Pipeline profile mode helpers
+    # ------------------------------------------------------------------
+
+    def get_pipeline_profile_mode(self, profile_id: int) -> Optional[str]:
+        """Return the mode of a pipeline profile, or ``None``.
+
+        Mode is ``"two_stage"`` or ``"single_pass"``.
+        """
+        row = self.connection.execute(
+            "SELECT mode FROM pipeline_profiles WHERE id = ?", (profile_id,)
+        ).fetchone()
+        return row["mode"] if row else None
+
+    def set_pipeline_profile_mode(self, profile_id: int, mode: str) -> bool:
+        """Set the mode on a pipeline profile.
+
+        Returns ``True`` if the row existed.
+        """
+        cur = self.connection.execute(
+            "UPDATE pipeline_profiles SET mode = ?, updated_at = datetime('now') "
+            "WHERE id = ?",
+            (mode, profile_id),
+        )
+        self.connection.commit()
+        return cur.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Internal helpers — model capabilities parsing
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _row_with_model_caps(row: sqlite3.Row) -> Dict[str, Any]:
+        """Convert a provider_models row to a dict, parsing capabilities JSON."""
+        result = dict(row)
+        if result.get("capabilities"):
+            result["capabilities"] = json.loads(result["capabilities"])
+        return result
 
     # ------------------------------------------------------------------
     # SecretStore helpers
@@ -373,13 +806,19 @@ class DatabaseManager:
         system_prompt: Optional[str] = None,
         refine_template: Optional[str] = None,
         fallback_policy: Optional[Dict[str, Any]] = None,
+        mode: Optional[str] = None,
     ) -> int:
-        """Insert a pipeline profile and return its new ID."""
+        """Insert a pipeline profile and return its new ID.
+
+        *mode* defaults to ``"two_stage"`` when not specified.
+        """
+        if mode is None:
+            mode = "two_stage"
         cur = self.connection.execute(
             "INSERT INTO pipeline_profiles "
             "(name, transcription_provider_id, text_provider_id, system_prompt, "
-            " refine_template, fallback_policy) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            " refine_template, fallback_policy, mode) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 name,
                 transcription_provider_id,
@@ -387,6 +826,7 @@ class DatabaseManager:
                 system_prompt,
                 refine_template,
                 json.dumps(fallback_policy) if fallback_policy else None,
+                mode,
             ),
         )
         self.connection.commit()
@@ -402,6 +842,8 @@ class DatabaseManager:
         result = self._row_as_dict(row)
         if result.get("fallback_policy"):
             result["fallback_policy"] = json.loads(result["fallback_policy"])
+        # Attach stages for profiles without explicit stages (backward compat)
+        result["stages"] = self.list_pipeline_stages(profile_id)
         return result
 
     def list_pipeline_profiles(self) -> List[Dict[str, Any]]:
@@ -414,6 +856,7 @@ class DatabaseManager:
             result = self._row_as_dict(row)
             if result.get("fallback_policy"):
                 result["fallback_policy"] = json.loads(result["fallback_policy"])
+            result["stages"] = self.list_pipeline_stages(row["id"])
             results.append(result)
         return results
 

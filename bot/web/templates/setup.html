@@ -213,6 +213,26 @@
                         <span id="provider-test-result" class="test-result"></span>
                     </div>
 
+                    <div id="provider-test-details" class="test-details" style="display:none">
+                        <div class="cap-summary" id="provider-test-caps">
+                            <span class="cap-badge" id="test-cap-tx">🎤 Trascrizione: ⏳</span>
+                            <span class="cap-badge" id="test-cap-ref">📝 Refinement: ⏳</span>
+                            <span class="cap-badge" id="test-cap-stream-setup">💨 Streaming: ⏳</span>
+                        </div>
+                        <div id="provider-test-pipeline-status" class="pipeline-status" style="display:none"></div>
+                        <div id="provider-test-warnings" class="test-warnings"></div>
+                    </div>
+
+                    <div class="card card-note">
+                        <h4>💡 Informazioni sui modelli</h4>
+                        <ul class="note-list">
+                            <li>I modelli chat/testo generici <strong>non</strong> trascrivono automaticamente audio.</li>
+                            <li>Con OpenRouter potresti aver bisogno di un modello separato per la trascrizione (es. <code>whisper-1</code>).</li>
+                            <li>Avere lo stesso provider per trascrizione e refinement non significa usare lo stesso modello.</li>
+                            <li>I modelli audio single-pass (trascrizione + refinement in unico passaggio) sono avanzati e meno trasparenti.</li>
+                        </ul>
+                    </div>
+
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary btn-lg" id="provider-continue" disabled>
                             Salva e continua
@@ -697,25 +717,51 @@
             providerTestResult.textContent = '⏳ Connessione in corso…';
             providerTestResult.className = 'test-result';
 
+            var testDetails = document.getElementById('provider-test-details');
+            if (testDetails) testDetails.style.display = 'none';
+
             fetch('/api/setup/test-provider', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ type: ptype, api_key: apiKey, endpoint: endpoint }),
             })
             .then(function(r) { return r.json(); })
-            .then(function(result) {
-                if (result.ok) {
-                    var modelCount = result.models ? result.models.length : 0;
-                    providerTestResult.innerHTML = '✅ Connessione riuscita! ' + modelCount + ' modelli rilevati.';
+            .then(function(data) {
+                if (data.ok && data.auth_ok) {
+                    var modelCount = data.models ? data.models.length : 0;
+                    providerTestResult.innerHTML = '✅ Connessione verificata' +
+                        (modelCount ? ' (' + modelCount + ' modelli)' : '');
                     providerTestResult.className = 'test-result success';
-                    if (providerContinueBtn) providerContinueBtn.disabled = false;
 
                     // Store models for next step
-                    window._detectedModels = result.models || [];
-                    window._detectedProvider = result.provider || ptype;
+                    window._detectedModels = data.models || [];
+                    window._detectedProvider = ptype;
+
+                    // Show capability summary
+                    renderSetupCapsInline(data.capabilities || {});
+                    renderSetupWarningsInline(data.warnings || []);
+                    renderSetupPipelineStatus(data.pipeline_status || '');
+
+                    // Set continue button based on pipeline status
+                    if (data.pipeline_status === 'not_compatible') {
+                        providerContinueBtn.disabled = true;
+                    } else {
+                        providerContinueBtn.disabled = false;
+                    }
+
+                    if (testDetails) testDetails.style.display = 'block';
                 } else {
-                    providerTestResult.textContent = '❌ ' + (result.error || 'Connessione fallita');
+                    var errMsg = data.user_message || data.error || 'Connessione fallita';
+                    providerTestResult.textContent = '❌ ' + errMsg.replace(/^[❌✅⚠️]+\s*/, '');
                     providerTestResult.className = 'test-result error';
+
+                    // Show warnings even on auth failure
+                    if (data.warnings && data.warnings.length && testDetails) {
+                        renderSetupWarningsInline(data.warnings || []);
+                        testDetails.style.display = 'block';
+                    }
+
+                    if (providerContinueBtn) providerContinueBtn.disabled = true;
                 }
             })
             .catch(function(err) {
@@ -727,6 +773,57 @@
                 providerTestBtn.textContent = '🔍 Verifica connessione';
             });
         });
+    }
+
+    function renderSetupCapsInline(caps) {
+        var txEl = document.getElementById('test-cap-tx');
+        var refEl = document.getElementById('test-cap-ref');
+        var streamEl = document.getElementById('test-cap-stream-setup');
+
+        if (txEl) {
+            txEl.textContent = '🎤 Trascrizione: ' + (caps.transcription ? '✅' : '❌');
+            txEl.className = 'cap-badge ' + (caps.transcription ? 'badge-success' : 'badge-error');
+        }
+        if (refEl) {
+            var hasRef = caps.refinement || caps.text_generation;
+            refEl.textContent = '📝 Refinement: ' + (hasRef ? '✅' : '❌');
+            refEl.className = 'cap-badge ' + (hasRef ? 'badge-success' : 'badge-error');
+        }
+        if (streamEl) {
+            streamEl.textContent = '💨 Streaming: ' + (caps.streaming_refinement ? '✅' : '❌');
+            streamEl.className = 'cap-badge ' + (caps.streaming_refinement ? 'badge-success' : 'badge-error');
+        }
+    }
+
+    function renderSetupWarningsInline(warnings) {
+        var container = document.getElementById('provider-test-warnings');
+        if (!container) return;
+        container.innerHTML = '';
+        if (!warnings || !warnings.length) return;
+        warnings.forEach(function(w) {
+            var el = document.createElement('div');
+            el.className = 'alert alert-warn';
+            el.textContent = '💡 ' + w;
+            container.appendChild(el);
+        });
+    }
+
+    function renderSetupPipelineStatus(status) {
+        var el = document.getElementById('provider-test-pipeline-status');
+        if (!el) return;
+        var msgs = {
+            'complete_same_provider': '✅ Pipeline completa: stesso provider per trascrizione e refinement.',
+            'transcription_only': '⚠️ Solo trascrizione: il refinement non è disponibile.',
+            'refinement_only': '⚠️ Solo refinement: serve un provider separato per la trascrizione audio.',
+            'not_compatible': '❌ Provider non compatibile: nessuna capacità di trascrizione o refinement rilevata.',
+        };
+        var msg = msgs[status] || '';
+        if (msg) {
+            el.textContent = '📋 ' + msg;
+            el.style.display = 'block';
+        } else {
+            el.style.display = 'none';
+        }
     }
 
     // ------------------------------------------------------------------

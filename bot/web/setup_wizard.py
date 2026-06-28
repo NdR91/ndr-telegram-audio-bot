@@ -519,7 +519,9 @@ PROVIDER_PRESETS: Dict[str, Dict[str, str]] = {
     "openrouter": {
         "label": "OpenRouter",
         "default_endpoint": "https://openrouter.ai/api/v1",
-        "description": "Accesso a modelli multipli tramite API unificata",
+        "description": "Accesso a modelli multipli tramite API unificata. "
+                      "Attenzione: i modelli chat/testo non trascrivono audio. "
+                      "Per trascrizione serve un modello speech-to-text (es. whisper-1).",
     },
     "ollama": {
         "label": "Ollama (locale)",

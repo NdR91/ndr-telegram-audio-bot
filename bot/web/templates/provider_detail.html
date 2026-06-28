@@ -107,41 +107,64 @@
         </div>
 
         {% if is_openrouter %}
-        <div class="notice-inline">
-            OpenRouter espone un catalogo ampio. Usa i filtri per importare una shortlist. Audio input non significa automaticamente STT verificato, e i modelli single-pass vanno provati prima di metterli in produzione.
-        </div>
-        <div class="discovery-panel">
-            <div class="discovery-actions">
-                <button type="button" class="btn btn-primary discover-models-btn js-catalog-purpose"
-                        data-provider-id="{{ provider.id }}" data-purpose="refinement"
-                        data-testing="Cerco refinement…">
-                    Testo / refinement
-                </button>
-                <button type="button" class="btn discover-models-btn js-catalog-purpose"
-                        data-provider-id="{{ provider.id }}" data-purpose="transcription"
-                        data-testing="Cerco trascrizione…">
-                    Trascrizione
-                </button>
-                <button type="button" class="btn discover-models-btn js-catalog-purpose"
-                        data-provider-id="{{ provider.id }}" data-purpose="single_pass"
-                        data-testing="Cerco single-pass…">
-                    Single-pass
-                </button>
-                <button type="button" class="btn discover-models-btn js-catalog-purpose"
-                        data-provider-id="{{ provider.id }}" data-purpose="all_recommended"
-                        data-testing="Cerco consigliati…">
-                    Consigliati
-                </button>
+        <div class="curated-shortlist-panel">
+            <div class="curated-shortlist-info">
+                <p>Aggiungi la selezione raccomandata: Whisper per la trascrizione,
+                   GPT-4o mini, Claude Haiku e Gemini Flash per il refinement,
+                   Gemini 2.0 Flash e GPT-4o audio per il single-pass.</p>
             </div>
-            <div class="discovery-search">
-                <label for="discover-query">Cerca nel catalogo</label>
-                <input id="discover-query" type="search"
-                       placeholder="es. gpt-4o, claude, whisper"
-                       autocomplete="off"
-                       data-provider-id="{{ provider.id }}">
-            </div>
-            <div id="catalog-results" class="catalog-results"></div>
+            <button type="button" class="btn btn-primary js-apply-curated"
+                    data-provider-id="{{ provider.id }}">
+                ✦ Importa shortlist raccomandata
+            </button>
+            {% if models|length > 8 %}
+            <button type="button" class="btn btn-danger js-cleanup-models"
+                    data-provider-id="{{ provider.id }}">
+                Rimuovi non curati ({{ models|length }})
+            </button>
+            {% endif %}
+            <span id="curated-result" class="test-result"></span>
         </div>
+
+        <details class="catalog-expander">
+            <summary>Cerca e aggiungi altri modelli dal catalogo OpenRouter</summary>
+            <div class="notice-inline" style="margin-top:0.75rem;">
+                Audio input non significa automaticamente STT verificato.
+                I modelli single-pass vanno provati prima di usarli in produzione.
+            </div>
+            <div class="discovery-panel">
+                <div class="discovery-actions">
+                    <button type="button" class="btn btn-primary discover-models-btn js-catalog-purpose"
+                            data-provider-id="{{ provider.id }}" data-purpose="refinement"
+                            data-testing="Cerco refinement…">
+                        Testo / refinement
+                    </button>
+                    <button type="button" class="btn discover-models-btn js-catalog-purpose"
+                            data-provider-id="{{ provider.id }}" data-purpose="transcription"
+                            data-testing="Cerco trascrizione…">
+                        Trascrizione
+                    </button>
+                    <button type="button" class="btn discover-models-btn js-catalog-purpose"
+                            data-provider-id="{{ provider.id }}" data-purpose="single_pass"
+                            data-testing="Cerco single-pass…">
+                        Single-pass
+                    </button>
+                    <button type="button" class="btn discover-models-btn js-catalog-purpose"
+                            data-provider-id="{{ provider.id }}" data-purpose="all_recommended"
+                            data-testing="Cerco consigliati…">
+                        Consigliati
+                    </button>
+                </div>
+                <div class="discovery-search">
+                    <label for="discover-query">Cerca nel catalogo</label>
+                    <input id="discover-query" type="search"
+                           placeholder="es. gpt-4o, claude, whisper"
+                           autocomplete="off"
+                           data-provider-id="{{ provider.id }}">
+                </div>
+                <div id="catalog-results" class="catalog-results"></div>
+            </div>
+        </details>
         {% else %}
         <p class="section-copy">
             I modelli registrati possono essere usati nella configurazione pipeline.
@@ -185,10 +208,22 @@
                         <td class="model-name-cell"><code>{{ m.model_id }}</code></td>
                         <td>
                             <div class="capability-list">
-                                <span class="cap-pill {% if m.capabilities and m.capabilities.get('transcription') %}is-on{% else %}is-off{% endif %}">STT</span>
-                                <span class="cap-pill {% if m.capabilities and m.capabilities.get('refinement') %}is-on{% else %}is-off{% endif %}">Testo</span>
-                                <span class="cap-pill {% if m.capabilities and m.capabilities.get('streaming_refinement') %}is-on{% else %}is-off{% endif %}">Stream</span>
-                                <span class="cap-pill {% if m.capabilities and m.capabilities.get('single_pass_audio_to_text') %}is-on{% else %}is-off{% endif %}">Single</span>
+                                <button type="button" class="cap-pill js-toggle-cap {% if m.capabilities and m.capabilities.get('transcription') %}is-on{% else %}is-off{% endif %}"
+                                        data-entry-id="{{ m.id }}" data-cap="transcription"
+                                        data-caps="{{ (m.capabilities or {}) | tojson | e }}"
+                                        title="Clicca per attivare/disattivare">STT</button>
+                                <button type="button" class="cap-pill js-toggle-cap {% if m.capabilities and m.capabilities.get('refinement') %}is-on{% else %}is-off{% endif %}"
+                                        data-entry-id="{{ m.id }}" data-cap="refinement"
+                                        data-caps="{{ (m.capabilities or {}) | tojson | e }}"
+                                        title="Clicca per attivare/disattivare">Testo</button>
+                                <button type="button" class="cap-pill js-toggle-cap {% if m.capabilities and m.capabilities.get('streaming_refinement') %}is-on{% else %}is-off{% endif %}"
+                                        data-entry-id="{{ m.id }}" data-cap="streaming_refinement"
+                                        data-caps="{{ (m.capabilities or {}) | tojson | e }}"
+                                        title="Clicca per attivare/disattivare">Stream</button>
+                                <button type="button" class="cap-pill js-toggle-cap {% if m.capabilities and m.capabilities.get('single_pass_audio_to_text') %}is-on{% else %}is-off{% endif %}"
+                                        data-entry-id="{{ m.id }}" data-cap="single_pass_audio_to_text"
+                                        data-caps="{{ (m.capabilities or {}) | tojson | e }}"
+                                        title="Clicca per attivare/disattivare">Single</button>
                             </div>
                         </td>
                         <td>
@@ -255,6 +290,125 @@
 <script>
 (function() {
     'use strict';
+
+    // ------------------------------------------------------------------
+    // Curated shortlist import
+    // ------------------------------------------------------------------
+    const curatedBtn = document.querySelector('.js-apply-curated');
+    const curatedResult = document.getElementById('curated-result');
+
+    if (curatedBtn) {
+        curatedBtn.addEventListener('click', function() {
+            const providerId = curatedBtn.dataset.providerId;
+            curatedBtn.disabled = true;
+            curatedBtn.textContent = 'Importo…';
+            if (curatedResult) curatedResult.textContent = '';
+
+            fetch('/api/providers/' + providerId + '/apply-curated', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    curatedBtn.disabled = false;
+                    curatedBtn.textContent = '✦ Importa shortlist raccomandata';
+                    if (data.ok) {
+                        const msg = data.registered === 0
+                            ? 'Shortlist già presente.'
+                            : data.registered + ' modelli importati.';
+                        if (curatedResult) {
+                            curatedResult.textContent = msg;
+                            curatedResult.className = 'test-result test-ok';
+                        }
+                        setTimeout(function() { location.reload(); }, 800);
+                    } else {
+                        if (curatedResult) {
+                            curatedResult.textContent = data.error || 'Errore sconosciuto.';
+                            curatedResult.className = 'test-result test-fail';
+                        }
+                    }
+                })
+                .catch(function(err) {
+                    curatedBtn.disabled = false;
+                    curatedBtn.textContent = '✦ Importa shortlist raccomandata';
+                    if (curatedResult) {
+                        curatedResult.textContent = err.message;
+                        curatedResult.className = 'test-result test-fail';
+                    }
+                });
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Capability pill toggle
+    // ------------------------------------------------------------------
+    document.querySelectorAll('.js-toggle-cap').forEach(function(pill) {
+        pill.addEventListener('click', function() {
+            const entryId = pill.dataset.entryId;
+            const cap = pill.dataset.cap;
+            const caps = JSON.parse(pill.dataset.caps || '{}');
+            caps[cap] = !caps[cap];
+            pill.disabled = true;
+
+            fetch('/api/providers/models/' + entryId + '/capabilities', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ capabilities: caps }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                pill.disabled = false;
+                if (data.ok) {
+                    pill.dataset.caps = JSON.stringify(caps);
+                    pill.classList.toggle('is-on', !!caps[cap]);
+                    pill.classList.toggle('is-off', !caps[cap]);
+                    // update all pills in the same row that share entry-id
+                    document.querySelectorAll('.js-toggle-cap[data-entry-id="' + entryId + '"]').forEach(function(p) {
+                        p.dataset.caps = JSON.stringify(caps);
+                    });
+                } else {
+                    alert('Errore: ' + (data.error || 'Operazione fallita'));
+                }
+            })
+            .catch(function(err) {
+                pill.disabled = false;
+                alert('Errore: ' + err.message);
+            });
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // Cleanup non-curated models
+    // ------------------------------------------------------------------
+    const cleanupBtn = document.querySelector('.js-cleanup-models');
+    if (cleanupBtn) {
+        cleanupBtn.addEventListener('click', function() {
+            if (!confirm('Rimuovi tutti i modelli non nella shortlist raccomandata?')) return;
+            const providerId = cleanupBtn.dataset.providerId;
+            cleanupBtn.disabled = true;
+            cleanupBtn.textContent = 'Rimuovo…';
+            fetch('/api/providers/' + providerId + '/models/cleanup', { method: 'DELETE' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.ok) {
+                        const curatedResult = document.getElementById('curated-result');
+                        const msg = data.removed + ' modelli rimossi'
+                            + (data.skipped_in_use.length ? ', ' + data.skipped_in_use.length + ' in uso non rimossi.' : '.');
+                        if (curatedResult) {
+                            curatedResult.textContent = msg;
+                            curatedResult.className = 'test-result test-ok';
+                        }
+                        setTimeout(function() { location.reload(); }, 800);
+                    } else {
+                        cleanupBtn.disabled = false;
+                        cleanupBtn.textContent = 'Rimuovi non curati';
+                        alert('Errore: ' + (data.error || 'Operazione fallita'));
+                    }
+                })
+                .catch(function(err) {
+                    cleanupBtn.disabled = false;
+                    cleanupBtn.textContent = 'Rimuovi non curati';
+                    alert('Errore: ' + err.message);
+                });
+        });
+    }
 
     // ------------------------------------------------------------------
     // Model discovery

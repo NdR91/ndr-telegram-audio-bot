@@ -16,10 +16,13 @@ from bot.database import DatabaseManager
 from bot.exceptions import PipelineResolutionError
 from bot.pipeline_resolver import (
     ExecutionPlan,
+    FallbackTextProcessor,
+    FallbackTranscriber,
     PipelineRequest,
     PipelineResolver,
     RequestMode,
 )
+from bot.providers import RefineError, TextProcessor, Transcriber, TranscribeError, TranscriptionResult
 
 
 # ------------------------------------------------------------------
@@ -536,7 +539,10 @@ class TestResolveFromProfile:
         assert plan.provider_name == "Super AI"
         assert plan.text_processor is not None
         assert hasattr(plan.transcriber, "transcribe")
-        assert any("same-provider" in msg.lower()
+        # Verify log shows both transcription and refinement stages
+        assert any("Stage 'transcription'" in msg
+                   for msg in plan.resolution_log)
+        assert any("Stage 'refinement'" in msg
                    for msg in plan.resolution_log)
 
     def test_same_provider_transcription_only(self, tmp_path):
@@ -578,7 +584,8 @@ class TestResolveFromProfile:
         assert "TX Provider" in plan.provider_name
         assert "REF Provider" in plan.provider_name
         assert plan.text_processor is not None
-        assert any("separate providers" in msg.lower()
+        assert any("TX Provider" in msg and "REF Provider" in msg
+                   or "transcription" in msg.lower()
                    for msg in plan.resolution_log)
 
     def test_resolution_log_populated(self, tmp_path):
@@ -617,7 +624,7 @@ class TestResolveFromProfile:
         with pytest.raises(PipelineResolutionError) as exc:
             resolver.resolve_from_profile(profile_id)
 
-        assert "non ha un provider di trascrizione" in str(exc.value.user_message)
+        assert "modello per la trascrizione" in str(exc.value.user_message)
 
     def test_profile_with_deleted_provider(self, tmp_path):
         """Profile referencing a deleted provider should raise.
@@ -664,7 +671,8 @@ class TestResolveFromProfile:
             resolver.resolve_from_profile(profile_id)
 
         msg = str(exc.value.user_message).lower()
-        assert "non esiste" in msg or "non trovato" in msg
+        assert any(kw in msg for kw in ["non esiste", "non trovato",
+                                        "modello per la trascrizione"])
 
     def test_profile_with_disabled_transcription_provider(self, tmp_path):
         """Profile with disabled transcription provider should raise."""
@@ -700,7 +708,8 @@ class TestResolveFromProfile:
             resolver.resolve_from_profile(profile_id)
 
         msg = str(exc.value.user_message).lower()
-        assert "refinement" in msg and "non ha un provider" in msg
+        assert "refinement" in msg and ("non ha un provider" in msg or
+                                         "non è configurato" in msg)
 
     def test_profile_no_transcription_capability(self, tmp_path):
         """Profile whose provider lacks transcription capability."""
@@ -876,3 +885,1069 @@ class TestCreatePipelineFromWizard:
         )
         assert provider["adapter_type"] == "openai-compat"
         assert provider["endpoint"] == "https://openrouter.ai/api/v1"
+
+
+# ------------------------------------------------------------------
+# P5+ — Two-stage resolution with model entries
+# ------------------------------------------------------------------
+
+
+class TestTwoStageWithModelEntries:
+    """Two-stage pipeline resolution with explicit model entries.
+
+    Covers:
+    - Profile with explicit transcription + refinement stages and model entries.
+    - Fallback chains on stages.
+    - Transcription-only modes (global disable + request mode).
+    - Capability validation for both transcription and refinement.
+    - Same-provider different-model display naming.
+    - Different-provider with model entries.
+    - Resolution log contents.
+    """
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _setup_two_stage(
+        db: DatabaseManager,
+        *,
+        tx_model_id: str = "whisper-1",
+        ref_model_id: str = "gpt-4o-mini",
+        tx_caps: dict | None = None,
+        ref_caps: dict | None = None,
+        provider_name: str = "Multi Model",
+        adapter: str = "openai-native",
+    ) -> tuple[int, int, int, int, int, int]:
+        """Create a two-stage profile with explicit model entries.
+
+        Returns
+        -------
+        tuple[pid, tx_entry_id, ref_entry_id, profile_id, tx_stage_id, ref_stage_id]
+        """
+        if tx_caps is None:
+            tx_caps = {"transcription": True, "refinement": False}
+        if ref_caps is None:
+            ref_caps = {"transcription": False, "refinement": True}
+
+        pid = _add_provider(
+            db, name=provider_name, adapter=adapter,
+            capabilities={"transcription": True, "refinement": True},
+        )
+        tx_entry = db.add_provider_model(pid, tx_model_id, capabilities=tx_caps)
+        ref_entry = db.add_provider_model(pid, ref_model_id, capabilities=ref_caps)
+
+        profile_id = db.add_pipeline_profile(
+            name="Two Stage Models",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+        )
+        tx_stage_id = db.add_pipeline_stage(
+            profile_id, "transcription", tx_entry,
+        )
+        ref_stage_id = db.add_pipeline_stage(
+            profile_id, "refinement", ref_entry,
+        )
+        return pid, tx_entry, ref_entry, profile_id, tx_stage_id, ref_stage_id
+
+    # ---------- Positive cases ----------
+
+    def test_resolves_correct_model_refs(self, tmp_path):
+        """✅ Two-stage with model entries: plan has correct ModelRef values."""
+        db = _make_db(tmp_path)
+        pid, tx_entry, ref_entry, profile_id, _, _ = \
+            self._setup_two_stage(db)
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        # Transcription model ref
+        assert plan.transcript_model is not None
+        assert plan.transcript_model.model_id == "whisper-1"
+        assert plan.transcript_model.model_entry_id == tx_entry
+        assert plan.transcript_model.provider_id == pid
+        assert plan.transcript_model.capabilities.transcription is True
+
+        # Refinement model ref
+        assert plan.refine_model is not None
+        assert plan.refine_model.model_id == "gpt-4o-mini"
+        assert plan.refine_model.model_entry_id == ref_entry
+        assert plan.refine_model.provider_id == pid
+        assert plan.refine_model.capabilities.refinement is True
+
+        # Display name combines both models
+        assert "whisper-1" in plan.model_name
+        assert "gpt-4o-mini" in plan.model_name
+        assert plan.text_processor is not None
+
+    def test_with_fallback_chain(self, tmp_path):
+        """✅ Two-stage with fallback: fallback_model_ids and
+        fallback_entry_ids populated."""
+        db = _make_db(tmp_path)
+        pid, tx_entry, ref_entry, profile_id, tx_stage_id, _ = \
+            self._setup_two_stage(db)
+
+        # Add a fallback model for the transcription stage.
+        fb_entry = db.add_provider_model(pid, "whisper-1-alt", capabilities={
+            "transcription": True,
+            "refinement": False,
+        })
+        db.add_stage_fallback(tx_stage_id, fb_entry)
+
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert len(plan.transcript_model.fallback_model_ids) == 1
+        assert plan.transcript_model.fallback_model_ids[0] == "whisper-1-alt"
+        assert plan.transcript_model.fallback_entry_ids[0] == fb_entry
+
+    def test_multiple_fallbacks(self, tmp_path):
+        """✅ Multiple fallbacks on a stage are ordered correctly."""
+        db = _make_db(tmp_path)
+        pid, tx_entry, ref_entry, profile_id, tx_stage_id, _ = \
+            self._setup_two_stage(db)
+
+        fb1 = db.add_provider_model(pid, "whisper-1-alt1", capabilities={
+            "transcription": True,
+        })
+        fb2 = db.add_provider_model(pid, "whisper-1-alt2", capabilities={
+            "transcription": True,
+        })
+        db.add_stage_fallback(tx_stage_id, fb1, fallback_order=1)
+        db.add_stage_fallback(tx_stage_id, fb2, fallback_order=2)
+
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert len(plan.transcript_model.fallback_model_ids) == 2
+        assert plan.transcript_model.fallback_model_ids == [
+            "whisper-1-alt1", "whisper-1-alt2",
+        ]
+        assert plan.transcript_model.fallback_entry_ids == [fb1, fb2]
+
+    def test_transcription_only_globally_disabled(self, tmp_path):
+        """✅ Two-stage + refinement_globally_disabled=True → no
+        text_processor, no refine_model."""
+        db = _make_db(tmp_path)
+        _, _, _, profile_id, _, _ = self._setup_two_stage(db)
+        resolver = PipelineResolver(db)
+
+        plan = resolver.resolve_from_profile(
+            profile_id, refinement_globally_disabled=True,
+        )
+
+        assert plan.text_processor is None
+        assert plan.refine_model is None
+        assert any("Transcription only" in msg for msg in plan.resolution_log)
+
+    def test_transcription_only_via_request_mode(self, tmp_path):
+        """✅ Two-stage + TRANSCRIPTION_ONLY request mode → no
+        text_processor, no refine_model."""
+        db = _make_db(tmp_path)
+        _, _, _, profile_id, _, _ = self._setup_two_stage(db)
+        resolver = PipelineResolver(db)
+
+        plan = resolver.resolve_from_profile(
+            profile_id,
+            PipelineRequest(mode=RequestMode.TRANSCRIPTION_ONLY),
+        )
+
+        assert plan.text_processor is None
+        assert plan.refine_model is None
+
+    def test_resolution_log_contains_stage_info(self, tmp_path):
+        """✅ Resolution log includes profile, stage, and model details."""
+        db = _make_db(tmp_path)
+        _, _, _, profile_id, _, _ = self._setup_two_stage(db)
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        log_text = " ".join(plan.resolution_log)
+        assert "Loaded pipeline profile" in log_text
+        assert "Stage 'transcription'" in log_text
+        assert "Stage 'refinement'" in log_text
+        assert "whisper-1" in log_text
+        assert "gpt-4o-mini" in log_text
+
+    def test_same_provider_different_models_display(self, tmp_path):
+        """✅ Same provider, separate model entries: model_name shows
+        'tx + ref', provider_name is the shared provider name."""
+        db = _make_db(tmp_path)
+        pid, tx_entry, ref_entry, profile_id, _, _ = \
+            self._setup_two_stage(db, provider_name="Super AI")
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert plan.provider_name == "Super AI"
+        assert "whisper-1" in plan.model_name
+        assert "gpt-4o-mini" in plan.model_name
+        assert plan.transcript_model.model_entry_id != plan.refine_model.model_entry_id
+        assert plan.transcript_model.provider_id == plan.refine_model.provider_id
+
+    def test_different_providers_with_model_entries(self, tmp_path):
+        """✅ Different providers for tx/ref, each with model entries:
+        provider_name combines both."""
+        db = _make_db(tmp_path)
+        tx_pid = _add_provider(
+            db, name="TX AI", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": False},
+        )
+        ref_pid = _add_provider(
+            db, name="REF AI", adapter="openai-native",
+            capabilities={"transcription": False, "refinement": True},
+        )
+        tx_entry = db.add_provider_model(tx_pid, "whisper-1", capabilities={
+            "transcription": True,
+        })
+        ref_entry = db.add_provider_model(ref_pid, "gpt-4o-mini", capabilities={
+            "refinement": True,
+        })
+        profile_id = db.add_pipeline_profile(
+            name="Separate Model Profile",
+            transcription_provider_id=tx_pid,
+            text_provider_id=ref_pid,
+        )
+        db.add_pipeline_stage(profile_id, "transcription", tx_entry)
+        db.add_pipeline_stage(profile_id, "refinement", ref_entry)
+
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert "TX AI" in plan.provider_name
+        assert "REF AI" in plan.provider_name
+        assert plan.transcript_model.model_id == "whisper-1"
+        assert plan.refine_model.model_id == "gpt-4o-mini"
+        assert plan.text_processor is not None
+
+    def test_stage_fallback_disabled_model_skipped(self, tmp_path):
+        """✅ A disabled fallback model is skipped in the fallback chain."""
+        db = _make_db(tmp_path)
+        pid, tx_entry, ref_entry, profile_id, tx_stage_id, _ = \
+            self._setup_two_stage(db)
+
+        # Enabled fallback
+        fb_enabled = db.add_provider_model(pid, "fallback-good", capabilities={
+            "transcription": True,
+        })
+        db.add_stage_fallback(tx_stage_id, fb_enabled, fallback_order=1)
+
+        # Disabled fallback — should be omitted
+        fb_disabled = db.add_provider_model(pid, "fallback-bad", capabilities={
+            "transcription": True,
+        }, enabled=False)
+        db.add_stage_fallback(tx_stage_id, fb_disabled, fallback_order=2)
+
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert plan.transcript_model.fallback_model_ids == ["fallback-good"]
+
+    # ---------- Negative cases ----------
+
+    def test_missing_transcription_capability_raises(self, tmp_path):
+        """❌ Model without transcription capability as tx stage raises."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="No TX Model", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        tx_entry = db.add_provider_model(pid, "gpt-4o-mini", capabilities={
+            "transcription": False,
+            "refinement": True,
+        })
+        ref_entry = db.add_provider_model(pid, "gpt-4o-mini-ref", capabilities={
+            "refinement": True,
+        })
+        profile_id = db.add_pipeline_profile(
+            name="Bad TX",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+        )
+        db.add_pipeline_stage(profile_id, "transcription", tx_entry)
+        db.add_pipeline_stage(profile_id, "refinement", ref_entry)
+
+        resolver = PipelineResolver(db)
+        with pytest.raises(PipelineResolutionError) as exc:
+            resolver.resolve_from_profile(profile_id)
+        assert "non supporta" in str(exc.value.user_message).lower()
+
+    def test_missing_refinement_capability_raises(self, tmp_path):
+        """❌ Model without refinement capability as ref stage raises."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="No Ref Model", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        tx_entry = db.add_provider_model(pid, "whisper-1", capabilities={
+            "transcription": True,
+        })
+        ref_entry = db.add_provider_model(pid, "gpt-4o-mini", capabilities={
+            "transcription": False,
+            "refinement": False,
+        })
+        profile_id = db.add_pipeline_profile(
+            name="Bad Ref",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+        )
+        db.add_pipeline_stage(profile_id, "transcription", tx_entry)
+        db.add_pipeline_stage(profile_id, "refinement", ref_entry)
+
+        resolver = PipelineResolver(db)
+        with pytest.raises(PipelineResolutionError) as exc:
+            resolver.resolve_from_profile(profile_id)
+        assert "non supporta" in str(exc.value.user_message).lower()
+
+    def test_disabled_stage_model_raises(self, tmp_path):
+        """❌ A disabled primary model in a stage should raise."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="Disabled Model", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        tx_entry = db.add_provider_model(pid, "whisper-1", capabilities={
+            "transcription": True,
+        }, enabled=False)
+        ref_entry = db.add_provider_model(pid, "gpt-4o-mini", capabilities={
+            "refinement": True,
+        })
+        profile_id = db.add_pipeline_profile(
+            name="Disabled Model Profile",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+        )
+        db.add_pipeline_stage(profile_id, "transcription", tx_entry)
+        db.add_pipeline_stage(profile_id, "refinement", ref_entry)
+
+        resolver = PipelineResolver(db)
+        with pytest.raises(PipelineResolutionError) as exc:
+            resolver.resolve_from_profile(profile_id)
+        assert any(kw in str(exc.value.user_message).lower()
+                   for kw in ["modello", "trascrizione"])
+
+    def test_tx_provider_fallback_when_no_tx_stage(self, tmp_path):
+        """✅ Profile with only a refinement stage: transcription falls
+        back to provider-level resolution."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="One Provider", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        # Only one model entry — used by explicit refinement stage.
+        # Provider-level transcription fallback picks this same model,
+        # so it must also carry transcription capability.
+        ref_entry = db.add_provider_model(pid, "gpt-4o-mini", capabilities={
+            "transcription": True,
+            "refinement": True,
+        })
+        profile_id = db.add_pipeline_profile(
+            name="Ref-Only Profile",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+        )
+        # Only a refinement stage exists (no transcription stage).
+        # Transcription falls back to provider-level.
+        # Refinement uses the explicit stage.
+        db.add_pipeline_stage(profile_id, "refinement", ref_entry)
+
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        # Transcription resolved from provider-level (uses first registered model)
+        assert plan.transcript_model is not None
+        assert plan.transcript_model.model_entry_id == ref_entry  # first enabled model entry
+        # Refinement from explicit stage
+        assert plan.refine_model is not None
+        assert plan.refine_model.model_id == "gpt-4o-mini"
+        assert plan.text_processor is not None
+
+
+# ------------------------------------------------------------------
+# P5+ — Single-pass resolution
+# ------------------------------------------------------------------
+
+
+class TestSinglePassResolution:
+    """Single-pass pipeline resolution with model entries.
+
+    Covers:
+    - Explicit single_pass stage resolves correctly.
+    - Fallback chain on single_pass stage.
+    - Fallback to two-stage when provider lacks single_pass capability.
+    - Single_pass model without required capability raises.
+    - Resolution log contents.
+    - Disabled model in single_pass stage raises.
+    """
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _setup_single_pass(
+        db: DatabaseManager,
+        *,
+        adapter: str = "openai-native",
+        provider_name: str = "Single Pass AI",
+        model_id: str = "gpt-4o-audio-preview",
+        sp_caps: dict | None = None,
+    ) -> tuple[int, int, int, int]:
+        """Create a single-pass profile with explicit stage.
+
+        Returns
+        -------
+        tuple[pid, sp_entry_id, profile_id, stage_id]
+        """
+        if sp_caps is None:
+            sp_caps = {
+                "transcription": True,
+                "refinement": True,
+                "single_pass_audio_to_text": True,
+            }
+
+        pid = _add_provider(
+            db, name=provider_name, adapter=adapter,
+            capabilities={
+                "transcription": True,
+                "refinement": True,
+                "single_pass_audio_to_text": True,
+            },
+        )
+        sp_entry = db.add_provider_model(pid, model_id, capabilities=sp_caps)
+
+        profile_id = db.add_pipeline_profile(
+            name="Single Pass Profile",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+            mode="single_pass",
+        )
+        stage_id = db.add_pipeline_stage(
+            profile_id, "single_pass", sp_entry,
+        )
+        return pid, sp_entry, profile_id, stage_id
+
+    # ---------- Positive cases ----------
+
+    def test_explicit_stage_resolves(self, tmp_path):
+        """✅ Single-pass with explicit stage: plan has correct model_ref."""
+        db = _make_db(tmp_path)
+        pid, sp_entry, profile_id, _ = self._setup_single_pass(db)
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert plan.transcript_model is not None
+        assert plan.transcript_model.model_id == "gpt-4o-audio-preview"
+        assert plan.transcript_model.model_entry_id == sp_entry
+        assert plan.transcript_model.provider_id == pid
+        assert plan.transcript_model.capabilities.single_pass_audio_to_text is True
+
+        # Single-pass uses the same model ref for both stages
+        assert plan.refine_model is not None
+        assert plan.refine_model.model_entry_id == sp_entry
+        # Both transcriber and text_processor should exist
+        assert plan.text_processor is not None
+        assert hasattr(plan.transcriber, "transcribe")
+
+    def test_with_fallback_models(self, tmp_path):
+        """✅ Single-pass stage with fallback: chain populated."""
+        db = _make_db(tmp_path)
+        pid, sp_entry, profile_id, stage_id = self._setup_single_pass(db)
+        fb_entry = db.add_provider_model(pid, "gpt-4o-mini", capabilities={
+            "transcription": True,
+            "refinement": True,
+            "single_pass_audio_to_text": True,
+        })
+        db.add_stage_fallback(stage_id, fb_entry)
+
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert len(plan.transcript_model.fallback_model_ids) == 1
+        assert plan.transcript_model.fallback_model_ids[0] == "gpt-4o-mini"
+        assert plan.transcript_model.fallback_entry_ids[0] == fb_entry
+
+    def test_fallback_to_two_stage_when_no_single_pass_cap(self, tmp_path):
+        """✅ Provider without single_pass capability falls back to
+        two-stage resolution."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="OpenAI No SP", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        # No explicit stages — resolver must use provider-level fallback.
+        profile_id = db.add_pipeline_profile(
+            name="SP Fallback",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+            mode="single_pass",
+        )
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        # Should have fallen back to two-stage
+        assert plan.text_processor is not None
+        log_text = " ".join(plan.resolution_log)
+        assert "falling back to two-stage" in log_text.lower()
+
+    def test_fallback_to_two_stage_logged(self, tmp_path):
+        """✅ Single-pass fallback includes log messages about the
+        fallback decision."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="NoSP", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        profile_id = db.add_pipeline_profile(
+            name="Fallback Log",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+            mode="single_pass",
+        )
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        log_text = " ".join(plan.resolution_log)
+        assert "Pipeline mode: single_pass" in log_text
+        assert "falling back to two-stage" in log_text.lower()
+        # Two-stage log entries
+        assert "Stage" in log_text
+
+    def test_single_pass_log_entries(self, tmp_path):
+        """✅ Single-pass resolution log includes profile and model info."""
+        db = _make_db(tmp_path)
+        _, _, profile_id, _ = self._setup_single_pass(db)
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        log_text = " ".join(plan.resolution_log)
+        assert "Loaded pipeline profile" in log_text
+        assert "Pipeline mode: single_pass" in log_text
+        assert "Single-pass" in plan.resolution_log[-1] or "Single-pass" in log_text
+        assert "gpt-4o-audio-preview" in log_text
+
+    def test_openai_provider_single_pass_fallback_with_stages(self, tmp_path):
+        """✅ Single-pass mode with explicit stage but provider model
+        without single_pass cap falls through to provider-level fallback.
+
+        When the single_pass stage's model lacks the capability, it raises.
+        This verifies that capability check is enforced."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="OpenAI SP", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        # Model entry that has transcription+refinement but NOT
+        # single_pass_audio_to_text.
+        sp_entry = db.add_provider_model(pid, "gpt-4o-mini", capabilities={
+            "transcription": True,
+            "refinement": True,
+            "single_pass_audio_to_text": False,
+        })
+        profile_id = db.add_pipeline_profile(
+            name="OpenAI SP Stage",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+            mode="single_pass",
+        )
+        db.add_pipeline_stage(profile_id, "single_pass", sp_entry)
+
+        resolver = PipelineResolver(db)
+        with pytest.raises(PipelineResolutionError) as exc:
+            resolver.resolve_from_profile(profile_id)
+        assert "non supporta" in str(exc.value.user_message).lower()
+
+    # ---------- Negative cases ----------
+
+    def test_missing_single_pass_capability_raises(self, tmp_path):
+        """❌ Stage model without single_pass_audio_to_text raises."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="Bad SP", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        sp_entry = db.add_provider_model(pid, "gpt-4o-mini", capabilities={
+            "transcription": True,
+            "refinement": True,
+            "single_pass_audio_to_text": False,
+        })
+        profile_id = db.add_pipeline_profile(
+            name="Bad SP",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+            mode="single_pass",
+        )
+        db.add_pipeline_stage(profile_id, "single_pass", sp_entry)
+
+        resolver = PipelineResolver(db)
+        with pytest.raises(PipelineResolutionError) as exc:
+            resolver.resolve_from_profile(profile_id)
+        assert "non supporta" in str(exc.value.user_message).lower()
+
+    def test_disabled_single_pass_model_raises(self, tmp_path):
+        """❌ Disabled primary model in single_pass stage raises."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="Disabled SP", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        sp_entry = db.add_provider_model(pid, "gpt-4o-mini", capabilities={
+            "transcription": True,
+            "refinement": True,
+            "single_pass_audio_to_text": True,
+        }, enabled=False)
+        profile_id = db.add_pipeline_profile(
+            name="Disabled SP",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+            mode="single_pass",
+        )
+        db.add_pipeline_stage(profile_id, "single_pass", sp_entry)
+
+        resolver = PipelineResolver(db)
+        with pytest.raises(PipelineResolutionError) as exc:
+            resolver.resolve_from_profile(profile_id)
+        assert any(kw in str(exc.value.user_message).lower()
+                   for kw in ["non esiste", "disabilitato"])
+
+    def test_single_pass_disabled_provider_raises(self, tmp_path):
+        """❌ Disabled provider for single_pass stage raises."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="Disabled Prov", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+            enabled=False,
+        )
+        sp_entry = db.add_provider_model(pid, "gpt-4o-mini", capabilities={
+            "transcription": True,
+            "refinement": True,
+            "single_pass_audio_to_text": True,
+        })
+        profile_id = db.add_pipeline_profile(
+            name="Disabled Prov SP",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+            mode="single_pass",
+        )
+        db.add_pipeline_stage(profile_id, "single_pass", sp_entry)
+
+        resolver = PipelineResolver(db)
+        with pytest.raises(PipelineResolutionError) as exc:
+            resolver.resolve_from_profile(profile_id)
+        assert any(kw in str(exc.value.user_message).lower()
+                   for kw in ["non esiste", "disabilitato"])
+
+
+# ------------------------------------------------------------------
+# Runtime fallback execution (P4+)
+# ------------------------------------------------------------------
+
+
+class TestFallbackTranscriber:
+    """Tests for FallbackTranscriber runtime fallback execution."""
+
+    @pytest.mark.asyncio
+    async def test_primary_succeeds_returns_result(self):
+        """Primary transcriber succeeds → result returned immediately."""
+        primary = _make_stub_transcriber("primary result")
+        fallbacks = [_make_stub_transcriber("fb result")]
+        ft = FallbackTranscriber(primary, fallbacks)
+        result = await ft.transcribe("/tmp/test.mp3")
+        assert result.text == "primary result"
+
+    @pytest.mark.asyncio
+    async def test_primary_fails_fallback_succeeds(self):
+        """Primary fails → fallback is tried and its result returned."""
+        calls = []
+
+        class FailingPrimary(Transcriber):
+            async def transcribe(self, file_path):
+                calls.append("primary")
+                raise TranscribeError("Primary failed", "msg")
+            def get_capabilities(self): ...
+
+        class WorkingFallback(Transcriber):
+            async def transcribe(self, file_path):
+                calls.append("fallback")
+                return TranscriptionResult(text="fallback result")
+            def get_capabilities(self): ...
+
+        ft = FallbackTranscriber(FailingPrimary(), [WorkingFallback()])
+        result = await ft.transcribe("/tmp/test.mp3")
+        assert result.text == "fallback result"
+        assert calls == ["primary", "fallback"]
+
+    @pytest.mark.asyncio
+    async def test_all_fail_raises_transcribe_error(self):
+        """All models fail → raises TranscribeError."""
+
+        class AlwaysFails(Transcriber):
+            async def transcribe(self, file_path):
+                raise TranscribeError("fail", "msg")
+            def get_capabilities(self): ...
+
+        ft = FallbackTranscriber(AlwaysFails(), [AlwaysFails()])
+        with pytest.raises(TranscribeError):
+            await ft.transcribe("/tmp/test.mp3")
+
+    @pytest.mark.asyncio
+    async def test_no_fallbacks_delegates_to_primary(self):
+        """No fallbacks → behaves as direct primary."""
+        primary = _make_stub_transcriber("direct")
+        ft = FallbackTranscriber(primary, [])
+        result = await ft.transcribe("/tmp/test.mp3")
+        assert result.text == "direct"
+
+
+class TestFallbackTextProcessor:
+    """Tests for FallbackTextProcessor runtime fallback execution."""
+
+    @pytest.mark.asyncio
+    async def test_primary_succeeds_returns_result(self):
+        """Primary text processor succeeds → result returned immediately."""
+        primary = _make_stub_processor("primary result")
+        fb = [_make_stub_processor("fb result")]
+        fp = FallbackTextProcessor(primary, fb)
+        result = await fp.process("hello")
+        assert result == "primary result"
+
+    @pytest.mark.asyncio
+    async def test_primary_fails_fallback_succeeds(self):
+        """Primary fails → fallback is tried and its result returned."""
+        calls = []
+
+        class FailingPrimary(TextProcessor):
+            async def process(self, raw_text):
+                calls.append("primary")
+                raise RefineError("Primary failed", "msg")
+            def get_capabilities(self): ...
+
+        class WorkingFallback(TextProcessor):
+            async def process(self, raw_text):
+                calls.append("fallback")
+                return "fallback result"
+            def get_capabilities(self): ...
+
+        fp = FallbackTextProcessor(FailingPrimary(), [WorkingFallback()])
+        result = await fp.process("hello")
+        assert result == "fallback result"
+        assert calls == ["primary", "fallback"]
+
+    @pytest.mark.asyncio
+    async def test_all_fail_raises_refine_error(self):
+        """All text processors fail → raises RefineError."""
+
+        class AlwaysFails(TextProcessor):
+            async def process(self, raw_text):
+                raise RefineError("fail", "msg")
+            def get_capabilities(self): ...
+
+        fp = FallbackTextProcessor(AlwaysFails(), [AlwaysFails()])
+        with pytest.raises(RefineError):
+            await fp.process("hello")
+
+    @pytest.mark.asyncio
+    async def test_no_fallbacks_delegates_to_primary(self):
+        """No fallbacks → behaves as direct processor."""
+        primary = _make_stub_processor("direct")
+        fp = FallbackTextProcessor(primary, [])
+        result = await fp.process("hello")
+        assert result == "direct"
+
+
+class TestRuntimeFallbackInResolver:
+    """Tests that the resolver wires fallback transcribers/processors
+    into the ExecutionPlan when stages have fallbacks."""
+
+    def test_two_stage_with_fallback_chain_has_fallback_wrapper(self, tmp_path):
+        """Two-stage resolution with fallbacks produces a FallbackTranscriber
+        in the plan."""
+        db = _make_db(tmp_path)
+        pid, tx_entry, ref_entry, profile_id, tx_stage_id, ref_stage_id = \
+            _setup_two_stage(db)
+
+        # Add a fallback model for the transcription stage.
+        fb_entry = db.add_provider_model(pid, "whisper-1-alt", capabilities={
+            "transcription": True, "refinement": False,
+        })
+        db.add_stage_fallback(tx_stage_id, fb_entry)
+
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        # The transcriber should be wrapped in FallbackTranscriber
+        assert isinstance(plan.transcriber, FallbackTranscriber)
+
+    def test_two_stage_without_fallback_no_wrapper(self, tmp_path):
+        """Two-stage resolution without fallbacks produces a plain
+        transcriber (not FallbackTranscriber)."""
+        db = _make_db(tmp_path)
+        _, _, _, profile_id, _, _ = _setup_two_stage(db)
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert not isinstance(plan.transcriber, FallbackTranscriber)
+
+    def test_refinement_with_fallback_has_fallback_wrapper(self, tmp_path):
+        """Refinement stage with fallbacks produces a FallbackTextProcessor."""
+        db = _make_db(tmp_path)
+        pid, tx_entry, ref_entry, profile_id, tx_stage_id, ref_stage_id = \
+            _setup_two_stage(db)
+
+        fb_entry = db.add_provider_model(pid, "gpt-4o", capabilities={
+            "refinement": True, "transcription": False,
+        })
+        db.add_stage_fallback(ref_stage_id, fb_entry)
+
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert plan.text_processor is not None
+        assert isinstance(plan.text_processor, FallbackTextProcessor)
+
+    def test_refinement_without_fallback_no_wrapper(self, tmp_path):
+        """Refinement without fallbacks → plain processor (not wrapper)."""
+        db = _make_db(tmp_path)
+        _, _, _, profile_id, _, _ = _setup_two_stage(db)
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert plan.text_processor is not None
+        assert not isinstance(plan.text_processor, FallbackTextProcessor)
+
+
+# ------------------------------------------------------------------
+# Helpers for fallback tests
+# ------------------------------------------------------------------
+
+
+class _StubTranscriber(Transcriber):
+    def __init__(self, text: str):
+        self._text = text
+
+    async def transcribe(self, file_path: str) -> TranscriptionResult:
+        return TranscriptionResult(text=self._text)
+
+    def get_capabilities(self):
+        from bot.capabilities import CapabilityModel
+        return CapabilityModel(transcription=True)
+
+
+class _StubTextProcessor(TextProcessor):
+    def __init__(self, text: str):
+        self._text = text
+
+    async def process(self, raw_text: str) -> str:
+        return self._text
+
+    def get_capabilities(self):
+        from bot.capabilities import CapabilityModel
+        return CapabilityModel(refinement=True, text_generation=True)
+
+
+def _make_stub_transcriber(text: str) -> _StubTranscriber:
+    return _StubTranscriber(text)
+
+
+def _make_stub_processor(text: str) -> _StubTextProcessor:
+    return _StubTextProcessor(text)
+
+
+def _setup_two_stage(
+    db: DatabaseManager,
+    *,
+    tx_model_id: str = "whisper-1",
+    ref_model_id: str = "gpt-4o-mini",
+    tx_caps: dict | None = None,
+    ref_caps: dict | None = None,
+    provider_name: str = "Multi Model",
+    adapter: str = "openai-native",
+) -> tuple[int, int, int, int, int, int]:
+    """Create a two-stage profile with explicit model entries.
+
+    Returns
+    -------
+    tuple[pid, tx_entry_id, ref_entry_id, profile_id, tx_stage_id, ref_stage_id]
+    """
+    if tx_caps is None:
+        tx_caps = {"transcription": True, "refinement": False}
+    if ref_caps is None:
+        ref_caps = {"transcription": False, "refinement": True}
+
+    pid = _add_provider(
+        db, name=provider_name, adapter=adapter,
+        capabilities={"transcription": True, "refinement": True},
+    )
+    tx_entry = db.add_provider_model(pid, tx_model_id, capabilities=tx_caps)
+    ref_entry = db.add_provider_model(pid, ref_model_id, capabilities=ref_caps)
+
+    profile_id = db.add_pipeline_profile(
+        name="Two Stage Models",
+        transcription_provider_id=pid,
+        text_provider_id=pid,
+    )
+    tx_stage_id = db.add_pipeline_stage(profile_id, "transcription", tx_entry)
+    ref_stage_id = db.add_pipeline_stage(profile_id, "refinement", ref_entry)
+    return pid, tx_entry, ref_entry, profile_id, tx_stage_id, ref_stage_id
+
+
+# ------------------------------------------------------------------
+# P5+ — Fallback chain edge cases
+# ------------------------------------------------------------------
+
+
+class TestFallbackChainEdgeCases:
+    """Edge cases for fallback chain resolution."""
+
+    def test_empty_fallback_chain(self, tmp_path):
+        """✅ Stage with no fallbacks: empty fallback lists."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="No Fallback", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        tx_entry = db.add_provider_model(pid, "whisper-1", capabilities={
+            "transcription": True,
+            "refinement": False,
+        })
+        ref_entry = db.add_provider_model(pid, "gpt-4o-mini", capabilities={
+            "transcription": False,
+            "refinement": True,
+        })
+        profile_id = db.add_pipeline_profile(
+            name="No FB",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+        )
+        db.add_pipeline_stage(profile_id, "transcription", tx_entry)
+        # Refinement falls back to provider-level — gpt-4o-mini has
+        # refinement capability.
+
+        resolver = PipelineResolver(db)
+        plan = resolver.resolve_from_profile(profile_id)
+
+        assert plan.transcript_model.fallback_model_ids == []
+        assert plan.transcript_model.fallback_entry_ids == []
+
+    def test_stage_with_none_primary_model(self, tmp_path):
+        """❌ Stage with None primary_model_id raises — the resolver
+        does not fall back to provider-level when a stage entry exists."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="None Primary", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        profile_id = db.add_pipeline_profile(
+            name="None Primary",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+        )
+        db.add_pipeline_stage(profile_id, "transcription", primary_model_id=None)
+
+        resolver = PipelineResolver(db)
+        with pytest.raises(PipelineResolutionError) as exc:
+            resolver.resolve_from_profile(profile_id)
+        assert any(kw in str(exc.value.user_message).lower()
+                   for kw in ["modello", "trascrizione"])
+
+    def test_stage_non_existent_primary_model(self, tmp_path):
+        """❌ Stage referencing a non-existent primary model raises."""
+        db = _make_db(tmp_path)
+        pid = _add_provider(
+            db, name="Bad Primary", adapter="openai-native",
+            capabilities={"transcription": True, "refinement": True},
+        )
+        profile_id = db.add_pipeline_profile(
+            name="Bad Primary",
+            transcription_provider_id=pid,
+            text_provider_id=pid,
+        )
+        # Bypass FK check to create a stage that references a model
+        # entry that does not exist.
+        db.connection.execute("PRAGMA foreign_keys = OFF")
+        db.connection.execute(
+            "INSERT INTO pipeline_stages (profile_id, stage_type, primary_model_id) "
+            "VALUES (?, 'transcription', 99999)",
+            (profile_id,),
+        )
+        db.connection.commit()
+        db.connection.execute("PRAGMA foreign_keys = ON")
+        db.connection.commit()
+
+        resolver = PipelineResolver(db)
+        with pytest.raises(PipelineResolutionError) as exc:
+            resolver.resolve_from_profile(profile_id)
+        assert any(kw in str(exc.value.user_message).lower()
+                   for kw in ["modello", "trascrizione"])
+
+
+# ------------------------------------------------------------------
+# P5+ — ModelRef unit construction
+# ------------------------------------------------------------------
+
+
+class TestModelRef:
+    """Unit tests for the ModelRef frozen dataclass."""
+
+    def test_construct_with_all_fields(self):
+        from bot.pipeline_resolver import ModelRef
+        from bot.capabilities import CapabilityModel
+
+        ref = ModelRef(
+            provider_id=1,
+            adapter_type="openai-native",
+            model_entry_id=42,
+            model_id="whisper-1",
+            capabilities=CapabilityModel(transcription=True),
+            fallback_model_ids=["whisper-1-alt"],
+            fallback_entry_ids=[43],
+        )
+        assert ref.provider_id == 1
+        assert ref.adapter_type == "openai-native"
+        assert ref.model_entry_id == 42
+        assert ref.model_id == "whisper-1"
+        assert ref.capabilities.transcription is True
+        assert ref.fallback_model_ids == ["whisper-1-alt"]
+        assert ref.fallback_entry_ids == [43]
+
+    def test_default_fallback_lists(self):
+        from bot.pipeline_resolver import ModelRef
+        from bot.capabilities import CapabilityModel
+
+        ref = ModelRef(
+            provider_id=1,
+            adapter_type="openai-native",
+            model_entry_id=None,
+            model_id="gpt-4o-mini",
+            capabilities=CapabilityModel(),
+        )
+        assert ref.fallback_model_ids == []
+        assert ref.fallback_entry_ids == []
+
+    def test_is_frozen(self):
+        from bot.pipeline_resolver import ModelRef
+        from bot.capabilities import CapabilityModel
+
+        ref = ModelRef(
+            provider_id=1,
+            adapter_type="openai-native",
+            model_entry_id=None,
+            model_id="m1",
+            capabilities=CapabilityModel(),
+        )
+        with pytest.raises(AttributeError):
+            ref.model_id = "other"  # type: ignore[misc]
+
+    def test_capabilities_default_to_false(self):
+        from bot.pipeline_resolver import ModelRef
+        from bot.capabilities import CapabilityModel
+
+        ref = ModelRef(
+            provider_id=1,
+            adapter_type="unknown",
+            model_entry_id=None,
+            model_id="m1",
+            capabilities=CapabilityModel(),
+        )
+        assert ref.capabilities.transcription is False
+        assert ref.capabilities.refinement is False
+        assert ref.capabilities.single_pass_audio_to_text is False

@@ -89,3 +89,9 @@ class PipelineResolutionError(AudioPipelineError):
     ``user_message`` explains the problem in plain language so the user
     understands what is missing or misconfigured.
     """
+
+
+class ResourceInUseError(Exception):
+    """Raised when attempting to delete/disable a provider or model that is
+    referenced by an active pipeline."""
+    pass

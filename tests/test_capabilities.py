@@ -51,6 +51,7 @@ class TestCapabilityModel:
             "text_generation": False,
             "refinement": False,
             "streaming_refinement": True,
+            "single_pass_audio_to_text": False,
         }
         assert all(isinstance(v, bool) for v in d.values())
 

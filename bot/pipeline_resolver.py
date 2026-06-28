@@ -25,10 +25,14 @@ from bot.capabilities import CapabilityModel, detect_capabilities, merge_capabil
 from bot.database import DatabaseManager
 from bot.exceptions import PipelineResolutionError
 from bot.providers import (
+    RefineError,
+    RefineStreamEvent,
     ResilientTextProcessor,
     ResilientTranscriber,
     TextProcessor,
+    TranscribeError,
     Transcriber,
+    TranscriptionResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +56,138 @@ _RESILIENCE_DEFAULTS = {
 }
 
 # ---------------------------------------------------------------------------
+# Fallback wrappers — runtime fallback execution
+# ---------------------------------------------------------------------------
+
+
+class FallbackTranscriber(Transcriber):
+    """Wrapper that tries a primary transcriber then fallbacks in order.
+
+    Logs which model was used on success.  If all models fail, raises
+    the last exception with a user-facing message.
+    """
+
+    def __init__(self, primary: Transcriber, fallbacks: list[Transcriber]):
+        self._primary = primary
+        self._fallbacks = fallbacks
+
+    async def transcribe(self, file_path: str) -> TranscriptionResult:
+        first_name = getattr(self._primary, "provider_name", "primary")
+        try:
+            result = await self._primary.transcribe(file_path)
+            logger.info("Transcription succeeded | model=%s", first_name)
+            return result
+        except Exception as exc:
+            logger.warning(
+                "Transcription primary failed | model=%s error=%s",
+                first_name, exc.__class__.__name__,
+            )
+        for i, fb in enumerate(self._fallbacks):
+            fb_name = getattr(fb, "provider_name", f"fallback-{i}")
+            try:
+                result = await fb.transcribe(file_path)
+                logger.info("Transcription succeeded | model=%s", fb_name)
+                return result
+            except Exception as exc:
+                logger.warning(
+                    "Transcription fallback %s failed | model=%s error=%s",
+                    i + 1, fb_name, exc.__class__.__name__,
+                )
+        raise TranscribeError(
+            "All transcription models failed",
+            "Nessun modello di trascrizione disponibile. "
+            "Tutti i modelli configurati hanno fallito. "
+            "Riprova più tardi o contatta l'amministratore.",
+        )
+
+    def get_capabilities(self):
+        return self._primary.get_capabilities()
+
+
+class FallbackTextProcessor(TextProcessor):
+    """Wrapper that tries a primary text processor then fallbacks in order.
+
+    Logs which model was used on success.  If all models fail, raises
+    the last exception with a user-facing message.
+    """
+
+    def __init__(self, primary: TextProcessor, fallbacks: list[TextProcessor]):
+        self._primary = primary
+        self._fallbacks = fallbacks
+
+    async def process(self, raw_text: str) -> str:
+        first_name = getattr(self._primary, "provider_name", "primary")
+        try:
+            result = await self._primary.process(raw_text)
+            logger.info("Refinement succeeded | model=%s", first_name)
+            return result
+        except Exception as exc:
+            logger.warning(
+                "Refinement primary failed | model=%s error=%s",
+                first_name, exc.__class__.__name__,
+            )
+        for i, fb in enumerate(self._fallbacks):
+            fb_name = getattr(fb, "provider_name", f"fallback-{i}")
+            try:
+                result = await fb.process(raw_text)
+                logger.info("Refinement succeeded | model=%s", fb_name)
+                return result
+            except Exception as exc:
+                logger.warning(
+                    "Refinement fallback %s failed | model=%s error=%s",
+                    i + 1, fb_name, exc.__class__.__name__,
+                )
+        raise RefineError(
+            "All refinement models failed",
+            "Nessun modello di refinement disponibile. "
+            "Tutti i modelli configurati hanno fallito. "
+            "Riprova più tardi o contatta l'amministratore.",
+        )
+
+    async def stream_process(self, raw_text: str):
+        first_name = getattr(self._primary, "provider_name", "primary")
+        try:
+            async for event in self._primary.stream_process(raw_text):
+                yield event
+            logger.info("Refinement streaming succeeded | model=%s", first_name)
+            return
+        except Exception as exc:
+            logger.warning(
+                "Refinement streaming primary failed | model=%s error=%s",
+                first_name, exc.__class__.__name__,
+            )
+        for i, fb in enumerate(self._fallbacks):
+            fb_name = getattr(fb, "provider_name", f"fallback-{i}")
+            try:
+                async for event in fb.stream_process(raw_text):
+                    yield event
+                logger.info(
+                    "Refinement streaming succeeded | model=%s", fb_name,
+                )
+                return
+            except Exception as exc:
+                logger.warning(
+                    "Refinement streaming fallback %s failed | model=%s error=%s",
+                    i + 1, fb_name, exc.__class__.__name__,
+                )
+        raise RefineError(
+            "All refinement streaming models failed",
+            "Nessun modello di refinement disponibile. "
+            "Tutti i modelli configurati hanno fallito. "
+            "Riprova più tardi o contatta l'amministratore.",
+        )
+
+    @property
+    def supports_refine_streaming(self) -> bool:
+        return getattr(self._primary, "supports_refine_streaming", False) or any(
+            getattr(fb, "supports_refine_streaming", False) for fb in self._fallbacks
+        )
+
+    def get_capabilities(self):
+        return self._primary.get_capabilities()
+
+
+# ---------------------------------------------------------------------------
 # Public types
 # ---------------------------------------------------------------------------
 
@@ -64,6 +200,37 @@ class RequestMode(str, Enum):
 
     TRANSCRIPTION_ONLY = "transcription_only"
     """Transcribe only — skip refinement."""
+
+
+@dataclass(frozen=True)
+class ModelRef:
+    """Reference to a resolved model entry with its fallback chain.
+
+    Parameters
+    ----------
+    provider_id:
+        The provider connection ID that owns this model.
+    adapter_type:
+        The adapter type of the provider (e.g. ``"openai-native"``).
+    model_entry_id:
+        The ``provider_models.id`` (may be ``None`` for legacy paths).
+    model_id:
+        The actual model identifier (e.g. ``"gpt-4o"``, ``"whisper-1"``).
+    capabilities:
+        The effective capabilities of this model.
+    fallback_model_ids:
+        Ordered list of model identifiers to try if the primary fails.
+    fallback_entry_ids:
+        Ordered list of ``provider_models.id`` for the fallbacks.
+    """
+
+    provider_id: int
+    adapter_type: str
+    model_entry_id: int | None
+    model_id: str
+    capabilities: CapabilityModel
+    fallback_model_ids: List[str] = field(default_factory=list)
+    fallback_entry_ids: List[int] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -100,6 +267,10 @@ class ExecutionPlan:
         Human-readable provider name for display in responses.
     model_name:
         Model name for display in responses.
+    transcript_model:
+        Resolved :class:`ModelRef` for the transcription stage.
+    refine_model:
+        Resolved :class:`ModelRef` for the refinement stage, or ``None``.
     resolution_log:
         Ordered list of human-readable steps the resolver took to
         reach this plan (for debugging and auditing).
@@ -109,6 +280,8 @@ class ExecutionPlan:
     text_processor: TextProcessor | None
     provider_name: str
     model_name: str
+    transcript_model: ModelRef | None = None
+    refine_model: ModelRef | None = None
     resolution_log: List[str] = field(default_factory=list)
 
 
@@ -175,11 +348,9 @@ class PipelineResolver:
         """Resolve a pipeline from a saved pipeline profile.
 
         Loads the profile from the database, retrieves the referenced
-        provider connections, and builds an :class:`ExecutionPlan`.
+        provider connections and models, and builds an :class:`ExecutionPlan`.
 
-        When the profile uses the same provider for transcription and
-        text processing, that provider is used for all stages
-        (same-provider default).
+        Supports both ``two_stage`` and ``single_pass`` pipeline modes.
 
         Parameters
         ----------
@@ -201,10 +372,10 @@ class PipelineResolver:
         ------
         PipelineResolutionError
             When the profile or its referenced providers cannot be
-            loaded, or when no provider supports transcription.
+            loaded, or when no valid model configuration exists.
         """
         log: list[str] = []
-        mode = (request or PipelineRequest()).mode
+        req_mode = (request or PipelineRequest()).mode
 
         # 1. Load the pipeline profile.
         profile = self._db.get_pipeline_profile(profile_id)
@@ -216,115 +387,429 @@ class PipelineResolver:
             )
         log.append(f"Loaded pipeline profile '{profile['name']}' (id={profile_id})")
 
-        # 2. Determine if refinement is needed.
+        # 2. Determine pipeline mode and refinement needs.
+        pipeline_mode = profile.get("mode", "two_stage")
         needs_refinement = (
-            mode == RequestMode.FULL and not refinement_globally_disabled
+            req_mode == RequestMode.FULL and not refinement_globally_disabled
         )
         log.append(
-            f"Request mode: {mode.value}, "
+            f"Pipeline mode: {pipeline_mode}, "
             f"refinement={'enabled' if needs_refinement else 'disabled'}"
         )
 
-        # 3. Load the transcription provider.
+        # 3. Resolve based on pipeline mode.
+        if pipeline_mode == "single_pass":
+            return self._resolve_single_pass(profile, log)
+        else:
+            return self._resolve_two_stage(profile, needs_refinement, log)
+
+    def _resolve_single_pass(
+        self,
+        profile: Dict[str, Any],
+        log: list[str],
+    ) -> ExecutionPlan:
+        """Resolve a single-pass pipeline: one model that does both
+        transcription and refinement in a single API call.
+
+        Uses the transcription_provider and finds a model with
+        ``single_pass_audio_to_text`` capability.
+        """
+        # 1. Check if profile has explicit stages.
+        stages = profile.get("stages", [])
+        single_stages = [s for s in stages if s["stage_type"] == "single_pass"]
+
+        if single_stages:
+            # Use the explicit stage configuration.
+            stage = single_stages[0]
+            primary_id = stage.get("primary_model_id")
+            fallbacks = stage.get("fallbacks", [])
+
+            model_entry = self._db.get_provider_model(primary_id) if primary_id else None
+            if model_entry is None or not model_entry.get("enabled"):
+                raise PipelineResolutionError(
+                    "Modello single-pass non disponibile",
+                    "Il modello configurato per la pipeline single-pass "
+                    "non esiste o è disabilitato.",
+                )
+            provider = self._db.get_provider(model_entry["provider_id"])
+            if provider is None or not provider.get("enabled"):
+                raise PipelineResolutionError(
+                    "Provider non disponibile",
+                    "Il provider del modello single-pass configurato "
+                    "non esiste o è disabilitato.",
+                )
+
+            caps = CapabilityModel.from_dict(model_entry.get("capabilities"))
+            if not caps.single_pass_audio_to_text:
+                raise PipelineResolutionError(
+                    "Modello senza capacità single-pass",
+                    f"Il modello '{model_entry['model_id']}' non supporta "
+                    f"la modalità single-pass (trascrizione + refinement "
+                    f"in unico passaggio).",
+                )
+
+            # Build fallback chain
+            fallback_ids = []
+            fallback_entry_ids = []
+            for fb in fallbacks:
+                fb_model = self._db.get_provider_model(fb["model_id"])
+                if fb_model and fb_model.get("enabled"):
+                    fallback_ids.append(fb_model["model_id"])
+                    fallback_entry_ids.append(fb["model_id"])
+
+            model_ref = ModelRef(
+                provider_id=provider["id"],
+                adapter_type=provider["adapter_type"],
+                model_entry_id=model_entry["id"],
+                model_id=model_entry["model_id"],
+                capabilities=caps,
+                fallback_model_ids=fallback_ids,
+                fallback_entry_ids=fallback_entry_ids,
+            )
+
+            log.append(
+                f"Single-pass model: '{model_entry['model_id']}' "
+                f"from '{provider['name']}' "
+                f"({len(fallback_ids)} fallback(s))"
+            )
+
+            return self._build_plan_from_model_ref(
+                model_ref,
+                provider,
+                model_ref,
+                provider,
+                needs_refinement=True,
+                log=log,
+            )
+
+        # 2. Fallback to legacy provider-level resolution.
         tx_id = profile.get("transcription_provider_id")
         if tx_id is None:
             raise PipelineResolutionError(
-                "Nessun provider di trascrizione",
-                "Il profilo pipeline non ha un provider di trascrizione "
-                "configurato.",
+                "Nessun provider configurato",
+                "Il profilo pipeline non ha un provider configurato.",
             )
-        tx_provider = self._db.get_provider(tx_id)
+        provider = self._db.get_provider(tx_id)
+        if provider is None or not provider.get("enabled"):
+            raise PipelineResolutionError(
+                "Provider non disponibile",
+                "Il provider referenziato non esiste o è disabilitato.",
+            )
+
+        # Check if the provider adapter supports single-pass.
+        adapter = provider.get("adapter_type", "")
+        caps = detect_capabilities(adapter, provider.get("model_name", ""))
+        overrides = provider.get("capabilities")
+        effective = merge_capabilities(caps, overrides)
+
+        if not effective.single_pass_audio_to_text:
+            log.append(
+                f"Provider '{provider['name']}' does not advertise "
+                f"single-pass capability; falling back to two-stage"
+            )
+            return self._resolve_two_stage(profile, True, log)
+
+        log.append(
+            f"Single-pass: using provider '{provider['name']}' "
+            f"(adapter: {adapter})"
+        )
+        return self._build_plan(provider, needs_refinement=True, log=log)
+
+    def _resolve_two_stage(
+        self,
+        profile: Dict[str, Any],
+        needs_refinement: bool,
+        log: list[str],
+    ) -> ExecutionPlan:
+        """Resolve a two-stage pipeline: separate transcription and
+        refinement (optional) stages.
+
+        Uses explicit pipeline stages when available, otherwise falls
+        back to provider-level references.
+        """
+        stages = profile.get("stages", [])
+
+        # --- Transcription ---
+        tx_stages = [s for s in stages if s["stage_type"] == "transcription"]
+        if tx_stages:
+            tx_model_ref = self._resolve_stage_model(tx_stages[0], "transcription", log)
+        else:
+            # Fallback: use transcription_provider_id
+            tx_model_ref = self._resolve_provider_model(
+                profile, "transcription_provider_id", "transcription", log
+            )
+
+        # --- Refinement ---
+        ref_model_ref: ModelRef | None = None
+        if needs_refinement:
+            ref_stages = [s for s in stages if s["stage_type"] == "refinement"]
+            if ref_stages:
+                ref_model_ref = self._resolve_stage_model(
+                    ref_stages[0], "refinement", log
+                )
+            else:
+                # Fallback: use text_provider_id
+                ref_model_ref = self._resolve_provider_model(
+                    profile, "text_provider_id", "refinement", log
+                )
+
+        if not needs_refinement:
+            log.append("Transcription only — refinement disabled")
+
+        # --- Build plan ---
+        if tx_model_ref is None:
+            # Check if transcription provider exists but is disabled.
+            tx_provider_id = profile.get("transcription_provider_id")
+            if tx_provider_id is not None:
+                disabled_provider = self._db.get_provider(tx_provider_id)
+                if disabled_provider is not None and not disabled_provider.get("enabled"):
+                    raise PipelineResolutionError(
+                        "Provider disabilitato",
+                        f"Il provider '{disabled_provider['name']}' è disabilitato. "
+                        f"Abilitalo per usarlo nella pipeline.",
+                    )
+            raise PipelineResolutionError(
+                "Nessun modello di trascrizione",
+                "Non è stato possibile risolvere un modello per la "
+                "trascrizione audio.",
+            )
+
+        tx_provider = self._db.get_provider(tx_model_ref.provider_id)
+        ref_provider = tx_provider
+        if ref_model_ref is not None:
+            ref_provider = self._db.get_provider(ref_model_ref.provider_id)
+
         if tx_provider is None:
             raise PipelineResolutionError(
-                "Provider di trascrizione non trovato",
-                "Il provider di trascrizione referenziato dal profilo "
-                "non esiste più.",
+                "Provider non trovato",
+                "Il provider del modello di trascrizione non esiste.",
             )
-        if not tx_provider.get("enabled"):
+
+        # --- Validate transcription capability ---
+        if not tx_model_ref.capabilities.transcription:
             raise PipelineResolutionError(
-                "Provider di trascrizione disabilitato",
-                "Il provider di trascrizione configurato è stato "
-                "disabilitato.",
-            )
-        log.append(
-            f"Transcription provider: '{tx_provider['name']}' "
-            f"(adapter: {tx_provider['adapter_type']})"
-        )
-
-        # 4. Check transcription capability.
-        tx_detected = detect_capabilities(
-            tx_provider.get("adapter_type", ""),
-            tx_provider.get("model_name", ""),
-        )
-        tx_overrides = tx_provider.get("capabilities")
-        tx_effective = merge_capabilities(tx_detected, tx_overrides)
-        if not tx_effective.transcription:
-            raise PipelineResolutionError(
-                "Provider senza capacità di trascrizione",
-                f"Il provider '{tx_provider['name']}' non supporta "
-                f"la trascrizione audio.",
+                "Modello senza capacità di trascrizione",
+                f"Il modello '{tx_model_ref.model_id}' non supporta "
+                f"la trascrizione audio. Scegli un modello con "
+                f"questa capacità.",
             )
 
-        # 5. Load the text processor provider (may differ from transcription).
-        ref_id = profile.get("text_provider_id")
-        same_provider = ref_id is not None and ref_id == tx_id
-
+        # --- Validate refinement provider ---
         if needs_refinement:
-            if ref_id is None:
+            if ref_model_ref is None:
+                # Check if a text provider is configured but disabled.
+                ref_provider_id = profile.get("text_provider_id")
+                if ref_provider_id is not None:
+                    disabled_ref = self._db.get_provider(ref_provider_id)
+                    if disabled_ref is not None and not disabled_ref.get("enabled"):
+                        raise PipelineResolutionError(
+                            "Provider di refinement disabilitato",
+                            f"Il provider '{disabled_ref['name']}' è disabilitato. "
+                            f"Abilitalo per usarlo nella pipeline.",
+                        )
                 raise PipelineResolutionError(
-                    "Nessun provider di refinement",
-                    "Il profilo pipeline non ha un provider di "
-                    "refinement configurato.",
+                    "Nessun modello di refinement",
+                    "La pipeline richiede il refinement ma non è configurato "
+                    "un provider o un modello per questa fase.",
                 )
-            ref_provider = self._db.get_provider(ref_id)
-            if ref_provider is None:
+            # Validate refinement capability
+            if not ref_model_ref.capabilities.refinement:
                 raise PipelineResolutionError(
-                    "Provider di refinement non trovato",
-                    "Il provider di refinement referenziato dal "
-                    "profilo non esiste più.",
-                )
-            if not ref_provider.get("enabled"):
-                raise PipelineResolutionError(
-                    "Provider di refinement disabilitato",
-                    "Il provider di refinement configurato è stato "
-                    "disabilitato.",
+                    "Modello senza capacità di refinement",
+                    f"Il modello '{ref_model_ref.model_id}' non supporta "
+                    f"il refinement. Scegli un modello con questa capacità.",
                 )
 
-            # Check refinement capability.
-            ref_detected = detect_capabilities(
-                ref_provider.get("adapter_type", ""),
-                ref_provider.get("model_name", ""),
-            )
-            ref_overrides = ref_provider.get("capabilities")
-            ref_effective = merge_capabilities(ref_detected, ref_overrides)
-            if not ref_effective.refinement:
-                raise PipelineResolutionError(
-                    "Provider senza capacità di refinement",
-                    f"Il provider '{ref_provider['name']}' non "
-                    f"supporta il refinement del testo.",
-                )
-
-            if same_provider:
-                log.append(
-                    f"Same-provider default: using '{tx_provider['name']}' "
-                    f"for both transcription and refinement"
-                )
-                return self._build_plan(tx_provider, needs_refinement, log)
-            else:
-                log.append(
-                    f"Using separate providers: "
-                    f"transcription={tx_provider['name']}, "
-                    f"refinement={ref_provider['name']}"
-                )
-                return self._build_plan_with_separate(
-                    tx_provider, ref_provider, log
-                )
+        # Determine display info
+        if ref_model_ref is not None and ref_model_ref.provider_id != tx_model_ref.provider_id:
+            provider_name = f"{tx_provider['name']} + {ref_provider['name']}"
+            model_name = f"{tx_model_ref.model_id} / {ref_model_ref.model_id}"
         else:
-            # Refinement not needed — use the transcription provider only.
-            log.append(
-                f"Transcription only: using '{tx_provider['name']}'"
+            provider_name = tx_provider["name"]
+            model_name = tx_model_ref.model_id
+            if ref_model_ref is not None:
+                model_name = f"{tx_model_ref.model_id} + {ref_model_ref.model_id}"
+
+        # Create adapter instances
+        transcriber = self._create_fallback_chain_tx(tx_model_ref, tx_provider)
+
+        text_processor: TextProcessor | None = None
+        if ref_model_ref is not None and needs_refinement:
+            text_processor = self._create_fallback_chain_tp(
+                ref_model_ref, ref_provider,
             )
-            return self._build_plan(tx_provider, needs_refinement=False, log=log)
+
+        return ExecutionPlan(
+            transcriber=transcriber,
+            text_processor=text_processor,
+            provider_name=provider_name,
+            model_name=model_name,
+            transcript_model=tx_model_ref,
+            refine_model=ref_model_ref,
+            resolution_log=log,
+        )
+
+    def _resolve_stage_model(
+        self,
+        stage: Dict[str, Any],
+        stage_type: str,
+        log: list[str],
+    ) -> ModelRef | None:
+        """Resolve a :class:`ModelRef` from a pipeline stage entry.
+
+        Returns ``None`` when the stage has no primary model.
+        """
+        primary_id = stage.get("primary_model_id")
+        if primary_id is None:
+            return None
+
+        model_entry = self._db.get_provider_model(primary_id)
+        if model_entry is None or not model_entry.get("enabled"):
+            log.append(
+                f"Stage '{stage_type}': primary model (id={primary_id}) "
+                f"not found or disabled — skipping"
+            )
+            return None
+
+        provider = self._db.get_provider(model_entry["provider_id"])
+        if provider is None or not provider.get("enabled"):
+            log.append(
+                f"Stage '{stage_type}': provider for model "
+                f"'{model_entry['model_id']}' not found or disabled"
+            )
+            return None
+
+        caps = CapabilityModel.from_dict(model_entry.get("capabilities"))
+
+        # Build fallback chain
+        fallbacks = stage.get("fallbacks", [])
+        fallback_ids: list[str] = []
+        fallback_entry_ids: list[int] = []
+        for fb in fallbacks:
+            fb_model = self._db.get_provider_model(fb["model_id"])
+            if fb_model and fb_model.get("enabled"):
+                fb_provider = self._db.get_provider(fb_model["provider_id"])
+                if fb_provider and fb_provider.get("enabled"):
+                    fallback_ids.append(fb_model["model_id"])
+                    fallback_entry_ids.append(fb["model_id"])
+
+        log.append(
+            f"Stage '{stage_type}': model '{model_entry['model_id']}' "
+            f"from '{provider['name']}' "
+            f"({len(fallback_ids)} fallback(s))"
+        )
+
+        return ModelRef(
+            provider_id=provider["id"],
+            adapter_type=provider["adapter_type"],
+            model_entry_id=model_entry["id"],
+            model_id=model_entry["model_id"],
+            capabilities=caps,
+            fallback_model_ids=fallback_ids,
+            fallback_entry_ids=fallback_entry_ids,
+        )
+
+    def _resolve_provider_model(
+        self,
+        profile: Dict[str, Any],
+        provider_id_key: str,
+        stage_type: str,
+        log: list[str],
+    ) -> ModelRef | None:
+        """Fallback resolution using provider-level references (legacy).
+
+        Returns ``None`` when no provider reference exists.
+        """
+        pid = profile.get(provider_id_key)
+        if pid is None:
+            return None
+
+        provider = self._db.get_provider(pid)
+        if provider is None or not provider.get("enabled"):
+            log.append(
+                f"Provider (id={pid}) for '{stage_type}' not found or disabled"
+            )
+            return None
+
+        # Try to find a registered model for this provider.
+        models = self._db.list_provider_models(pid, only_enabled=True)
+        if models:
+            # Use the first enabled model.
+            m = models[0]
+            caps = CapabilityModel.from_dict(m.get("capabilities"))
+            model_ref = ModelRef(
+                provider_id=pid,
+                adapter_type=provider["adapter_type"],
+                model_entry_id=m["id"],
+                model_id=m["model_id"],
+                capabilities=caps,
+            )
+            log.append(
+                f"Stage '{stage_type}': using model '{m['model_id']}' "
+                f"from provider '{provider['name']}'"
+            )
+            return model_ref
+
+        # No registered models — use provider-level capabilities.
+        model_name = provider.get("model_name") or _default_model_for(
+            provider.get("adapter_type", "")
+        )
+        caps = detect_capabilities(
+            provider.get("adapter_type", ""),
+            model_name,
+        )
+        overrides = provider.get("capabilities")
+        effective = merge_capabilities(caps, overrides)
+
+        log.append(
+            f"Stage '{stage_type}': using provider-level default "
+            f"'{provider['name']}' (model: {model_name})"
+        )
+
+        return ModelRef(
+            provider_id=pid,
+            adapter_type=provider["adapter_type"],
+            model_entry_id=None,
+            model_id=model_name,
+            capabilities=effective,
+        )
+
+    def _build_plan_from_model_ref(
+        self,
+        tx_ref: ModelRef,
+        tx_provider: Dict[str, Any],
+        ref_ref: ModelRef | None,
+        ref_provider: Dict[str, Any] | None,
+        needs_refinement: bool,
+        log: list[str],
+    ) -> ExecutionPlan:
+        """Build an execution plan from resolved ModelRef instances."""
+        transcriber = self._create_fallback_chain_tx(tx_ref, tx_provider)
+
+        text_processor: TextProcessor | None = None
+        if needs_refinement and ref_ref is not None and ref_provider is not None:
+            text_processor = self._create_fallback_chain_tp(
+                ref_ref, ref_provider,
+            )
+
+        if ref_ref is not None and tx_ref.provider_id != ref_ref.provider_id:
+            provider_name = f"{tx_provider['name']} + {ref_provider['name']}"
+            model_name = f"{tx_ref.model_id} / {ref_ref.model_id}"
+        else:
+            provider_name = tx_provider["name"]
+            model_name = tx_ref.model_id
+            if ref_ref is not None:
+                model_name = f"{tx_ref.model_id} + {ref_ref.model_id}"
+
+        return ExecutionPlan(
+            transcriber=transcriber,
+            text_processor=text_processor,
+            provider_name=provider_name,
+            model_name=model_name,
+            transcript_model=tx_ref,
+            refine_model=ref_ref,
+            resolution_log=log,
+        )
 
     def resolve(
         self,
@@ -381,15 +866,13 @@ class PipelineResolver:
         )
 
         # 3. Build capability profiles for each provider.
-        #    A provider's effective capabilities = detected defaults +
-        #    overrides stored in the DB.
         profiles: list[tuple[dict[str, Any], CapabilityModel]] = []
         for p in enabled:
             detected = detect_capabilities(
                 p.get("adapter_type", ""),
                 p.get("model_name", ""),
             )
-            overrides = p.get("capabilities")  # already parsed JSON dict
+            overrides = p.get("capabilities")
             effective = merge_capabilities(detected, overrides)
             profiles.append((p, effective))
 
@@ -437,7 +920,6 @@ class PipelineResolver:
                 "provider lo supporta.",
             )
 
-        # Should not reach here, but defensively:
         raise PipelineResolutionError(
             "Configurazione pipeline non valida",
             "La configurazione dei provider non consente di creare "
@@ -483,8 +965,6 @@ class PipelineResolver:
                 ref_provider = provider
 
         if tx_provider is not None and ref_provider is not None:
-            # If they are the same provider, _find_single_provider would
-            # already have handled it, so require different IDs here.
             if tx_provider["id"] != ref_provider["id"]:
                 return tx_provider, ref_provider
 
@@ -506,7 +986,18 @@ class PipelineResolver:
         endpoint = provider.get("endpoint") or ""
         model_name = provider.get("model_name") or _default_model_for(adapter_type)
 
-        # Create the transcriber.
+        caps = detect_capabilities(adapter_type, model_name)
+        overrides = provider.get("capabilities")
+        effective = merge_capabilities(caps, overrides)
+
+        model_ref = ModelRef(
+            provider_id=provider["id"],
+            adapter_type=adapter_type,
+            model_entry_id=None,
+            model_id=model_name,
+            capabilities=effective,
+        )
+
         transcriber = self._create_transcriber(
             adapter_type,
             credentials,
@@ -514,7 +1005,6 @@ class PipelineResolver:
             model_name,
         )
 
-        # Create the text processor (if needed).
         text_processor: TextProcessor | None = None
         if needs_refinement:
             text_processor = self._create_text_processor(
@@ -529,6 +1019,8 @@ class PipelineResolver:
             text_processor=text_processor,
             provider_name=provider["name"],
             model_name=model_name,
+            transcript_model=model_ref,
+            refine_model=model_ref if needs_refinement else None,
             resolution_log=log,
         )
 
@@ -540,30 +1032,42 @@ class PipelineResolver:
     ) -> ExecutionPlan:
         """Build an execution plan using separate providers for
         transcription and refinement."""
-        # Transcription provider
         tx_type = tx_provider["adapter_type"]
         tx_creds = tx_provider.get("credentials") or ""
         tx_endpoint = tx_provider.get("endpoint") or ""
         tx_model = tx_provider.get("model_name") or _default_model_for(tx_type)
 
-        transcriber = self._create_transcriber(
-            tx_type,
-            tx_creds,
-            tx_endpoint,
-            tx_model,
-        )
-
-        # Refinement provider
         ref_type = ref_provider["adapter_type"]
         ref_creds = ref_provider.get("credentials") or ""
         ref_endpoint = ref_provider.get("endpoint") or ""
         ref_model = ref_provider.get("model_name") or _default_model_for(ref_type)
 
+        tx_caps = detect_capabilities(tx_type, tx_model)
+        tx_overrides = tx_provider.get("capabilities")
+        tx_effective = merge_capabilities(tx_caps, tx_overrides)
+
+        ref_caps = detect_capabilities(ref_type, ref_model)
+        ref_overrides = ref_provider.get("capabilities")
+        ref_effective = merge_capabilities(ref_caps, ref_overrides)
+
+        tx_model_ref = ModelRef(
+            provider_id=tx_provider["id"],
+            adapter_type=tx_type,
+            model_entry_id=None,
+            model_id=tx_model,
+            capabilities=tx_effective,
+        )
+        ref_model_ref = ModelRef(
+            provider_id=ref_provider["id"],
+            adapter_type=ref_type,
+            model_entry_id=None,
+            model_id=ref_model,
+            capabilities=ref_effective,
+        )
+
+        transcriber = self._create_transcriber(tx_type, tx_creds, tx_endpoint, tx_model)
         text_processor = self._create_text_processor(
-            ref_type,
-            ref_creds,
-            ref_endpoint,
-            ref_model,
+            ref_type, ref_creds, ref_endpoint, ref_model
         )
 
         return ExecutionPlan(
@@ -571,6 +1075,8 @@ class PipelineResolver:
             text_processor=text_processor,
             provider_name=f"{tx_provider['name']} + {ref_provider['name']}",
             model_name=f"{tx_model} / {ref_model}",
+            transcript_model=tx_model_ref,
+            refine_model=ref_model_ref,
             resolution_log=log,
         )
 
@@ -635,3 +1141,83 @@ class PipelineResolver:
             failure_threshold=_RESILIENCE_DEFAULTS["failure_threshold"],
             cooldown_seconds=_RESILIENCE_DEFAULTS["cooldown_seconds"],
         )
+
+    def _create_fallback_chain_tx(
+        self,
+        primary_ref: ModelRef,
+        provider: Dict[str, Any],
+    ) -> Transcriber:
+        """Create a :class:`Transcriber` with runtime fallback support.
+
+        Returns a :class:`FallbackTranscriber` when the ref has fallbacks,
+        otherwise a plain :class:`ResilientTranscriber`.
+        """
+        primary = self._create_transcriber(
+            primary_ref.adapter_type,
+            provider.get("credentials") or "",
+            provider.get("endpoint") or "",
+            primary_ref.model_id,
+        )
+        if not primary_ref.fallback_entry_ids:
+            return primary
+
+        fallback_list: list[Transcriber] = []
+        for fb_entry_id in primary_ref.fallback_entry_ids:
+            fb_entry = self._db.get_provider_model(fb_entry_id)
+            if fb_entry is None or not fb_entry.get("enabled"):
+                continue
+            fb_provider = self._db.get_provider(fb_entry["provider_id"])
+            if fb_provider is None or not fb_provider.get("enabled"):
+                continue
+            fb_instance = self._create_transcriber(
+                fb_provider.get("adapter_type", primary_ref.adapter_type),
+                fb_provider.get("credentials") or "",
+                fb_provider.get("endpoint") or "",
+                fb_entry["model_id"],
+            )
+            fallback_list.append(fb_instance)
+
+        if not fallback_list:
+            return primary
+
+        return FallbackTranscriber(primary, fallback_list)
+
+    def _create_fallback_chain_tp(
+        self,
+        primary_ref: ModelRef,
+        provider: Dict[str, Any],
+    ) -> TextProcessor:
+        """Create a :class:`TextProcessor` with runtime fallback support.
+
+        Returns a :class:`FallbackTextProcessor` when the ref has fallbacks,
+        otherwise a plain :class:`ResilientTextProcessor`.
+        """
+        primary = self._create_text_processor(
+            primary_ref.adapter_type,
+            provider.get("credentials") or "",
+            provider.get("endpoint") or "",
+            primary_ref.model_id,
+        )
+        if not primary_ref.fallback_entry_ids:
+            return primary
+
+        fallback_list: list[TextProcessor] = []
+        for fb_entry_id in primary_ref.fallback_entry_ids:
+            fb_entry = self._db.get_provider_model(fb_entry_id)
+            if fb_entry is None or not fb_entry.get("enabled"):
+                continue
+            fb_provider = self._db.get_provider(fb_entry["provider_id"])
+            if fb_provider is None or not fb_provider.get("enabled"):
+                continue
+            fb_instance = self._create_text_processor(
+                fb_provider.get("adapter_type", primary_ref.adapter_type),
+                fb_provider.get("credentials") or "",
+                fb_provider.get("endpoint") or "",
+                fb_entry["model_id"],
+            )
+            fallback_list.append(fb_instance)
+
+        if not fallback_list:
+            return primary
+
+        return FallbackTextProcessor(primary, fallback_list)

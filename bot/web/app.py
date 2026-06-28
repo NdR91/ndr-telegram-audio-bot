@@ -1691,6 +1691,7 @@ def create_app(
             if mode == "two_stage":
                 tx_model_id_str = form_data.get("tx_model_id", "")
                 ref_model_id_str = form_data.get("ref_model_id", "")
+                refinement_optional = form_data.get("refinement_optional") == "1"
                 tx_model_id = int(tx_model_id_str) if tx_model_id_str else None
                 ref_model_id = int(ref_model_id_str) if ref_model_id_str else None
 
@@ -1698,6 +1699,13 @@ def create_app(
                     return RedirectResponse(
                         url="/admin/pipeline?error=no_tx_model",
                         status_code=303,
+                    )
+
+                # Log the optional refinement intent (no DB column needed —
+                # absence of a refinement stage is the stored signal).
+                if refinement_optional:
+                    logger.debug(
+                        "Admin pipeline: refinement marked optional for profile"
                     )
 
                 # Find the provider IDs for the models

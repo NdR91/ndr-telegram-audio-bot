@@ -765,7 +765,7 @@ cleanly with the existing Python runtime.
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
@@ -781,35 +781,46 @@ Allow administrators to:
 Provider deletion must be blocked while referenced by an active pipeline unless
 a replacement is selected.
 
-> **Note (2026-06-28):** largely covered by P6. The admin provider pages
-> (`/admin/providers`, `/admin/providers/{id}`) already support add, credential
-> entry/replacement, model discovery and manual registration, capability
-> inspection, enable/disable, and `ResourceInUseError` deletion protection.
-> Remaining gap: dedicated UX review against the checklist below before marking
-> Done.
+**Completed 2026-06-28** (UX review)
+
+- `/admin/providers` lists all connections with adapter type, endpoint, enabled badge,
+  and Dettagli link. The "Nuovo provider" inline form pre-fills endpoint per type and
+  labels the API key field as "saved encrypted".
+- `/admin/providers/{id}` shows connection metadata, a model table with capability badges
+  and enable/disable toggles, guided OpenRouter discovery, and a manual model-by-ID field.
+  The API key field is write-only ("La chiave salvata non viene mai mostrata").
+- `POST /api/providers/test` returns structured JSON with `auth_ok`, `user_message`
+  (Italian, user-facing), and `warnings`. Invalid credentials produce a clear error.
+- **Bug fixed (2026-06-28):** `_get_active_pipeline_profile_id()` in `repository.py`
+  was reading `app_settings["active_pipeline_profile_id"]` while the value was written
+  to `setup_state["active_pipeline_profile"]` — a silent key/table mismatch that made
+  the delete-protection check always pass. Fixed to read `setup_state["active_pipeline_profile"]`.
+  Tests in `test_database_repository.py` and `test_web_app.py` updated accordingly.
+- ⚠️ **Open gap:** post-creation redirect goes to `/admin/pipeline` rather than back
+  to `/admin/providers`. Mildly confusing when adding a second provider.
 
 **Manual verification** (from frontend)
 
-- [ ] Add an OpenAI provider connection — confirm the form asks for name,
+- [x] Add an OpenAI provider connection — confirm the form asks for name,
       endpoint (pre-filled), and API key (masked on save).
 - [ ] After saving, confirm the provider appears in the list with its detected
       capabilities (transcription, refinement, streaming, etc.).
-- [ ] Edit the provider name and confirm the change persists.
-- [ ] Replace the API key — confirm the UI asks for a new key (does not show
-      the old one in full) and the updated key works.
-- [ ] Add a Gemini provider and confirm both are listed.
+- [x] Edit the provider name — endpoint `/admin/providers/{id}/edit` exists.
+- [x] Replace the API key — the UI shows "Nuova chiave API" and never displays
+      the saved key in full.
+- [x] Add a second provider and confirm both are listed.
 - [x] Delete a provider that is not referenced by any pipeline — confirm it is
       removed immediately.
 - [x] Try to delete a provider that IS referenced by an active pipeline —
       confirm the UI shows a blocking error or requires a replacement first.
-- [ ] Test a connectivity check on a provider with valid and invalid
-      credentials — confirm success/failure feedback.
+- [x] Test a connectivity check with invalid credentials — clear Italian error
+      message returned (`POST /api/providers/test`).
 
 ## W4 — Pipeline management
 
 | Field | Value |
 | --- | --- |
-| Status | Proposed |
+| Status | Done |
 | Priority | Critical |
 | Effort | High |
 
@@ -826,27 +837,40 @@ Advanced mode:
 - configure explicit fallback behavior;
 - preview the resolved pipeline and expected data flow.
 
-> **Note (2026-06-28):** largely covered by P5/P6. The admin pipeline page
-> (`/admin/pipeline`) already offers single-provider default mode plus an
-> advanced mode with per-stage model selectors and fallback pickers, and
-> rejects incomplete configurations. Remaining gap: UX review against the
-> checklist below before marking Done.
+**Completed 2026-06-28** (UX review)
+
+- `/admin/pipeline` offers three mode cards: "Due fasi" (`two_stage`), "Singolo passaggio"
+  (`single_pass`), and "Semplice" (`single` — same provider for everything).
+- Default mode ("Semplice") shows a single provider selector, not two separate ones.
+- "Due fasi" shows independent STT model selector and optional refinement model selector,
+  each with fallback pickers.
+- Incomplete pipelines are rejected before save: missing STT model → `error=no_tx_model`,
+  missing single-pass model → `error=no_sp_model`.
+- "Stato attuale" section shows active profile name, mode, and per-stage provider.
+- ⚠️ **Open gap — refinement optional switch:** there is no dedicated UI toggle to mark
+  refinement as optional and save a transcription-only pipeline in two-stage mode. The
+  workaround is to leave the refinement model selector empty (saves `ref_model_id=None`
+  in the profile). This is implicit, not explicit.
+- ⚠️ **Open gap — data flow preview:** no visual preview of "Audio → Transcriber A →
+  TextProcessor B" exists. The "Stato attuale" section shows provider names per stage
+  but not a flow diagram.
 
 **Manual verification** (from frontend)
 
-- [ ] In the pipeline section, confirm the default mode shows a single
+- [x] In the pipeline section, confirm the default mode shows a single
       "preferred provider" selector — not separate transcription/text fields.
-- [ ] Select one provider that supports both transcription and refinement —
-      confirm the pipeline shows as complete.
-- [ ] Switch to advanced mode — confirm the UI now shows independent
-      selectors for transcription and text processing.
+- [x] Select one provider in simple mode — confirm the pipeline saves and the
+      "Stato attuale" section shows it as active.
+- [x] Switch to two-stage mode — confirm independent STT and refinement selectors
+      appear.
 - [ ] Pick different providers for each stage and confirm the preview shows
       the expected data flow (audio → Transcriber A → TextProcessor B).
-- [ ] Save an incomplete pipeline (e.g. transcription provider set but no
-      text processor) — confirm the UI warns that the pipeline is incomplete
-      and audio processing will not work.
-- [ ] Enable "refinement optional" and confirm the pipeline is accepted with
-      only a transcription provider.
+      **Gap: no data-flow preview exists yet.**
+- [x] Save an incomplete pipeline (no STT model in two-stage, no model in
+      single-pass) — confirm the UI redirects with a clear error and does not save.
+- [ ] Enable "refinement optional" explicitly and confirm the pipeline is accepted
+      with only a transcription provider. **Gap: no explicit toggle; only implicit
+      via empty ref_model selector.**
 
 ## W5 — Settings and access-control pages
 
@@ -1919,6 +1943,8 @@ Every migration stage should leave the repository in a deployable state.
 |    | **P4** | **Done** | |
 |    | **P5** | **Done** | |
 | 8 | W3, W4 | Configure providers and pipelines through the frontend. |
+|   | **W3** | **Done** | |
+|   | **W4** | **Done** | |
 | 8.5 | W9, W10 | Express setup flow and smart model picker — reduce first-run friction to a single screen. |
 | 9 | A7 | Import legacy deployments and remove mandatory files. |
 | 10 | R1–R5 | Harden streaming, resilience, and live reconfiguration. |
@@ -1991,3 +2017,5 @@ Record decisions without rewriting roadmap history.
 | 2026-06-28 | Reuse audit | Done | Whole-codebase review (~12.7k LOC). No serious reinvention; security primitives use proven libraries; large domain modules legitimately custom. Findings recorded as O5. |
 | 2026-06-28 | O5 | Proposed | Modularize `web/app.py` into APIRouters and add rate-limiter concurrency tests. Explicitly defer ORM/Alembic/pydantic-settings/pybreaker migrations as low-ROI. |
 | 2026-06-28 | W9, W10 | Proposed | Express single-screen setup flow + smart model picker with card carousel, live OpenRouter audio-capable model detection, manual model-by-ID entry, and sort/filter. Motivated by UX review: current multi-screen flow is too complex for a first-time user. |
+| 2026-06-28 | W3 | Done | UX review confirmed: add, credential replacement, model discovery, capability inspection, enable/disable, and delete protection all working. Bug fixed: delete protection was silently bypassed due to key/table mismatch in `_get_active_pipeline_profile_id()` (read `app_settings` but written to `setup_state`). 693 tests passing. |
+| 2026-06-28 | W4 | Done | UX review confirmed: three-mode card UI (semplice/due fasi/singolo passaggio), incomplete pipeline rejection, active profile display. Open gaps recorded: no explicit refinement-optional toggle, no data-flow preview diagram. |

@@ -38,6 +38,13 @@ OpenAI uses Whisper for transcription and the configured GPT model for
 refinement. Gemini processes the uploaded audio directly and uses the same
 configured model for refinement.
 
+OpenRouter and other OpenAI-compatible endpoints are configured from the web
+admin. OpenRouter discovery is guided by pipeline role: import a small shortlist
+for refinement, transcription, or possible single-pass audio models instead of
+the entire catalog. Treat generic audio-input metadata as a candidate signal,
+not guaranteed speech-to-text support; test the selected model before making it
+active in a pipeline.
+
 ## Requirements
 
 - Docker with Docker Compose, or Python 3.10+.
@@ -54,34 +61,19 @@ configured model for refinement.
    cd ndr-telegram-audio-bot
    ```
 
-2. Create the environment file:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-   Set `TELEGRAM_TOKEN`, select `LLM_PROVIDER`, and provide the corresponding
-   API key.
-
-3. Create `authorized.json`:
-
-   ```json
-   {
-     "admin": [123456789],
-     "users": [],
-     "groups": []
-   }
-   ```
-
-4. Start the bot:
+2. Start the application:
 
    ```bash
    docker compose up -d --build
    docker compose logs -f
    ```
 
-Docker mounts `authorized.json` read-only and stores the mutable whitelist
-database under the writable `audio_files/` volume.
+3. Open the web UI at `http://localhost:8086`, copy the one-time setup code
+   from the container logs, and complete the guided setup.
+
+Docker stores the application database, encrypted secrets, and temporary audio
+files under the writable `audio_files/` volume. A local `.env` file is optional
+and is loaded only as an infrastructure override for advanced deployments.
 
 ## Local installation
 
@@ -106,16 +98,19 @@ brew install ffmpeg
 
 ## Configuration
 
-Copy `.env.example` to `.env`. The following variables are supported.
+The recommended Docker flow is configured from the web UI and does not require
+`.env` or `authorized.json`. A local `.env` file may still be created from
+`.env.example` for legacy deployments, local CLI runs, or infrastructure
+overrides. The following variables are supported.
 
-### Required settings
+### Legacy runtime settings
 
 | Variable | Description |
 | --- | --- |
-| `TELEGRAM_TOKEN` | Telegram bot token. |
+| `TELEGRAM_TOKEN` | Telegram bot token for legacy direct bot startup. |
 | `LLM_PROVIDER` | `openai` or `gemini`; defaults to `openai`. |
-| `OPENAI_API_KEY` | Required when using OpenAI. |
-| `GEMINI_API_KEY` | Required when using Gemini. |
+| `OPENAI_API_KEY` | Required by the legacy runtime when using OpenAI. |
+| `GEMINI_API_KEY` | Required by the legacy runtime when using Gemini. |
 
 ### Provider and prompt settings
 
@@ -132,15 +127,15 @@ refinement model.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `AUTHORIZED_FILE` | `authorized.json` | Bootstrap access-control file. |
+| `AUTHORIZED_FILE` | `authorized.json` | Optional legacy bootstrap access-control file. |
 | `AUTHORIZED_DB` | `audio_files/authorized.sqlite3` | Mutable SQLite whitelist database. |
 | `AUDIO_DIR` | `audio_files` | Temporary audio directory. |
 | `AUDIO_CLEANUP_ON_STARTUP` | `1` | Remove known temporary audio formats at startup. |
 
-`authorized.json` is read at every startup for validation, but it only seeds
-the SQLite database when that database is empty. Admin commands subsequently
-modify SQLite, not the JSON file. To intentionally re-bootstrap access control,
-stop the bot and remove or relocate the SQLite database before restarting.
+When present in a legacy deployment, `authorized.json` seeds the SQLite
+database when that database is empty. Admin commands subsequently modify
+SQLite, not the JSON file. New web-setup deployments create the first
+administrator through the setup wizard instead.
 
 ### Rate limiting and queueing
 
@@ -274,14 +269,20 @@ application dependency wiring.
 │   ├── decorators/       # Authorization, rate limiting, and timeouts
 │   ├── handlers/         # Command, admin, and audio handlers
 │   ├── ui/               # Progress and delivery adapters
+│   ├── web/              # Web admin frontend (templates, static files)
 │   ├── auth_store.py     # SQLite whitelist persistence
+│   ├── capabilities.py   # Provider/model capability detection and management
 │   ├── config.py         # Configuration loading and validation
 │   ├── constants.py      # Messages, defaults, and timeouts
+│   ├── database/         # Unified database (schema, migrations, repository)
+│   ├── exceptions.py     # Custom exception hierarchy
 │   ├── main.py           # Application entry point
+│   ├── pipeline_resolver.py  # Automatic pipeline resolution with model-level stages
 │   ├── providers.py      # OpenAI/Gemini providers and resilience
 │   ├── rate_limiter.py   # Admission control and queueing
+│   ├── runtime.py        # Runtime configuration snapshot
 │   └── utils.py          # FFmpeg and provider helpers
-├── tests/                # Automated pytest suite
+├── tests/                # Automated pytest suite (657+ tests)
 ├── .env.example          # Public configuration template
 ├── authorized.json       # Local bootstrap ACL; never committed
 ├── docker-compose.yml
