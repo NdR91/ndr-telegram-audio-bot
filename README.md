@@ -11,7 +11,11 @@ practice and is maintained as a small, real-world application.
 
 ## Features
 
-- OpenAI and Google Gemini provider implementations.
+- OpenAI and Google Gemini provider implementations, plus OpenAI-compatible
+  endpoints such as OpenRouter.
+- Guided express setup (`/setup/express`) with a card-based smart model picker:
+  curated OpenRouter shortlists, real pricing/capability metadata, and manual
+  model entry verified against the OpenRouter catalog.
 - Voice note, audio, and audio-document support.
 - FFmpeg conversion with stage-specific timeouts.
 - Configurable transcript-refinement prompts.
@@ -240,8 +244,8 @@ Using `python -m pytest` avoids import-path differences between pytest
 installations.
 
 GitHub Actions compiles the Python sources, smoke-tests package imports, and
-runs the complete suite on Python 3.10, 3.11, and 3.12 without requiring
-Telegram or provider credentials.
+runs the complete suite (730+ tests) on Python 3.10, 3.11, and 3.12 without
+requiring Telegram or provider credentials.
 
 The suite includes offline integration coverage for the decorated audio
 handler, queue handoff, provider and Telegram failures, cleanup, and
@@ -269,7 +273,16 @@ application dependency wiring.
 │   ├── decorators/       # Authorization, rate limiting, and timeouts
 │   ├── handlers/         # Command, admin, and audio handlers
 │   ├── ui/               # Progress and delivery adapters
-│   ├── web/              # Web admin frontend (templates, static files)
+│   ├── web/              # Web admin frontend
+│   │   ├── routes_setup.py      # /setup, /api/setup/* (express setup, model picker)
+│   │   ├── routes_auth.py       # /login, /logout, /recovery
+│   │   ├── routes_admin.py      # /admin/dashboard, /api/state, /api/health
+│   │   ├── routes_providers.py  # /admin/providers, /api/providers/*
+│   │   ├── routes_pipeline.py   # /admin/pipeline, /api/pipeline/*
+│   │   ├── pipeline_builder.py  # Shared provider/profile/stage builders
+│   │   ├── setup_wizard.py      # Express setup provider presets and helpers
+│   │   ├── helpers.py, dependencies.py  # Shared web-layer utilities
+│   │   └── templates/, static/  # Jinja2 templates and CSS
 │   ├── auth_store.py     # SQLite whitelist persistence
 │   ├── capabilities.py   # Provider/model capability detection and management
 │   ├── config.py         # Configuration loading and validation
@@ -277,12 +290,13 @@ application dependency wiring.
 │   ├── database/         # Unified database (schema, migrations, repository)
 │   ├── exceptions.py     # Custom exception hierarchy
 │   ├── main.py           # Application entry point
+│   ├── model_picker.py   # Smart model picker card shaping and OpenRouter shortlists
 │   ├── pipeline_resolver.py  # Automatic pipeline resolution with model-level stages
 │   ├── providers.py      # OpenAI/Gemini providers and resilience
 │   ├── rate_limiter.py   # Admission control and queueing
 │   ├── runtime.py        # Runtime configuration snapshot
 │   └── utils.py          # FFmpeg and provider helpers
-├── tests/                # Automated pytest suite (657+ tests)
+├── tests/                # Automated pytest suite (730+ tests)
 ├── .env.example          # Public configuration template
 ├── authorized.json       # Local bootstrap ACL; never committed
 ├── docker-compose.yml
