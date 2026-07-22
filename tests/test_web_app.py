@@ -796,7 +796,7 @@ def test_providers_test_openrouter_text_only(ready_app, monkeypatch):
         )
 
     monkeypatch.setattr(
-        "bot.web.app.probe_openrouter_capabilities",
+        "bot.web.helpers.probe_openrouter_capabilities",
         mock_probe,
     )
 
@@ -854,7 +854,7 @@ def test_providers_test_openrouter_transcription_model(ready_app, monkeypatch):
         )
 
     monkeypatch.setattr(
-        "bot.web.app.probe_openrouter_capabilities",
+        "bot.web.helpers.probe_openrouter_capabilities",
         mock_probe,
     )
 
@@ -906,7 +906,7 @@ def test_providers_test_openrouter_unknown_metadata(ready_app, monkeypatch):
         )
 
     monkeypatch.setattr(
-        "bot.web.app.probe_openrouter_capabilities",
+        "bot.web.helpers.probe_openrouter_capabilities",
         mock_probe,
     )
 
@@ -1115,7 +1115,7 @@ def test_setup_test_provider_openrouter_audio_input_no_stt(fresh_app, monkeypatc
         )
 
     monkeypatch.setattr(
-        "bot.web.app.probe_openrouter_capabilities",
+        "bot.web.helpers.probe_openrouter_capabilities",
         mock_probe,
     )
 
@@ -1177,7 +1177,7 @@ def test_setup_test_provider_openrouter_transcription_model(fresh_app, monkeypat
         )
 
     monkeypatch.setattr(
-        "bot.web.app.probe_openrouter_capabilities",
+        "bot.web.helpers.probe_openrouter_capabilities",
         mock_probe,
     )
 
@@ -2258,7 +2258,7 @@ def test_api_setup_express_creates_two_stage_profile(fresh_app):
     async def fake_test_provider(*args, **kwargs):
         return provider_result
 
-    with patch("bot.web.app._test_provider_connection", fake_test_provider):
+    with patch("bot.web.routes_setup.test_provider_connection", fake_test_provider):
         with TestClient(fresh_app) as client:
             resp = client.get("/setup/express")
             csrf = _extract_csrf(resp.text)

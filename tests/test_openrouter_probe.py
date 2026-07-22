@@ -521,7 +521,7 @@ class TestAdminProviderCreateOpenRouter:
             )
 
         monkeypatch.setattr(
-            "bot.web.app.probe_openrouter_capabilities",
+            "bot.web.routes_providers.probe_openrouter_capabilities",
             mock_probe,
         )
 
@@ -576,7 +576,7 @@ class TestAdminProviderCreateOpenRouter:
             )
 
         monkeypatch.setattr(
-            "bot.web.app.probe_openrouter_capabilities",
+            "bot.web.routes_providers.probe_openrouter_capabilities",
             mock_probe,
         )
 
@@ -621,7 +621,7 @@ class TestAdminProviderCreateOpenRouter:
             )
 
         monkeypatch.setattr(
-            "bot.web.app.probe_openrouter_capabilities",
+            "bot.web.routes_providers.probe_openrouter_capabilities",
             mock_probe,
         )
 
@@ -664,7 +664,7 @@ class TestAdminProviderCreateOpenRouter:
         # Ensure probe is never called for OpenAI
         probe_spy = AsyncMock()
         monkeypatch.setattr(
-            "bot.web.app.probe_openrouter_capabilities",
+            "bot.web.routes_providers.probe_openrouter_capabilities",
             probe_spy,
         )
 
@@ -706,7 +706,7 @@ class TestAdminProviderCreateOpenRouter:
 
         probe_spy = AsyncMock()
         monkeypatch.setattr(
-            "bot.web.app.probe_openrouter_capabilities",
+            "bot.web.routes_providers.probe_openrouter_capabilities",
             probe_spy,
         )
 
@@ -771,7 +771,7 @@ class TestSetupWizardDetectOpenRouter:
             )
 
         monkeypatch.setattr(
-            "bot.web.app.probe_openrouter_capabilities",
+            "bot.web.routes_setup.probe_openrouter_capabilities",
             mock_probe,
         )
 
@@ -802,7 +802,7 @@ class TestSetupWizardDetectOpenRouter:
 
         probe_spy = AsyncMock()
         monkeypatch.setattr(
-            "bot.web.app.probe_openrouter_capabilities",
+            "bot.web.routes_setup.probe_openrouter_capabilities",
             probe_spy,
         )
 
