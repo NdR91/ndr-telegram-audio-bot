@@ -22,7 +22,7 @@ from bot.config_service import ConfigService
 from bot.database import DatabaseManager, SecretStore, SecretStoreError
 from bot.exceptions import ConfigError
 from bot.runtime_manager import RuntimeManager
-from bot.setup import generate_setup_code, is_code_generated
+from bot.setup import generate_setup_code, invalidate_setup_code, is_code_generated
 from bot.state import AppState, StateChecker
 from bot import utils
 
@@ -216,15 +216,18 @@ def main() -> None:
         # On a blank data volume (state == SETUP_REQUIRED) generate a
         # time-limited one-time setup code and print it prominently in
         # the logs.  The code is stored only as a SHA-256 hash.
+        # Always regenerate on every startup while setup is pending so
+        # the code is always visible in the logs, even after a restart.
         # NOTE: Currently this is gated by the legacy-config shortcut:
         # when a valid .env exists, the state checker returns READY and
         # no code is generated.  Once A7 removes mandatory .env, this
         # path will activate automatically on first start.
         app_state = state_checker.get_state()
         if app_state.state == AppState.SETUP_REQUIRED:
-            if not is_code_generated(database_manager):
-                setup_code = generate_setup_code(database_manager)
-                _print_setup_code(setup_code)
+            if is_code_generated(database_manager):
+                invalidate_setup_code(database_manager)
+            setup_code = generate_setup_code(database_manager)
+            _print_setup_code(setup_code)
 
         # Create RuntimeManager (A5) — owns the Telegram bot lifecycle.
         # In the current migration stage the manager runs in blocking

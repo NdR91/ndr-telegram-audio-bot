@@ -103,6 +103,10 @@ class FallbackTranscriber(Transcriber):
     def get_capabilities(self):
         return self._primary.get_capabilities()
 
+    def accepted_formats(self) -> frozenset[str]:
+        """Delegate to the primary transcriber."""
+        return self._primary.accepted_formats()
+
 
 class FallbackTextProcessor(TextProcessor):
     """Wrapper that tries a primary text processor then fallbacks in order.
@@ -843,6 +847,27 @@ class PipelineResolver:
         """
         log: list[str] = []
         mode = (request or PipelineRequest()).mode
+
+        # 0. Prefer an active pipeline profile when one exists.
+        #    Pipeline profiles carry explicit model stages (e.g. whisper-1
+        #    for transcription, a separate model for refinement) which are
+        #    lost by the simple provider-level path below.
+        active_id = self._db.get_setup_state("active_pipeline_profile")
+        if active_id:
+            try:
+                profile_id = int(active_id)
+            except (ValueError, TypeError):
+                pass
+            else:
+                log.append(
+                    f"Found active pipeline profile (id={profile_id}) — "
+                    f"delegating to resolve_from_profile"
+                )
+                return self.resolve_from_profile(
+                    profile_id,
+                    request,
+                    refinement_globally_disabled=refinement_globally_disabled,
+                )
 
         # 1. Load enabled providers from the database.
         providers = self._db.list_providers()

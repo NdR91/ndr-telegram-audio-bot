@@ -86,9 +86,12 @@ def _gemini_native_processor(
 def _openai_compat_transcriber(
     api_key: str,
     endpoint: str = "",
+    model_name: str = "whisper-1",
     **kwargs,  # noqa: ARG001
 ) -> OpenAICompatTranscriber:
-    return OpenAICompatTranscriber(api_key=api_key, endpoint=endpoint)
+    return OpenAICompatTranscriber(
+        api_key=api_key, endpoint=endpoint, model_name=model_name,
+    )
 
 
 def _openai_compat_processor(

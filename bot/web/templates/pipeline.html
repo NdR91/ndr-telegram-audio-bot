@@ -15,74 +15,136 @@
         </div>
     </div>
 
-    <div class="card card-note">
-        <h4>💡 Provider ≠ Modello</h4>
-        <ul class="note-list">
+    {# --- Collapsible help: Provider ≠ Modello --- #}
+    <details class="pipeline-help">
+        <summary><span class="pipeline-help-icon" aria-hidden="true"></span> Provider ≠ Modello — cosa cambia</summary>
+        <ul class="pipeline-help-list">
             <li>Un <strong>provider</strong> è una connessione API (OpenAI, Gemini, OpenRouter…).</li>
             <li>Un <strong>modello</strong> è un'AI specifica offerta da un provider (es. <code>gpt-4o</code>, <code>whisper-1</code>).</li>
             <li>Stesso provider, modelli diversi = capacità diverse.</li>
             <li>Esempio: con OpenRouter, <code>whisper-1</code> per trascrizione e <code>gpt-4o</code> per refinement.</li>
             <li>I <strong>fallback</strong> permettono di specificare modelli alternativi in caso di errore del primario.</li>
         </ul>
-    </div>
+    </details>
 
+    {# --- Alerts --- #}
     {% if request.query_params.get("success") == "saved" %}
-    <div class="alert alert-success">✅ Configurazione salvata con successo.</div>
+    <div class="alert alert-success">Configurazione salvata con successo.</div>
     {% endif %}
     {% if request.query_params.get("success") == "provider_created" %}
-    <div class="alert alert-success">✅ Provider creato. Scopri i modelli e configura la pipeline.</div>
+    <div class="alert alert-success">Provider creato. Scopri i modelli e configura la pipeline.</div>
     {% endif %}
     {% if request.query_params.get("error") == "csrf" %}
-    <div class="alert alert-error">❌ Errore di sicurezza. Ricarica la pagina e riprova.</div>
+    <div class="alert alert-error">Errore di sicurezza. Ricarica la pagina e riprova.</div>
     {% endif %}
     {% if request.query_params.get("error") == "no_tx_model" %}
-    <div class="alert alert-error">❌ Seleziona un modello per la trascrizione.</div>
+    <div class="alert alert-error">Seleziona un modello per la trascrizione.</div>
     {% endif %}
     {% if request.query_params.get("error") == "no_sp_model" %}
-    <div class="alert alert-error">❌ Seleziona un modello per il passaggio singolo.</div>
+    <div class="alert alert-error">Seleziona un modello per il passaggio singolo.</div>
     {% endif %}
     {% if request.query_params.get("error") == "save_failed" %}
-    <div class="alert alert-error">❌ Errore durante il salvataggio. Controlla i log.</div>
+    <div class="alert alert-error">Errore durante il salvataggio. Controlla i log.</div>
     {% endif %}
 
-    {# --- Current pipeline status --- #}
-    <section class="surface-section">
+    {# --- Pipeline summary --- #}
+    <section class="surface-section pipeline-summary">
         <div class="section-header">
             <div>
                 <h2>Stato attuale</h2>
-                <p>Profilo attivo e modelli usati dal bot.</p>
             </div>
         </div>
         {% if profile %}
-        <div class="pipeline-status">
-            <div class="status-row">
-                <span class="status-label">Profilo:</span>
-                <span class="status-value">{{ profile.name }}</span>
+        <div class="pipeline-summary-body">
+            <div class="pipeline-summary-row">
+                <span class="pipeline-summary-dot pipeline-summary-dot--ok" aria-hidden="true"></span>
+                <span class="pipeline-summary-label">Profilo</span>
+                <span class="pipeline-summary-value">{{ profile.name }}</span>
             </div>
-            <div class="status-row">
-                <span class="status-label">Modalità:</span>
-                <span class="status-value">
+            <div class="pipeline-summary-row">
+                <span class="pipeline-summary-dot pipeline-summary-dot--active" aria-hidden="true"></span>
+                <span class="pipeline-summary-label">Modalità</span>
+                <span class="pipeline-summary-value">
                     {% if profile.mode == "single_pass" %}
-                    🔄 Singolo passaggio
+                    Singolo passaggio
+                    {% elif profile.mode == "single" %}
+                    Provider predefinito
                     {% else %}
-                    🔀 Due fasi
+                    Due fasi
                     {% endif %}
                 </span>
             </div>
+
+            {# --- Data flow preview --- #}
+            {% if profile.mode == "two_stage" and profile.stages %}
+            {% set tx_stage = profile.stages|selectattr("stage_type", "equalto", "transcription")|first %}
+            {% set ref_stage = profile.stages|selectattr("stage_type", "equalto", "refinement")|first %}
+            <div class="pipeline-flow">
+                <span class="pipeline-flow-dot">Audio</span>
+                <span class="pipeline-flow-arrow" aria-hidden="true"></span>
+                {% if tx_stage and tx_stage._primary_model %}
+                <code class="pipeline-flow-model">{{ tx_stage._primary_model.model_id }}</code>
+                {% else %}
+                <span class="pipeline-flow-missing">non configurato</span>
+                {% endif %}
+                {% if ref_stage and ref_stage._primary_model %}
+                <span class="pipeline-flow-arrow" aria-hidden="true"></span>
+                <code class="pipeline-flow-model">{{ ref_stage._primary_model.model_id }}</code>
+                {% endif %}
+                <span class="pipeline-flow-arrow" aria-hidden="true"></span>
+                <span class="pipeline-flow-dot">Testo</span>
+            </div>
+            {% elif profile.mode == "single_pass" %}
+            {% set sp_stage = profile.stages|selectattr("stage_type", "equalto", "single_pass")|first %}
+            <div class="pipeline-flow">
+                <span class="pipeline-flow-dot">Audio</span>
+                <span class="pipeline-flow-arrow" aria-hidden="true"></span>
+                {% if sp_stage and sp_stage._primary_model %}
+                <code class="pipeline-flow-model">{{ sp_stage._primary_model.model_id }}</code>
+                {% else %}
+                <span class="pipeline-flow-missing">non configurato</span>
+                {% endif %}
+                <span class="pipeline-flow-arrow" aria-hidden="true"></span>
+                <span class="pipeline-flow-dot">Testo</span>
+            </div>
+            {% elif profile.transcription_provider_id %}
+            {% set ns_prov = namespace(name="") %}
+            {% for p in providers %}
+                {% if p.id == profile.transcription_provider_id %}
+                    {% set ns_prov.name = p.name %}
+                {% endif %}
+            {% endfor %}
+            <div class="pipeline-flow">
+                <span class="pipeline-flow-dot">Audio</span>
+                <span class="pipeline-flow-arrow" aria-hidden="true"></span>
+                {% if ns_prov.name %}
+                <code class="pipeline-flow-model">{{ ns_prov.name }}</code>
+                {% else %}
+                <span class="pipeline-flow-missing">non configurato</span>
+                {% endif %}
+                <span class="pipeline-flow-arrow" aria-hidden="true"></span>
+                <span class="pipeline-flow-dot">Testo</span>
+            </div>
+            {% endif %}
+
+            {# --- Stage models --- #}
             {% if profile.stages %}
                 {% for stage in profile.stages %}
-                <div class="status-row">
-                    <span class="status-label">
-                        {% if stage.stage_type == "transcription" %}🎤 Trascrizione:{% endif %}
-                        {% if stage.stage_type == "refinement" %}📝 Refinement:{% endif %}
-                        {% if stage.stage_type == "single_pass" %}🔄 Passaggio unico:{% endif %}
+                <div class="pipeline-summary-row">
+                    <span class="pipeline-summary-label">
+                        {% if stage.stage_type == "transcription" %}Trascrizione:{% endif %}
+                        {% if stage.stage_type == "refinement" %}Refinement:{% endif %}
+                        {% if stage.stage_type == "single_pass" %}Passaggio unico:{% endif %}
                     </span>
-                    <span class="status-value">
+                    <span class="pipeline-summary-value">
                         {% if stage.primary_model_id %}
                             {% for p in providers %}
                                 {% for m in p.models or [] %}
                                     {% if m.id == stage.primary_model_id %}
-                                        <code>{{ m.model_id }}</code> ({{ p.name }})
+                                        <code>{{ m.model_id }}</code>
+                                        {% if stage.fallbacks %}
+                                        <span class="pipeline-fallback-chip" title="Ha fallback configurati">+{{ stage.fallbacks|length }}</span>
+                                        {% endif %}
                                     {% endif %}
                                 {% endfor %}
                             {% endfor %}
@@ -91,22 +153,6 @@
                         {% endif %}
                     </span>
                 </div>
-                {% if stage.fallbacks %}
-                <div class="status-row">
-                    <span class="status-label">⬇️ Fallback:</span>
-                    <span class="status-value">
-                        {% for fb in stage.fallbacks %}
-                            {% for p in providers %}
-                                {% for m in p.models or [] %}
-                                    {% if m.id == fb.model_id %}
-                                        <span class="fallback-badge"><code>{{ m.model_id }}</code></span>
-                                    {% endif %}
-                                {% endfor %}
-                            {% endfor %}
-                        {% endfor %}
-                    </span>
-                </div>
-                {% endif %}
                 {% endfor %}
                 {% if profile.mode == "two_stage" and profile.stages %}
                 {% set ns = namespace(has_refinement=False) %}
@@ -115,22 +161,22 @@
                         {% set ns.has_refinement = True %}
                     {% endif %}
                 {% endfor %}
-                <div class="status-row">
-                    <span class="status-label">📝 Refinement:</span>
-                    <span class="status-value">
+                <div class="pipeline-summary-row">
+                    <span class="pipeline-summary-label">Refinement:</span>
+                    <span class="pipeline-summary-value">
                         {% if ns.has_refinement %}
-                        <span style="color:var(--color-success)">✅ Attivo</span>
+                        <span class="badge badge-success">Attivo</span>
                         {% else %}
-                        <span style="color:var(--color-text-muted)">⏹️ Disabilitato</span>
+                        <span class="badge" style="background:var(--color-surface-raised);color:var(--color-text-muted);border-color:var(--color-border)">Disabilitato</span>
                         {% endif %}
                     </span>
                 </div>
                 {% endif %}
             {% else %}
-                {# Legacy display #}
-                <div class="status-row">
-                    <span class="status-label">Provider trascrizione:</span>
-                    <span class="status-value">
+                {% if profile.transcription_provider_id %}
+                <div class="pipeline-summary-row">
+                    <span class="pipeline-summary-label">Provider:</span>
+                    <span class="pipeline-summary-value">
                         {% for p in providers %}
                             {% if p.id == profile.transcription_provider_id %}
                                 {{ p.name }} ({{ p.adapter_type }})
@@ -138,77 +184,23 @@
                         {% endfor %}
                     </span>
                 </div>
-                <div class="status-row">
-                    <span class="status-label">Provider refinement:</span>
-                    <span class="status-value">
-                        {% if profile.text_provider_id %}
-                            {% for p in providers %}
-                                {% if p.id == profile.text_provider_id %}
-                                    {{ p.name }} ({{ p.adapter_type }})
-                                {% endif %}
-                            {% endfor %}
-                        {% else %}
-                            <em>Disabilitato</em>
-                        {% endif %}
+                {% endif %}
+                {% if profile.text_provider_id %}
+                <div class="pipeline-summary-row">
+                    <span class="pipeline-summary-label">Refinement:</span>
+                    <span class="pipeline-summary-value">
+                        {% for p in providers %}
+                            {% if p.id == profile.text_provider_id %}
+                                {{ p.name }} ({{ p.adapter_type }})
+                            {% endif %}
+                        {% endfor %}
                     </span>
                 </div>
-            {% endif %}
-
-            {# --- Data flow preview --- #}
-            {% if profile.mode == "two_stage" and profile.stages %}
-            {% set tx_stage = profile.stages|selectattr("stage_type", "equalto", "transcription")|first %}
-            {% set ref_stage = profile.stages|selectattr("stage_type", "equalto", "refinement")|first %}
-            <div class="flow-diagram" style="display:flex;align-items:center;flex-wrap:wrap;gap:0.5rem;padding:0.75rem 0 0.25rem;font-size:0.875rem;border-top:1px solid var(--color-border);margin-top:0.75rem">
-                <span>🎤 Audio</span>
-                <span style="color:var(--color-text-muted)">→</span>
-                {% if tx_stage and tx_stage._primary_model %}
-                <code>{{ tx_stage._primary_model.model_id }}</code>
-                {% else %}
-                <span class="model-badge" style="color:var(--color-warn)">⚠️ non configurato</span>
                 {% endif %}
-                {% if ref_stage and ref_stage._primary_model %}
-                <span style="color:var(--color-text-muted)">→</span>
-                <code>{{ ref_stage._primary_model.model_id }}</code>
-                {% endif %}
-                <span style="color:var(--color-text-muted)">→</span>
-                <span>📝 Testo</span>
-            </div>
-            {% elif profile.mode == "single_pass" %}
-            {% set sp_stage = profile.stages|selectattr("stage_type", "equalto", "single_pass")|first %}
-            <div class="flow-diagram" style="display:flex;align-items:center;flex-wrap:wrap;gap:0.5rem;padding:0.75rem 0 0.25rem;font-size:0.875rem;border-top:1px solid var(--color-border);margin-top:0.75rem">
-                <span>🎤 Audio</span>
-                <span style="color:var(--color-text-muted)">→</span>
-                {% if sp_stage and sp_stage._primary_model %}
-                <code>{{ sp_stage._primary_model.model_id }}</code>
-                {% else %}
-                <span class="model-badge" style="color:var(--color-warn)">⚠️ non configurato</span>
-                {% endif %}
-                <span style="color:var(--color-text-muted)">→</span>
-                <span>📝 Testo</span>
-            </div>
-            {% elif profile.transcription_provider_id %}
-            {# Simple / legacy: same provider for everything #}
-            {% set ns_prov = namespace(name="") %}
-            {% for p in providers %}
-                {% if p.id == profile.transcription_provider_id %}
-                    {% set ns_prov.name = p.name %}
-                {% endif %}
-            {% endfor %}
-            <div class="flow-diagram" style="display:flex;align-items:center;flex-wrap:wrap;gap:0.5rem;padding:0.75rem 0 0.25rem;font-size:0.875rem;border-top:1px solid var(--color-border);margin-top:0.75rem">
-                <span>🎤 Audio</span>
-                <span style="color:var(--color-text-muted)">→</span>
-                {% if ns_prov.name %}
-                <code>{{ ns_prov.name }}</code>
-                {% else %}
-                <span class="model-badge" style="color:var(--color-warn)">⚠️ non configurato</span>
-                {% endif %}
-                <span style="color:var(--color-text-muted)">→</span>
-                <span>📝 Testo</span>
-            </div>
             {% endif %}
         </div>
         {% else %}
-        <p class="form-help">Nessun profilo pipeline configurato. Crea una configurazione qui sotto.</p>
+        <p class="form-help pipeline-summary-empty">Nessun profilo pipeline configurato. Crea una configurazione qui sotto.</p>
         {% endif %}
     </section>
 
@@ -223,66 +215,48 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
         {# --- Mode selection --- #}
-        <section class="surface-section">
+        <section class="surface-section pipeline-mode-section">
             <div class="section-header">
                 <div>
                     <h2>Modalità pipeline</h2>
-                    <p>Scegli il tipo di elaborazione e poi assegna i modelli alle fasi.</p>
+                    <p class="section-copy">Scegli il tipo di elaborazione e assegna i modelli.</p>
                 </div>
             </div>
-            <div class="pipeline-options">
-                <div class="pipeline-option selected" data-mode="two_stage" tabindex="0" role="button">
-                    <div class="pipeline-option-icon">🔀</div>
-                    <div class="pipeline-option-content">
-                        <h4>Due fasi: trascrizione + refinement</h4>
-                        <p>L'audio viene prima trascritto da un modello STT, poi raffinato da un modello testo.
-                           Consente di usare modelli specializzati per ogni fase.</p>
-                        <ul class="pipeline-features">
-                            <li>✅ Modello STT dedicato (es. Whisper)</li>
-                            <li>✅ Modello testo separato per refinement (es. GPT, Claude)</li>
-                            <li>⚠️ Costo doppio (due chiamate API)</li>
-                            <li>⚠️ Latenza maggiore</li>
-                        </ul>
-                    </div>
-                    <input type="radio" name="pipeline_mode" value="two_stage"
-                           class="pipeline-option-radio" checked>
-                </div>
-
-                <div class="pipeline-option" data-mode="single_pass" tabindex="0" role="button">
-                    <div class="pipeline-option-icon">🔄</div>
-                    <div class="pipeline-option-content">
-                        <h4>Singolo passaggio</h4>
-                        <p>Un unico modello multimodale gestisce trascrizione e refinement in una chiamata.
-                           Ideale per modelli come Gemini che supportano input audio diretto.</p>
-                        <ul class="pipeline-features">
-                            <li>✅ Una sola chiamata API</li>
-                            <li>✅ Latenza ridotta</li>
-                            <li>⚠️ Richiede modello con capacità <code>single_pass_audio_to_text</code></li>
-                            <li>⚠️ Non tutti i provider supportano questa modalità</li>
-                        </ul>
-                    </div>
-                    <input type="radio" name="pipeline_mode" value="single_pass"
-                           class="pipeline-option-radio">
-                </div>
-
-                <div class="pipeline-option" data-mode="single" tabindex="0" role="button">
-                    <div class="pipeline-option-icon">🌟</div>
-                    <div class="pipeline-option-content">
-                        <h4>Semplice (stesso provider per tutto)</h4>
-                        <p>Usa un unico provider con il suo modello predefinito per trascrizione e refinement.</p>
-                    </div>
-                    <input type="radio" name="pipeline_mode" value="single"
-                           class="pipeline-option-radio">
-                </div>
+            <div class="express-mode-group" role="radiogroup" aria-label="Modalità elaborazione audio">
+                <label class="express-mode selected" data-mode="two_stage">
+                    <input type="radio" name="pipeline_mode" value="two_stage" checked>
+                    <span>
+                        <strong>Due fasi</strong>
+                        <small>Trascrizione STT + refinement testo. Modelli specializzati, due chiamate API.</small>
+                    </span>
+                </label>
+                <label class="express-mode" data-mode="single_pass">
+                    <input type="radio" name="pipeline_mode" value="single_pass">
+                    <span>
+                        <strong>Singolo passaggio</strong>
+                        <small>Modello multimodale unico. Una chiamata API, latenza ridotta.</small>
+                    </span>
+                </label>
+                <label class="express-mode" data-mode="single">
+                    <input type="radio" name="pipeline_mode" value="single">
+                    <span>
+                        <strong>Semplice</strong>
+                        <small>Stesso provider per tutto. Configurazione base, modello predefinito.</small>
+                    </span>
+                </label>
             </div>
         </section>
 
         {# --- Two stage: model selection --- #}
-        <section class="surface-section" id="two_stage-section">
-            <h2>Selezione modelli — Due fasi</h2>
-            <div class="model-select-grid">
-                <div class="model-select-card">
-                    <h4>🎤 Modello di trascrizione</h4>
+        <section class="surface-section pipeline-stage-section" id="two_stage-section">
+            <div class="section-header">
+                <div>
+                    <h2>Modelli — Due fasi</h2>
+                </div>
+            </div>
+            <div class="pipeline-stage-grid">
+                <div class="pipeline-stage-card">
+                    <h4>Trascrizione</h4>
                     <p class="form-help">Modello con capacità STT (speech-to-text).</p>
                     <div class="form-group">
                         <select id="tx_model_id" name="tx_model_id" class="input-lg">
@@ -299,12 +273,10 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <p class="form-help">
-                        <a href="/admin/providers">Scopri modelli</a> se non vedi opzioni.
-                    </p>
+                    <a href="/admin/providers" class="pipeline-stage-link">Scopri modelli</a>
                 </div>
-                <div class="model-select-card">
-                    <h4>📝 Modello di refinement (opzionale)</h4>
+                <div class="pipeline-stage-card">
+                    <h4>Refinement <span class="badge badge-info">opzionale</span></h4>
                     <p class="form-help">Modello testo per raffinare la trascrizione.</p>
                     <div class="form-group">
                         <select id="ref_model_id" name="ref_model_id" class="input-lg">
@@ -321,17 +293,22 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <label class="checkbox-label" style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;font-size:0.8125rem;cursor:pointer;color:var(--color-text-muted)">
-                        <input type="checkbox" name="refinement_optional" value="1" style="accent-color:var(--color-primary)">
-                        Se non selezioni un modello, la trascrizione verrà consegnata senza refinement.
+                    <label class="pipeline-ref-optional">
+                        <input type="checkbox" name="refinement_optional" value="1">
+                        Consegna senza refinement se nessun modello selezionato
                     </label>
                 </div>
             </div>
         </section>
 
         {# --- Single pass: model selection --- #}
-        <section class="surface-section" id="single_pass-section" style="display:none">
-            <h2>Selezione modello — Singolo passaggio</h2>
+        <section class="surface-section pipeline-stage-section" id="single_pass-section" style="display:none">
+            <div class="section-header">
+                <div>
+                    <h2>Modello — Singolo passaggio</h2>
+                    <p class="section-copy">Modello con capacità <code>single_pass_audio_to_text</code>.</p>
+                </div>
+            </div>
             <div class="form-group">
                 <label for="sp_model_id">Modello single-pass</label>
                 <select id="sp_model_id" name="sp_model_id" class="input-lg">
@@ -348,15 +325,19 @@
                     {% endfor %}
                 </select>
                 <small class="form-help">
-                    Solo modelli con capacità <code>single_pass_audio_to_text</code>.
                     <a href="/admin/providers">Scopri modelli</a> se non vedi opzioni.
                 </small>
             </div>
         </section>
 
         {# --- Single provider (legacy mode) --- #}
-        <section class="surface-section" id="single-section" style="display:none">
-            <h2>Provider predefinito</h2>
+        <section class="surface-section pipeline-stage-section" id="single-section" style="display:none">
+            <div class="section-header">
+                <div>
+                    <h2>Provider predefinito</h2>
+                    <p class="section-copy">Usa un unico provider con il suo modello predefinito.</p>
+                </div>
+            </div>
             <div class="form-group">
                 <label for="provider_id">Provider</label>
                 <select id="provider_id" name="provider_id" class="input-lg">
@@ -373,8 +354,9 @@
             </div>
         </section>
 
-        <div class="form-actions">
-            <button type="submit" class="btn btn-primary btn-lg">💾 Salva configurazione</button>
+        {# --- Action bar --- #}
+        <div class="pipeline-action-bar">
+            <button type="submit" class="btn btn-primary btn-lg">Salva configurazione</button>
             <a href="/admin/dashboard" class="btn btn-secondary">Annulla</a>
         </div>
     </form>
@@ -387,44 +369,19 @@
     'use strict';
 
     // ------------------------------------------------------------------
-    // Mode toggle
+    // Mode toggle — uses express-mode pattern
     // ------------------------------------------------------------------
-    const options = document.querySelectorAll('.pipeline-option');
+    const modeLabels = document.querySelectorAll('.express-mode');
     const sections = {
         two_stage: document.getElementById('two_stage-section'),
         single_pass: document.getElementById('single_pass-section'),
         single: document.getElementById('single-section'),
     };
 
-    // Show the section for the currently active mode on load
     var currentMode = localStorage.getItem('pipeline_mode') || 'two_stage';
-    // But check if profile exists and has a mode
     {% if profile and profile.mode %}
     currentMode = '{{ profile.mode }}';
     {% endif %}
-
-    options.forEach(function(opt) {
-        var mode = opt.dataset.mode;
-        var radio = opt.querySelector('.pipeline-option-radio');
-        // If this matches current mode, select it
-        if (mode === currentMode) {
-            opt.classList.add('selected');
-            if (radio) radio.checked = true;
-            showSection(mode);
-        }
-
-        opt.addEventListener('click', function() {
-            options.forEach(function(o) { o.classList.remove('selected'); });
-            opt.classList.add('selected');
-
-            var r = opt.querySelector('.pipeline-option-radio');
-            if (r) r.checked = true;
-
-            var m = opt.dataset.mode;
-            localStorage.setItem('pipeline_mode', m);
-            showSection(m);
-        });
-    });
 
     function showSection(mode) {
         Object.keys(sections).forEach(function(key) {
@@ -434,14 +391,35 @@
         });
     }
 
-    // ------------------------------------------------------------------
+    function selectMode(mode) {
+        modeLabels.forEach(function(label) {
+            var radio = label.querySelector('input[name="pipeline_mode"]');
+            var isMatch = label.dataset.mode === mode;
+            label.classList.toggle('selected', isMatch);
+            if (radio) radio.checked = isMatch;
+        });
+        localStorage.setItem('pipeline_mode', mode);
+        showSection(mode);
+    }
+
+    // Initial state
+    selectMode(currentMode);
+
+    // Click handling
+    modeLabels.forEach(function(label) {
+        label.addEventListener('click', function(e) {
+            var mode = label.dataset.mode;
+            selectMode(mode);
+        });
+    });
+
     // Keyboard support
-    // ------------------------------------------------------------------
-    options.forEach(function(opt) {
-        opt.addEventListener('keydown', function(e) {
+    modeLabels.forEach(function(label) {
+        label.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                opt.click();
+                var mode = label.dataset.mode;
+                selectMode(mode);
             }
         });
     });

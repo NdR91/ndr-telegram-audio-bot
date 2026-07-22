@@ -146,6 +146,21 @@ class AudioProcessor:
         return CapabilityModel(transcription=True)
 
     @property
+    def transcribe_accepted_formats(self) -> frozenset[str]:
+        """Return the set of file extensions the transcriber accepts natively.
+
+        When the source file extension is in this set, FFmpeg conversion
+        can be skipped and the file passed directly to ``transcribe_audio``.
+        """
+        if self._transcriber is not None:
+            return self._transcriber.accepted_formats()
+        provider = self.provider
+        fn = getattr(provider, "accepted_formats", None)
+        if callable(fn):
+            return fn()
+        return frozenset({"mp3"})
+
+    @property
     def supports_refine_streaming(self) -> bool:
         """Return ``True`` when the text processor supports streaming.
 
@@ -390,22 +405,32 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await processor.download_audio(file_obj, ogg_path)
         _log_stage_success(user_id, "download", stage_start_time)
         
-        # Stage 2: Convert to MP3
-        await update_progress(
-            context, message.chat_id, ack_msg.message_id,
-            get_progress_message(c.MSG_PROGRESS_CONVERT, 2, total_stages)
-        )
-        stage_start_time = time.monotonic()
-        await processor.convert_audio(ogg_path, mp3_path)
-        _log_stage_success(user_id, "convert", stage_start_time)
-        
+        # Stage 2: Convert to MP3 when the transcriber does not accept the
+        #          original format natively (P7 — capability-aware audio prep).
+        ext_lower = ext.lower()
+        if ext_lower not in processor.transcribe_accepted_formats:
+            await update_progress(
+                context, message.chat_id, ack_msg.message_id,
+                get_progress_message(c.MSG_PROGRESS_CONVERT, 2, total_stages)
+            )
+            stage_start_time = time.monotonic()
+            await processor.convert_audio(ogg_path, mp3_path)
+            _log_stage_success(user_id, "convert", stage_start_time)
+            transcribe_path = mp3_path
+        else:
+            logger.info(
+                "Skipping conversion: format .%s accepted by transcriber",
+                ext_lower,
+            )
+            transcribe_path = ogg_path
+
         # Stage 3: Transcribe
         await update_progress(
             context, message.chat_id, ack_msg.message_id,
             get_progress_message(c.MSG_PROGRESS_TRANSCRIBE, 3, total_stages)
         )
         stage_start_time = time.monotonic()
-        raw_text = await processor.transcribe_audio(mp3_path)
+        raw_text = await processor.transcribe_audio(transcribe_path)
         _log_stage_success(user_id, "transcribe", stage_start_time)
         
         # Stage 4: Refine text

@@ -73,6 +73,10 @@ class FakeBot:
 class FakeProcessor:
     provider_name = "fake"
 
+    @property
+    def transcribe_accepted_formats(self) -> frozenset[str]:
+        return frozenset({"mp3"})
+
     def __init__(self, *, fail_stage=None, started=None, release=None):
         self.provider = SimpleNamespace(
             model_name="fake-model",

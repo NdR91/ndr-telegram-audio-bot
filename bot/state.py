@@ -31,6 +31,7 @@ from bot.capabilities import CapabilityModel
 from bot.config import Config
 from bot.config_service import ConfigService
 from bot.database import DatabaseManager
+from bot.database import DatabaseManager
 
 
 logger = logging.getLogger(__name__)
@@ -241,7 +242,7 @@ class StateChecker:
             return self._build_info(AppState.PROVIDER_MISSING)
 
         # 4. Pipeline invalid (no transcription capability)
-        if not self._any_can_transcribe(enabled_providers):
+        if not self._any_can_transcribe(enabled_providers, self._db):
             return self._build_info(AppState.PIPELINE_INVALID)
 
         # 5. (future) Check for degraded conditions
@@ -251,11 +252,18 @@ class StateChecker:
     @staticmethod
     def _any_can_transcribe(
         providers: List[Dict[str, Any]],
+        db: Optional[DatabaseManager] = None,
     ) -> bool:
         """Return ``True`` if at least one provider can transcribe audio.
 
         When a provider has no ``capabilities`` field (legacy entry) it is
         assumed to support transcription for backward compatibility.
+
+        When a provider's own capabilities do not indicate transcription,
+        the method falls back to checking its registered models — this
+        handles the case where a two-stage express setup added a whisper-1
+        model without updating the provider-level capabilities (the express
+        setup now does this correctly, but existing rows may be stale).
         """
         for p in providers:
             caps_raw = p.get("capabilities")
@@ -264,6 +272,15 @@ class StateChecker:
             model = CapabilityModel.from_dict(caps_raw)
             if model.transcription:
                 return True
+            # Fallback: check registered models for this provider.
+            if db is not None:
+                pid = p.get("id")
+                if pid is not None:
+                    models = db.list_provider_models(pid, only_enabled=True)
+                    for m in models:
+                        mcaps = CapabilityModel.from_dict(m.get("capabilities"))
+                        if mcaps.transcription:
+                            return True
         return False
 
     @staticmethod

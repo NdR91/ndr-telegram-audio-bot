@@ -2,13 +2,14 @@
 name: Telegram Audio Bot Admin
 description: Self-hosted admin UI for a Telegram audio transcription bot
 colors:
-  bg: "oklch(0.11 0.000 0)"
-  surface: "oklch(0.16 0.000 0)"
-  surface-raised: "oklch(0.21 0.000 0)"
+  bg: "oklch(0.16 0.000 0)"
+  surface: "oklch(0.20 0.000 0)"
+  surface-raised: "oklch(0.25 0.000 0)"
   ink: "oklch(0.96 0.004 30)"
   muted: "oklch(0.52 0.006 30)"
-  border: "oklch(0.26 0.000 0)"
+  border: "oklch(0.32 0.000 0)"
   primary: "oklch(0.68 0.17 38)"
+  primary-hover: "oklch(0.58 0.18 35)"
   primary-deep: "oklch(0.58 0.18 35)"
   accent: "oklch(0.72 0.13 195)"
   error: "oklch(0.60 0.22 25)"
@@ -86,6 +87,8 @@ components:
     textColor: "{colors.ink}"
     rounded: "{rounded.md}"
     padding: "10px 12px"
+motion:
+  ease-out: "cubic-bezier(0.16, 1, 0.3, 1)"
 ---
 
 # Design System: Telegram Audio Bot Admin
@@ -122,10 +125,10 @@ A dark-field palette anchored by amber-orange and teal, with pure neutral surfac
 - **Alert Amber** (oklch(0.72 0.13 60)): Warning states only. Close to primary in hue but lighter and less saturated — clearly contextual, not a competing brand color.
 
 ### Neutral
-- **Void** (oklch(0.11 0.000 0)): Page background. Near-pure-black with no tint — the field that makes accent colors read as lit, not muddied.
-- **Panel** (oklch(0.16 0.000 0)): Card and section backgrounds. Perceptibly lifted from Void.
-- **Raised Surface** (oklch(0.21 0.000 0)): Form inputs, code blocks, secondary panels. One tier above Panel.
-- **Rule** (oklch(0.26 0.000 0)): Borders and dividers. Subtle but present.
+- **Void** (oklch(0.16 0.000 0)): Page background. Near-pure-dark gray with no tint — the field that makes accent colors read as lit, not muddied.
+- **Panel** (oklch(0.20 0.000 0)): Card and section backgrounds. Perceptibly lifted from Void.
+- **Raised Surface** (oklch(0.25 0.000 0)): Form inputs, code blocks, secondary panels. One tier above Panel.
+- **Rule** (oklch(0.32 0.000 0)): Borders and dividers. Subtle but present.
 - **Ink** (oklch(0.96 0.004 30)): Primary text. Near-white with barely-perceptible warmth toward the amber hue.
 - **Muted** (oklch(0.52 0.006 30)): Secondary text, placeholders, helper labels. Must meet 3.5:1 vs Void.
 - **Error Red** (oklch(0.60 0.22 25)): Error states only. Close to the seed crimson — a fired-clay red, not cartoon emergency.
@@ -169,7 +172,7 @@ This system uses **tonal layering** exclusively — no decorative drop shadows. 
 
 ### Buttons
 - **Shape:** Gently curved (6px radius). Not pill, not square.
-- **Primary:** Operational Amber fill, ink text. 10px vertical / 20px horizontal padding. Semibold (600). Transition: background 150ms ease-out, transform 120ms ease-out.
+- **Primary:** Operational Amber fill, ink text. 10px vertical / 20px horizontal padding. Semibold (600). Transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 120ms cubic-bezier(0.16, 1, 0.3, 1).
 - **Hover / Focus:** Shifts to Primary-Deep (oklch(0.58 0.18 35)), translateY(-1px). Focus adds amber glow ring.
 - **Secondary:** Raised Surface fill, ink text, Rule border. Hover: Rule color shifts to Muted.
 - **Ghost / Link:** No background, muted text. Hover: ink text. No underline in nav contexts.
@@ -197,7 +200,7 @@ The operational heartbeat of the UI. Each status indicator combines a 10px dot, 
 - **Monospace inputs** (API key, model ID fields): use mono font face.
 
 ### Navigation
-- **Style:** Dark surface navbar with Rule bottom border. Compact (44px height).
+- **Style:** Dark surface navbar with Rule bottom border. Compact (52px height).
 - **Brand mark:** Semibold, ink text. No logo imagery needed.
 - **Nav links:** Muted text at rest, ink text on hover. Active route: Operational Amber text.
 - **Mobile:** Links collapse; brand mark stays.

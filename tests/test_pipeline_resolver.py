@@ -886,6 +886,64 @@ class TestCreatePipelineFromWizard:
         assert provider["adapter_type"] == "openai-compat"
         assert provider["endpoint"] == "https://openrouter.ai/api/v1"
 
+    def test_express_two_stage_creates_model_stages(self, tmp_path):
+        """Express setup creates the same model/stage shape as admin two-stage."""
+        db = _make_db(tmp_path)
+        from bot.web.setup_wizard import (
+            create_express_pipeline_from_wizard,
+            get_active_pipeline_profile_id,
+            save_provider_config,
+        )
+
+        save_provider_config(
+            db, "openai", "sk-test-123", "https://api.openai.com/v1", None,
+        )
+
+        profile_id = create_express_pipeline_from_wizard(
+            db,
+            None,
+            process_mode="two_stage",
+            selected_model="gpt-4o-mini",
+        )
+
+        assert get_active_pipeline_profile_id(db) == profile_id
+        profile = db.get_pipeline_profile(profile_id)
+        assert profile["mode"] == "two_stage"
+        provider = db.get_provider(profile["transcription_provider_id"])
+        assert provider["name"] == "OpenAI (express setup)"
+        models = db.list_provider_models(provider["id"])
+        assert [m["model_id"] for m in models] == ["gpt-4o-mini", "whisper-1"]
+        stages = db.list_pipeline_stages(profile_id)
+        assert [s["stage_type"] for s in stages] == ["transcription", "refinement"]
+
+    def test_express_single_pass_creates_single_stage(self, tmp_path):
+        """Express setup creates a single-pass model/stage profile."""
+        db = _make_db(tmp_path)
+        from bot.web.setup_wizard import (
+            create_express_pipeline_from_wizard,
+            save_provider_config,
+        )
+
+        save_provider_config(db, "gemini", "test-key", "", None)
+
+        profile_id = create_express_pipeline_from_wizard(
+            db,
+            None,
+            process_mode="single_pass",
+            selected_model="gemini-2.5-flash",
+        )
+
+        profile = db.get_pipeline_profile(profile_id)
+        assert profile["mode"] == "single_pass"
+        provider = db.get_provider(profile["transcription_provider_id"])
+        assert provider["adapter_type"] == "gemini-native"
+        stages = db.list_pipeline_stages(profile_id)
+        assert len(stages) == 1
+        assert stages[0]["stage_type"] == "single_pass"
+        model = db.get_provider_model(stages[0]["primary_model_id"])
+        assert model["model_id"] == "gemini-2.5-flash"
+        assert model["capabilities"]["single_pass_audio_to_text"] is True
+
 
 # ------------------------------------------------------------------
 # P5+ — Two-stage resolution with model entries

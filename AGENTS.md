@@ -15,8 +15,9 @@ No Cursor rules or Copilot instructions are currently present in:
 - Python Telegram bot that downloads audio, converts it with FFmpeg,
   transcribes it through an LLM provider, refines the transcript, and returns
   the result to Telegram.
-- Providers: OpenAI Whisper plus GPT refinement, or Google Gemini multimodal
-  transcription and refinement.
+- Providers: OpenAI Whisper plus GPT refinement, Google Gemini multimodal
+  transcription/refinement, and OpenAI-compatible endpoints such as OpenRouter
+  through the web-managed provider model.
 - Entry point: `bot/main.py`.
 - Runtime configuration is stored in the unified SQLite database.
 - `authorized.json` is an optional bootstrap input for initial whitelist import.
@@ -44,10 +45,12 @@ installed, but new documentation should use `docker compose`.
 
 - Python 3.10 or newer.
 - FFmpeg available on `PATH`.
-- Valid `TELEGRAM_TOKEN` (or configure via `/setup` command after first start).
-- The API key required by the selected provider (or configure via `/setup`).
-- A valid `authorized.json` containing `admin`, `users`, and `groups` arrays
-  (optional bootstrap input; whitelist is managed in SQLite at runtime).
+- FFmpeg and a writable data directory are enough for first startup.
+- Telegram token, provider credentials, first administrator, and pipeline are
+  configured through the web setup flow.
+- `authorized.json` is optional legacy bootstrap input. When present, it should
+  contain `admin`, `users`, and `groups` arrays; runtime whitelist state is
+  managed in SQLite.
 
 ## Tests
 
@@ -60,6 +63,13 @@ An automated pytest suite is present under `tests/`.
 
 Use `python -m pytest` so the repository root is consistently available on the
 Python import path.
+
+Before running the full suite, check whether the user has already run it
+recently. If they say the suite is green, do not repeat it automatically for
+documentation-only or narrow follow-up work; ask when they want it rerun. Use
+targeted tests only when they are directly useful for the change in progress,
+and report clearly when tests were not run because the user already verified
+them.
 
 ## Linting and formatting
 
