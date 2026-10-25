@@ -10,7 +10,7 @@ Ultimo aggiornamento: 25 ottobre 2026, completamento S1.
 | Sessione | Risultato | Dipende da | Stato | Commit / evidenza |
 | --- | --- | --- | --- | --- |
 | Preparazione | Audit, specifica approvata, direzione scelta, piano e handoff | — | Completata | Design `a4f2aea`; piano nel commit che introduce questo registro |
-| S1 | Configurazione persistita, credenziali versionate, attivazione atomica | Preparazione | Completata | `2973ca8`, `32354cb`; 18 test V2 passati |
+| S1 | Configurazione persistita, credenziali versionate, attivazione atomica | Preparazione | Completata | `2973ca8`, `c822fcd`, fix review in sessione; 22 test V2 passati |
 | S2 | Tre adapter e due percorsi audio verificati offline | S1 | Da iniziare | — |
 | S3 | Un avvio web, login e associazione del proprietario | S1, S2 | Da iniziare | — |
 | S4 | Configurazione e prova collegate al motore reale | S3 | Da iniziare | — |
@@ -49,8 +49,10 @@ Prossima azione precisa:
 Sessione / data: S1 — 25 ottobre 2026
 Stato: completata
 Branch / worktree: `codex/v2-product-design` / `/home/ndr/config/telegram-audio-bot` (nessun cambio di branch o workspace)
-Task completati e commit: S1.1 `2973ca8`; S1.2 `32354cb`
-Comandi di verifica, risultato e limiti: `python3 -m pytest tests/v2/test_repository.py -q -p no:cacheprovider` → 5 passed; `python3 -m pytest tests/v2/test_configuration.py -q -p no:cacheprovider` → 13 passed; `python3 -m pytest tests/v2/ -q -p no:cacheprovider` → 18 passed; `python3 -m compileall -q bot/transcription bot/database/v2_repository.py bot/database/v2_schema.py`; `git diff --check`. I test usano SQLite temporaneo e credenziali sintetiche. Suite V1 e integrazioni reali non eseguite. L'ambiente non espone `python` né `python-dotenv`, perciò è stato usato `python3` e il bootstrap dotenv non era applicabile ai test isolati.
-Contratti o piani aggiornati: modelli e firme S1 implementati secondo l'indice; `credential_lease` e pruning già disponibili nel repository per rispettare il contratto comune. S2 dovrà integrarli nel pool. Checkbox S1 aggiornate; AGENTS e CHANGELOG annotano la base V2 senza dichiararla collegata al runtime.
+Task completati e commit: S1.1 `2973ca8`; S1.2 `c822fcd`; fix review `aea0cd8`.
+Comandi di verifica, risultato e limiti: `python3 -m pytest tests/v2/test_repository.py -q -p no:cacheprovider` → 7 passed; `python3 -m pytest tests/v2/test_configuration.py -q -p no:cacheprovider` → 15 passed; `python3 -m pytest tests/v2/ -q -p no:cacheprovider` → 22 passed; `python3 -m compileall -q bot/transcription bot/database/v2_repository.py bot/database/v2_schema.py`; `git diff --check`. I test usano SQLite temporaneo e credenziali sintetiche. Suite V1 e integrazioni reali non eseguite. L'ambiente non espone `python` né `python-dotenv`, perciò è stato usato `python3` e il bootstrap dotenv non era applicabile ai test isolati.
+Contratti o piani aggiornati: modelli e firme S1 implementati secondo l'indice; pruning conserva revisioni/credenziali attive, precedenti, in bozza, gli ultimi segreti per servizio, le versioni registrate nello setup e i lease in corso. Letture e transazioni condividono lo stesso lock. S2 integra il lease nel pool. Checkbox S1 aggiornate; AGENTS e CHANGELOG annotano la base V2 senza dichiararla collegata al runtime.
 Problemi aperti: nessuno in S1. La V1 resta il runtime attivo fino alle sessioni successive.
 Prossima azione precisa: leggere il brief S2 e implementare adapter e runner offline, senza iniziare S3.
+
+Revisione finale: tre finding Important corretti con test di regressione per pruning delle revisioni/ricevute, retention credenziali e isolamento delle letture concorrenti; nessun finding Critical o Minor. La modifica ai piani S2/S3 rende esplicito che S2 integra i lease e S3 usa i riferimenti setup-state convenuti.

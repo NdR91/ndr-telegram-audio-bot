@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timezone
+import threading
 
 import pytest
 
@@ -167,12 +168,14 @@ def test_secret_gc_keeps_active_previous_draft_and_leases(
     service.activate(second.number)
     repo.put_credential("openai", "unreferenced-key")
     version3 = 3
+    version4 = repo.put_credential("openai", "latest-unselected-key")
+    assert version4 == 4
 
     with repo.credential_lease("openai", version3):
         assert repo.prune_credentials() == 0
         assert repo.read_credential("openai", version3) == "unreferenced-key"
     assert repo.prune_credentials() == 1
-    assert repo.credential_versions("openai") == (1, 2)
+    assert repo.credential_versions("openai") == (1, 2, version4)
 
 
 def test_literal_raw_text_substitution():
@@ -194,3 +197,57 @@ def test_configuration_requires_role_compatible_models(repo, config_values):
             None,
             replace(config_values, mode="multimodal", text_model="gpt-4o-mini"),
         )
+
+
+def test_superseded_drafts_and_receipts_are_removed(
+    repo, config_values, ready_prerequisites
+):
+    service = make_service(repo, ready_prerequisites)
+    current = save_initial(service, repo, config_values)
+    for number in range(2, 7):
+        service.record_test(receipt(current.number, id=f"receipt-{current.number}"))
+        current = service.save_draft(
+            current.number, replace(config_values, audio_model=f"audio-{number}")
+        )
+    service.record_test(receipt(current.number, id=f"receipt-{current.number}"))
+
+    revisions = repo.connection.execute(
+        "SELECT revision FROM config_revisions"
+    ).fetchall()
+    assert [row[0] for row in revisions] == [6]
+    assert repo.connection.execute("SELECT COUNT(*) FROM test_receipts").fetchone()[0] == 1
+
+
+def test_active_read_waits_until_transaction_finishes(
+    repo, config_values, ready_prerequisites
+):
+    service = make_service(repo, ready_prerequisites)
+    first = save_initial(service, repo, config_values)
+    service.record_test(receipt(first.number))
+    service.activate(first.number)
+    second = service.save_draft(
+        first.number, replace(config_values, audio_model="second-audio")
+    )
+    read_started = threading.Event()
+    read_finished = threading.Event()
+    observed = []
+
+    def read_active():
+        read_started.set()
+        observed.append(service.active())
+        read_finished.set()
+
+    with pytest.raises(RuntimeError):
+        with repo.transaction() as connection:
+            connection.execute(
+                "UPDATE config_references SET revision = ? WHERE reference_type = 'active'",
+                (second.number,),
+            )
+            reader = threading.Thread(target=read_active)
+            reader.start()
+            assert read_started.wait(1)
+            assert not read_finished.wait(0.05)
+            raise RuntimeError("synthetic rollback")
+    reader.join(timeout=1)
+
+    assert observed == [first]

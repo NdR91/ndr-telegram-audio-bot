@@ -50,10 +50,11 @@ attiva/precedente solo con prerequisiti validi e una precedente disponibile.
 
 - [x] Scrivere `test_activate_requires_matching_successful_receipt`: prima senza ricevuta → `TestRequired`; ricevuta giusta → attiva; successiva prova fallita della stessa revisione impedisce una nuova attivazione.
 - [x] Scrivere `test_stale_write_and_late_test_cannot_activate_new_draft`: due scritture con la stessa revisione attesa → una sola riesce; esito vecchio o validator diverso non attiva la nuova bozza.
-- [x] Scrivere `test_each_material_change_invalidates_test` parametrizzato per servizio, chiave, modello, modalità e prompt; `test_last_active_and_previous_survive_failed_activation`; `test_secret_gc_keeps_active_previous_draft_and_leases` usando riferimenti simulati alle richieste in corso.
+- [x] Scrivere `test_each_material_change_invalidates_test` parametrizzato per servizio, chiave, modello, modalità e prompt; `test_last_active_and_previous_survive_failed_activation`; `test_secret_gc_keeps_active_previous_draft_and_leases` con lease repository per richieste in corso.
+- [x] Aggiungere regressioni per pruning di revisioni/ricevute obsolete, retention di credenziali inattive o referenziate dallo setup e isolamento delle letture durante le transazioni.
 - [x] Scrivere `test_literal_raw_text_substitution`: testo `'{nome}: no, 12'` conserva le graffe; template senza `{raw_text}` è rifiutato; nessun altro frammento è interpretato come campo di formattazione.
 - [x] Eseguire `python -m pytest tests/v2/test_configuration.py -q`: atteso FAIL per servizio assente.
-- [x] Implementare firme dell'indice, validazione dei ruoli e modello testo obbligatorio solo in `two_stage`. Un'unica transazione verifica revisione, versione credenziale, validator e prerequisiti letti dal servizio; poi sposta i riferimenti. Nessuna prova fornita dal browser come “successo”. Pruning conserva anche le versioni in uso tramite lease, la cui integrazione arriva in S2.
+- [x] Implementare firme dell'indice, validazione dei ruoli e modello testo obbligatorio solo in `two_stage`. Un'unica transazione verifica revisione, versione credenziale, validator e prerequisiti letti dal servizio; poi sposta i riferimenti. Nessuna prova fornita dal browser come “successo”. Pruning conserva revisioni e credenziali attive, precedenti, in bozza, referenziate dal setup o da richieste in corso; S2 integra il lease nel `ProviderPool`.
 - [x] Rieseguire `tests/v2/test_repository.py` e `tests/v2/test_configuration.py`: PASS; nessuna modifica al percorso V1.
 - [x] Committare: `feat: add revision-checked draft testing and activation` (`32354cb`).
 

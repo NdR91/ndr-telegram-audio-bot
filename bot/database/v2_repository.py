@@ -107,10 +107,17 @@ class V2Repository:
                 connection.rollback()
                 raise
 
+    @contextmanager
+    def read(self) -> Iterator[sqlite3.Connection]:
+        """Serialize reads with transactions on this shared SQLite connection."""
+        with self._lock:
+            yield self.connection
+
     def get_setup_state(self, key: str) -> str | None:
-        row = self.connection.execute(
-            "SELECT setup_value FROM setup_state WHERE setup_key = ?", (key,)
-        ).fetchone()
+        with self.read() as connection:
+            row = connection.execute(
+                "SELECT setup_value FROM setup_state WHERE setup_key = ?", (key,)
+            ).fetchone()
         return row[0] if row else None
 
     def set_setup_state(self, key: str, value: str) -> None:
@@ -123,9 +130,10 @@ class V2Repository:
             )
 
     def get_setting(self, key: str) -> str | None:
-        row = self.connection.execute(
-            "SELECT setting_value FROM app_settings WHERE setting_key = ?", (key,)
-        ).fetchone()
+        with self.read() as connection:
+            row = connection.execute(
+                "SELECT setting_value FROM app_settings WHERE setting_key = ?", (key,)
+            ).fetchone()
         return row[0] if row else None
 
     def set_setting(self, key: str, value: str) -> None:
@@ -168,10 +176,11 @@ class V2Repository:
         return version
 
     def read_credential(self, service: CredentialOwner, version: int) -> str:
-        row = self.connection.execute(
-            "SELECT encrypted_value FROM credentials WHERE service = ? AND version = ?",
-            (service, version),
-        ).fetchone()
+        with self.read() as connection:
+            row = connection.execute(
+                "SELECT encrypted_value FROM credentials WHERE service = ? AND version = ?",
+                (service, version),
+            ).fetchone()
         if row is None:
             raise ConfigurationInvalid("Credential version is unavailable")
         try:
@@ -180,9 +189,10 @@ class V2Repository:
             raise ConfigurationInvalid("Credential cannot be decrypted") from exc
 
     def credential_versions(self, service: CredentialOwner) -> tuple[int, ...]:
-        rows = self.connection.execute(
-            "SELECT version FROM credentials WHERE service = ? ORDER BY version", (service,)
-        ).fetchall()
+        with self.read() as connection:
+            rows = connection.execute(
+                "SELECT version FROM credentials WHERE service = ? ORDER BY version", (service,)
+            ).fetchall()
         return tuple(int(row[0]) for row in rows)
 
     @contextmanager
@@ -206,15 +216,33 @@ class V2Repository:
                     del self._credential_leases[key]
 
     def prune_credentials(self) -> int:
-        """Remove encrypted credentials unused by revisions or active requests."""
+        """Remove obsolete versions, retaining live and latest service credentials."""
         with self._lock, self.transaction() as connection:
             rows = connection.execute(
                 "SELECT service, version FROM credentials ORDER BY service, version"
             ).fetchall()
+            latest = {
+                row["service"]: int(row["version"])
+                for row in connection.execute(
+                    "SELECT service, MAX(version) AS version FROM credentials GROUP BY service"
+                )
+            }
+            setup_references = set()
+            for row in connection.execute(
+                "SELECT setup_key, setup_value FROM setup_state "
+                "WHERE setup_key LIKE '%_credential_version'"
+            ):
+                service = row["setup_key"][: -len("_credential_version")]
+                try:
+                    setup_references.add((service, int(row["setup_value"])))
+                except (TypeError, ValueError):
+                    continue
             removable = [
                 (row["service"], int(row["version"]))
                 for row in rows
                 if (row["service"], int(row["version"])) not in self._credential_leases
+                and int(row["version"]) != latest[row["service"]]
+                and (row["service"], int(row["version"])) not in setup_references
                 and connection.execute(
                     "SELECT 1 FROM config_references "
                     "WHERE credential_service = ? AND credential_version = ?",

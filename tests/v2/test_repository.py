@@ -81,3 +81,32 @@ def test_initialize_and_reopen_without_credentials(tmp_path, secret_store):
     reopened.initialize()
     assert reopened.credential_versions("openai") == ()
     reopened.close()
+
+
+def test_pruning_keeps_latest_credentials_for_each_service(repo):
+    old_openai = repo.put_credential("openai", "old-openai-key")
+    latest_openai = repo.put_credential("openai", "latest-openai-key")
+    gemini = repo.put_credential("gemini", "saved-gemini-key")
+    telegram = repo.put_credential("telegram", "saved-telegram-token")
+    web_session = repo.put_credential("web_session", "saved-session-secret")
+
+    assert repo.prune_credentials() == 1
+    assert repo.credential_versions("openai") == (latest_openai,)
+    assert repo.credential_versions("gemini") == (gemini,)
+    assert repo.credential_versions("telegram") == (telegram,)
+    assert repo.credential_versions("web_session") == (web_session,)
+    with pytest.raises(ConfigurationInvalid):
+        repo.read_credential("openai", old_openai)
+
+
+def test_pruning_honors_setup_state_credential_versions(repo):
+    telegram_v1 = repo.put_credential("telegram", "old-telegram-token")
+    repo.put_credential("telegram", "new-telegram-token")
+    web_session_v1 = repo.put_credential("web_session", "old-session-secret")
+    repo.put_credential("web_session", "new-session-secret")
+    repo.set_setup_state("telegram_credential_version", str(telegram_v1))
+    repo.set_setup_state("web_session_credential_version", str(web_session_v1))
+
+    assert repo.prune_credentials() == 0
+    assert repo.read_credential("telegram", telegram_v1) == "old-telegram-token"
+    assert repo.read_credential("web_session", web_session_v1) == "old-session-secret"

@@ -35,19 +35,21 @@ class ConfigurationService:
         self._readiness = readiness
 
     def draft(self) -> ConfigRevision | None:
-        row = self._repo.connection.execute(
-            "SELECT r.* FROM config_references x "
-            "JOIN config_revisions r ON r.revision = x.revision "
-            "WHERE x.reference_type = 'draft'"
-        ).fetchone()
+        with self._repo.read() as connection:
+            row = connection.execute(
+                "SELECT r.* FROM config_references x "
+                "JOIN config_revisions r ON r.revision = x.revision "
+                "WHERE x.reference_type = 'draft'"
+            ).fetchone()
         return _revision_from_row(row) if row else None
 
     def active(self) -> ConfigRevision | None:
-        row = self._repo.connection.execute(
-            "SELECT r.* FROM config_references x "
-            "JOIN config_revisions r ON r.revision = x.revision "
-            "WHERE x.reference_type = 'active'"
-        ).fetchone()
+        with self._repo.read() as connection:
+            row = connection.execute(
+                "SELECT r.* FROM config_references x "
+                "JOIN config_revisions r ON r.revision = x.revision "
+                "WHERE x.reference_type = 'active'"
+            ).fetchone()
         return _revision_from_row(row) if row else None
 
     def save_draft(
@@ -74,7 +76,7 @@ class ConfigurationService:
             if credential is None:
                 raise ConfigurationInvalid("Selected credential version is unavailable")
             row = connection.execute(
-                "SELECT COALESCE(MAX(revision), 0) + 1 FROM config_revisions"
+                "SELECT next_revision FROM revision_sequence WHERE singleton = 1"
             ).fetchone()
             number = int(row[0])
             connection.execute(
@@ -102,6 +104,11 @@ class ConfigurationService:
                 "credential_version=excluded.credential_version",
                 (number, values.service, values.credential_version),
             )
+            connection.execute(
+                "UPDATE revision_sequence SET next_revision = ? WHERE singleton = 1",
+                (number + 1,),
+            )
+            _prune_unreferenced_revisions(connection)
         return ConfigRevision(number=number, values=values)
 
     def record_test(self, receipt: TestReceipt) -> None:
@@ -110,7 +117,10 @@ class ConfigurationService:
                 "SELECT service, credential_version FROM config_revisions WHERE revision = ?",
                 (receipt.revision,),
             ).fetchone()
-            if row is None or int(row["credential_version"]) != receipt.credential_version:
+            if row is None:
+                # A test that finishes after its draft was superseded is stale.
+                return
+            if int(row["credential_version"]) != receipt.credential_version:
                 raise ConfigurationInvalid("Test receipt does not match a configuration revision")
             connection.execute(
                 "INSERT INTO test_receipts "
@@ -169,6 +179,7 @@ class ConfigurationService:
                 "UPDATE config_references SET reference_type = 'active' "
                 "WHERE reference_type = 'draft'"
             )
+            _prune_unreferenced_revisions(connection)
         return _revision_from_row(draft)
 
     def restore_previous(self) -> ConfigRevision | None:
@@ -217,6 +228,13 @@ def _revision_from_row(row: sqlite3.Row) -> ConfigRevision:
         limits=RuntimeLimits(**json.loads(row["limits_json"])),
     )
     return ConfigRevision(number=int(row["revision"]), values=values)
+
+
+def _prune_unreferenced_revisions(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "DELETE FROM config_revisions WHERE revision NOT IN "
+        "(SELECT revision FROM config_references)"
+    )
 
 
 def _validate_config(values: ConfigInput) -> None:

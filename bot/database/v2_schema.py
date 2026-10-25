@@ -11,7 +11,9 @@ DDL = (
     "CREATE TABLE acl_entries (kind TEXT NOT NULL CHECK(kind IN ('owner', 'user', 'group')), entry_id INTEGER NOT NULL, PRIMARY KEY(kind, entry_id))",
     "CREATE TABLE credentials (service TEXT NOT NULL, version INTEGER NOT NULL CHECK(version > 0), encrypted_value TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY(service, version))",
     "CREATE TABLE credential_sequences (service TEXT PRIMARY KEY, next_version INTEGER NOT NULL CHECK(next_version > 0))",
+    "CREATE TABLE revision_sequence (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), next_revision INTEGER NOT NULL CHECK(next_revision > 0))",
     "CREATE TABLE config_revisions (revision INTEGER PRIMARY KEY CHECK(revision > 0), service TEXT NOT NULL, mode TEXT NOT NULL, audio_model TEXT NOT NULL, text_model TEXT, credential_version INTEGER NOT NULL, system_prompt TEXT NOT NULL, refine_template TEXT NOT NULL, limits_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))",
     "CREATE TABLE config_references (reference_type TEXT NOT NULL CHECK(reference_type IN ('draft', 'active', 'previous')), revision INTEGER NOT NULL REFERENCES config_revisions(revision), credential_service TEXT NOT NULL, credential_version INTEGER NOT NULL, PRIMARY KEY(reference_type))",
-    "CREATE TABLE test_receipts (recorded_order INTEGER PRIMARY KEY AUTOINCREMENT, receipt_id TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL REFERENCES config_revisions(revision), credential_version INTEGER NOT NULL, validator_version TEXT NOT NULL, success INTEGER NOT NULL CHECK(success IN (0, 1)), models_json TEXT NOT NULL, finished_at TEXT NOT NULL)",
+    "CREATE TABLE test_receipts (recorded_order INTEGER PRIMARY KEY AUTOINCREMENT, receipt_id TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL REFERENCES config_revisions(revision) ON DELETE CASCADE, credential_version INTEGER NOT NULL, validator_version TEXT NOT NULL, success INTEGER NOT NULL CHECK(success IN (0, 1)), models_json TEXT NOT NULL, finished_at TEXT NOT NULL)",
+    "INSERT INTO revision_sequence (singleton, next_revision) VALUES (1, 1)",
 )
