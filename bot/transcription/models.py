@@ -76,6 +76,8 @@ class ProcessingResult:
 
 @dataclass(frozen=True)
 class TestReceipt:
+    __test__ = False
+
     id: str
     revision: int
     credential_version: int

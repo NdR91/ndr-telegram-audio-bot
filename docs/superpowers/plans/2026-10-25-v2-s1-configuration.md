@@ -29,13 +29,13 @@ intermedio dentro una transazione di configurazione. Lo schema distingue setting
 setup state, ACL, credenziali, revisioni, riferimenti e ricevute; pairing e diagnostica
 arrivano nei task proprietari, senza tabelle placeholder.
 
-- [ ] Scrivere `test_reopen_preserves_configuration_and_encrypted_credentials`: riaprire il DB conserva i dati; nei campi memorizzati manca la chiave fittizia in chiaro; versione 1 e 2 rimangono leggibili separatamente dal solo repository.
-- [ ] Scrivere `test_unavailable_cipher_rejects_write`, `test_v1_database_is_rejected_without_changes` e `test_transaction_rolls_back`: nessun downgrade, nessuna modifica allo schema V1 sintetico, nessuna scrittura parziale.
-- [ ] Eseguire `python -m pytest tests/v2/test_repository.py -q` col bootstrap sicuro dell'indice. Atteso: fallimento per contratti assenti, non per accesso a file reali.
-- [ ] Implementare tipi e schema versionato idempotente. Revisioni e credenziali hanno identificativi monotoni; DB V2 con marker proprio; tutte le query parametrizzate. `put_credential` cifra prima di scrivere; `read_credential` è interno e non entra nelle rappresentazioni pubbliche.
-- [ ] Implementare fixture `repo`, `secret_store`, `config_values`, `ready_prerequisites` e clock controllabile: solo `tmp_path`, credenziali fittizie, nessuna costruzione implicita di `Config` legacy.
-- [ ] Rieseguire il file: tutti PASS. Verificare inizializzazione e riapertura anche senza credenziali.
-- [ ] Committare solo i file del task: `feat: add V2 configuration repository and encrypted credential versions`.
+- [x] Scrivere `test_reopen_preserves_configuration_and_encrypted_credentials`: riaprire il DB conserva i dati; nei campi memorizzati manca la chiave fittizia in chiaro; versione 1 e 2 rimangono leggibili separatamente dal solo repository.
+- [x] Scrivere `test_unavailable_cipher_rejects_write`, `test_v1_database_is_rejected_without_changes` e `test_transaction_rolls_back`: nessun downgrade, nessuna modifica allo schema V1 sintetico, nessuna scrittura parziale.
+- [x] Eseguire `python -m pytest tests/v2/test_repository.py -q` col bootstrap sicuro dell'indice. Atteso: fallimento per contratti assenti, non per accesso a file reali.
+- [x] Implementare tipi e schema versionato idempotente. Revisioni e credenziali hanno identificativi monotoni; DB V2 con marker proprio; tutte le query parametrizzate. `put_credential` cifra prima di scrivere; `read_credential` è interno e non entra nelle rappresentazioni pubbliche.
+- [x] Implementare fixture `repo`, `secret_store`, `config_values`, `ready_prerequisites` e clock controllabile: solo `tmp_path`, credenziali fittizie, nessuna costruzione implicita di `Config` legacy.
+- [x] Rieseguire il file: tutti PASS. Verificare inizializzazione e riapertura anche senza credenziali.
+- [x] Committare solo i file del task: `feat: add V2 configuration repository and encrypted credential versions` (`2973ca8`).
 
 ### Task S1.2: bozza, invalidazione e attivazione atomica
 
@@ -48,16 +48,16 @@ atomiche; aggiornare AGENTS e CHANGELOG per i nuovi moduli, senza dichiararli at
 Validator corrente: `VALIDATOR_VERSION = 'v2-1'`. `restore_previous` scambia
 attiva/precedente solo con prerequisiti validi e una precedente disponibile.
 
-- [ ] Scrivere `test_activate_requires_matching_successful_receipt`: prima senza ricevuta → `TestRequired`; ricevuta giusta → attiva; successiva prova fallita della stessa revisione impedisce una nuova attivazione.
-- [ ] Scrivere `test_stale_write_and_late_test_cannot_activate_new_draft`: due scritture con la stessa revisione attesa → una sola riesce; esito vecchio o validator diverso non attiva la nuova bozza.
-- [ ] Scrivere `test_each_material_change_invalidates_test` parametrizzato per servizio, chiave, modello, modalità e prompt; `test_last_active_and_previous_survive_failed_activation`; `test_secret_gc_keeps_active_previous_draft_and_leases` usando riferimenti simulati alle richieste in corso.
-- [ ] Scrivere `test_literal_raw_text_substitution`: testo `'{nome}: no, 12'` conserva le graffe; template senza `{raw_text}` è rifiutato; nessun altro frammento è interpretato come campo di formattazione.
-- [ ] Eseguire `python -m pytest tests/v2/test_configuration.py -q`: atteso FAIL per servizio assente.
-- [ ] Implementare firme dell'indice, validazione dei ruoli e modello testo obbligatorio solo in `two_stage`. Un'unica transazione verifica revisione, versione credenziale, validator e prerequisiti letti dal servizio; poi sposta i riferimenti. Nessuna prova fornita dal browser come “successo”. Pruning conserva anche le versioni in uso tramite lease, la cui integrazione arriva in S2.
-- [ ] Rieseguire `tests/v2/test_repository.py` e `tests/v2/test_configuration.py`: PASS; nessuna modifica al percorso V1.
-- [ ] Committare: `feat: add revision-checked draft testing and activation`.
+- [x] Scrivere `test_activate_requires_matching_successful_receipt`: prima senza ricevuta → `TestRequired`; ricevuta giusta → attiva; successiva prova fallita della stessa revisione impedisce una nuova attivazione.
+- [x] Scrivere `test_stale_write_and_late_test_cannot_activate_new_draft`: due scritture con la stessa revisione attesa → una sola riesce; esito vecchio o validator diverso non attiva la nuova bozza.
+- [x] Scrivere `test_each_material_change_invalidates_test` parametrizzato per servizio, chiave, modello, modalità e prompt; `test_last_active_and_previous_survive_failed_activation`; `test_secret_gc_keeps_active_previous_draft_and_leases` usando riferimenti simulati alle richieste in corso.
+- [x] Scrivere `test_literal_raw_text_substitution`: testo `'{nome}: no, 12'` conserva le graffe; template senza `{raw_text}` è rifiutato; nessun altro frammento è interpretato come campo di formattazione.
+- [x] Eseguire `python -m pytest tests/v2/test_configuration.py -q`: atteso FAIL per servizio assente.
+- [x] Implementare firme dell'indice, validazione dei ruoli e modello testo obbligatorio solo in `two_stage`. Un'unica transazione verifica revisione, versione credenziale, validator e prerequisiti letti dal servizio; poi sposta i riferimenti. Nessuna prova fornita dal browser come “successo”. Pruning conserva anche le versioni in uso tramite lease, la cui integrazione arriva in S2.
+- [x] Rieseguire `tests/v2/test_repository.py` e `tests/v2/test_configuration.py`: PASS; nessuna modifica al percorso V1.
+- [x] Committare: `feat: add revision-checked draft testing and activation` (`32354cb`).
 
 ## Chiusura della sessione
 
-- [ ] Aggiornare registro con commit, comandi ed esiti. S1 completa solo quando riapertura, conflitti e attivazione sono verificati.
-- [ ] Indicare come prossima sessione S2; fermarsi senza iniziare gli adapter.
+- [x] Aggiornare registro con commit, comandi ed esiti. S1 completa solo quando riapertura, conflitti e attivazione sono verificati.
+- [x] Indicare come prossima sessione S2; fermarsi senza iniziare gli adapter.

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **V2 configuration foundation (S1)**: Added a separate version-marked SQLite
+  repository, encrypted versioned credentials, immutable configuration values,
+  revision-checked drafts, test receipts, atomic activation and rollback, plus
+  literal `{raw_text}` prompt substitution. These modules are not connected to
+  the V1 runtime yet. Offline V2 repository and configuration tests pass.
+
 - **Capability-aware audio preparation (P7)**: FFmpeg conversion is now skipped
   when the transcriber accepts the original file format natively. Each transcriber
   exposes its supported formats via `accepted_formats()`. The handler logs the

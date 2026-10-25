@@ -12,6 +12,8 @@ class ConfigurationInvalid(Exception):
 class TestRequired(Exception):
     """A matching successful test is required before activation."""
 
+    __test__ = False
+
 
 class PrerequisiteMissing(Exception):
     """One or more activation prerequisites are missing."""

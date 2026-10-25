@@ -21,6 +21,7 @@ class V2Repository:
         self._secret_store = secret_store
         self._connection: sqlite3.Connection | None = None
         self._lock = threading.RLock()
+        self._credential_leases: dict[tuple[str, int], int] = {}
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -65,7 +66,7 @@ class V2Repository:
                         "SELECT MAX(version) FROM schema_version"
                     ).fetchone()
                     version = row[0]
-            if marker != V2_MARKER or version is None or version > V2_SCHEMA_VERSION:
+            if marker != V2_MARKER or version != V2_SCHEMA_VERSION:
                 connection.close()
                 raise ConfigurationInvalid("Database is not a compatible V2 database")
         else:
@@ -137,6 +138,8 @@ class V2Repository:
             )
 
     def put_credential(self, service: CredentialOwner, plaintext: str) -> int:
+        if service not in ("telegram", "web_session", "openai", "gemini", "openrouter"):
+            raise ConfigurationInvalid("Credential service is invalid")
         if not plaintext:
             raise ConfigurationInvalid("Credential cannot be empty")
         try:
@@ -144,14 +147,23 @@ class V2Repository:
         except SecretStoreError as exc:
             raise ConfigurationInvalid("Credential encryption is unavailable") from exc
         with self.transaction() as connection:
+            connection.execute(
+                "INSERT INTO credential_sequences (service, next_version) VALUES (?, 1) "
+                "ON CONFLICT(service) DO NOTHING",
+                (service,),
+            )
             row = connection.execute(
-                "SELECT COALESCE(MAX(version), 0) + 1 FROM credentials WHERE service = ?",
+                "SELECT next_version FROM credential_sequences WHERE service = ?",
                 (service,),
             ).fetchone()
             version = int(row[0])
             connection.execute(
                 "INSERT INTO credentials (service, version, encrypted_value) VALUES (?, ?, ?)",
                 (service, version, encrypted),
+            )
+            connection.execute(
+                "UPDATE credential_sequences SET next_version = ? WHERE service = ?",
+                (version + 1, service),
             )
         return version
 
@@ -172,3 +184,45 @@ class V2Repository:
             "SELECT version FROM credentials WHERE service = ? ORDER BY version", (service,)
         ).fetchall()
         return tuple(int(row[0]) for row in rows)
+
+    @contextmanager
+    def credential_lease(self, service: CredentialOwner, version: int) -> Iterator[None]:
+        """Keep a credential version available while a request is using it."""
+        key = (service, version)
+        with self._lock:
+            if self.connection.execute(
+                "SELECT 1 FROM credentials WHERE service = ? AND version = ?", key
+            ).fetchone() is None:
+                raise ConfigurationInvalid("Credential version is unavailable")
+            self._credential_leases[key] = self._credential_leases.get(key, 0) + 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                remaining = self._credential_leases[key] - 1
+                if remaining:
+                    self._credential_leases[key] = remaining
+                else:
+                    del self._credential_leases[key]
+
+    def prune_credentials(self) -> int:
+        """Remove encrypted credentials unused by revisions or active requests."""
+        with self._lock, self.transaction() as connection:
+            rows = connection.execute(
+                "SELECT service, version FROM credentials ORDER BY service, version"
+            ).fetchall()
+            removable = [
+                (row["service"], int(row["version"]))
+                for row in rows
+                if (row["service"], int(row["version"])) not in self._credential_leases
+                and connection.execute(
+                    "SELECT 1 FROM config_references "
+                    "WHERE credential_service = ? AND credential_version = ?",
+                    (row["service"], row["version"]),
+                ).fetchone()
+                is None
+            ]
+            connection.executemany(
+                "DELETE FROM credentials WHERE service = ? AND version = ?", removable
+            )
+        return len(removable)
