@@ -1,11 +1,12 @@
 # Telegram Audio Bot V2 — progetto di prodotto, UX e architettura
 
-Stato: proposta completa da confermare prima dell'implementazione.
+Stato: approvata dall'utente il 25 ottobre 2026; esecuzione richiesta in più sessioni.
 Data: 25 ottobre 2026. Baseline analizzata: `250bd9a`.
 
-La direzione UX/UI **Configurazione e prova** è stata scelta dall'utente.
-Questa scelta approva la base visiva; le decisioni tecniche e operative
-proposte qui sotto non sono attribuite automaticamente all'utente.
+La direzione UX/UI **Configurazione e prova** e questa specifica completa
+sono state approvate dall'utente. Il piano di esecuzione è in
+[piano V2](../plans/2026-10-25-v2-index.md); il punto di ripresa è
+[V2-HANDOFF.md](../../V2-HANDOFF.md).
 
 ## 1. Intento e requisiti confermati
 

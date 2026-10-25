@@ -1,5 +1,11 @@
 # Roadmap
 
+> **V2 approved, 2026-10-25:** the current direction and implementation sequence
+> are in [V2 handoff](docs/V2-HANDOFF.md) and the linked approved specification.
+> This roadmap retains V1 history; conflicting proposals such as multi-provider
+> composition, per-chat profiles, and optional refinement are superseded by V2.
+> Implementation has not started; track sessions in [V2 progress](docs/V2-PROGRESS.md).
+
 This is a living decision document, not a commitment to implement every item.
 Work should be reviewed and approved one item at a time.
 

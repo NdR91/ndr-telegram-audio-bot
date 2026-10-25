@@ -1,6 +1,7 @@
 # V2: flussi e alternative UX/UI
 
-Stato: l'utente ha scelto **Configurazione e prova**; implementazione da pianificare.
+Stato: l'utente ha scelto **Configurazione e prova** e approvato la specifica V2.
+Il [passaggio di consegne](../V2-HANDOFF.md) collega il piano in sette sessioni.
 
 ## Risultato di questa fase
 
@@ -106,5 +107,5 @@ server locale delle anteprime. Gli esiti meccanici sono in
 Questi file verificano una composizione e una proposta di flusso. Non
 dimostrano il funzionamento delle integrazioni né sono una UI pronta da
 collegare al backend. Il progetto dettagliato è stato consolidato nella
-specifica completa; il piano segue la sua conferma. I modelli predefiniti
+specifica completa approvata; il piano è collegato dal passaggio di consegne. I modelli predefiniti
 richiedono ancora le prove di qualità indicate nella revisione tecnica.

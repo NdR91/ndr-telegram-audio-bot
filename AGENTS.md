@@ -4,6 +4,18 @@ This file documents how agentic coding assistants should work in this
 repository. Keep it aligned with the current codebase, `README.md`, and
 `CONTRIBUTING.md`.
 
+## Approved V2 work across sessions
+
+The user approved the V2 product, UX, and architecture design on 2026-10-25
+and requested implementation across separate chats. Start with
+`docs/V2-HANDOFF.md`, read the approved specification and plan index linked
+there, and use `docs/V2-PROGRESS.md` to find the first incomplete session.
+Implement one session per chat; update its checkboxes and progress evidence
+before handing off. Do not restart product discovery or layout selection.
+The V2 specification supersedes conflicting historical roadmap proposals;
+the architecture below still describes the current V1 until implementation.
+Preserve all security and repository hygiene rules in this file.
+
 No Cursor rules or Copilot instructions are currently present in:
 
 - `.cursor/rules/`
