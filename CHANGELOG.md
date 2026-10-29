@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Saved provider keys can be renamed without exposing or replacing the key and
+  without invalidating a successful configuration test. Authorized owners,
+  users and groups can also have editable display names, while retaining their
+  Telegram IDs for access control.
+
 - Save and select multiple encrypted API keys per service, with optional
   names. Existing configurations retain their original credential; selecting a
   different key in a draft requires a fresh test before activation.

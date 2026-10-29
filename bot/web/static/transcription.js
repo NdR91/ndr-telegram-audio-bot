@@ -62,7 +62,7 @@
     $('#text-model-wrap').hidden = mode() !== 'two_stage';
     if (markDirty) invalidate();
   }
-  const isSearch = event => ['audio-model-search', 'text-model-search'].includes(event.target?.id);
+  const isSearch = event => ['audio-model-search', 'text-model-search', 'rename-credential-label'].includes(event.target?.id);
   $('#draft-form').addEventListener('input', event => { if (!isSearch(event)) { editGeneration += 1; invalidate(); } });
   $('#draft-form').addEventListener('change', event => {
     if (isSearch(event)) return;
@@ -108,6 +108,24 @@
     ...document.querySelectorAll('.v2-main button'),
   ])], updateActionStates);
   $('#audio-file').addEventListener('change', updateTestButton);
+  $('#rename-credential').addEventListener('click', async () => {
+    const version = $('#credential-version').value;
+    const label = $('#rename-credential-label').value.trim();
+    if (!version || !label) { $('#credential-state').textContent = 'Seleziona una chiave e inserisci il nuovo nome.'; return; }
+    if (!setFormBusy(true)) return;
+    try {
+      const response = await fetch('/api/transcription/credentials/' + encodeURIComponent(service.value) + '/' + encodeURIComponent(version) + '/label', {
+        method: 'PUT', headers, body: JSON.stringify({ label }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Rinomina non riuscita.');
+      state.credentials[service.value].keys = data.keys;
+      renderCredentials(version);
+      $('#rename-credential-label').value = '';
+      $('#credential-state').textContent = 'Nome della chiave aggiornato.';
+    } catch (error) { $('#credential-state').textContent = error.message; }
+    finally { setFormBusy(false); }
+  });
   $('#save-credential').addEventListener('click', async () => {
     const key = $('#credential').value;
     if (!key) { $('#credential-state').textContent = 'Inserisci una chiave prima di salvarla.'; return; }

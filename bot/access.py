@@ -37,6 +37,7 @@ class AccessService:
             connection.execute(
                 "DELETE FROM acl_entries WHERE kind=? AND entry_id=?", (kind, entry_id)
             )
+            connection.execute('DELETE FROM setup_state WHERE setup_key=?', (f'access_label:{kind}:{entry_id}',))
             if kind == "owner":
                 remaining = connection.execute(
                     "SELECT 1 FROM acl_entries WHERE kind='owner' LIMIT 1"
@@ -75,6 +76,30 @@ class AccessService:
             ).fetchall()
         return {kind: [int(row["entry_id"]) for row in rows if row["kind"] == kind]
                 for kind in ("owner", "user", "group")}
+
+    def rename(self, kind: AccessKind, entry_id: int, label: str) -> None:
+        _validate(kind, entry_id)
+        if not isinstance(label, str) or not label.strip() or len(label.strip()) > 80:
+            raise ValueError('Inserisci un nome da 1 a 80 caratteri.')
+        with self.repo.transaction() as connection:
+            if not connection.execute('SELECT 1 FROM acl_entries WHERE kind=? AND entry_id=?', (kind, entry_id)).fetchone():
+                raise LookupError('Accesso non trovato.')
+            connection.execute(
+                'INSERT INTO setup_state(setup_key, setup_value) VALUES (?, ?) '
+                'ON CONFLICT(setup_key) DO UPDATE SET setup_value=excluded.setup_value, updated_at=datetime(\'now\')',
+                (f'access_label:{kind}:{entry_id}', label.strip()),
+            )
+
+    def labels(self) -> dict:
+        result = {'owner': {}, 'user': {}, 'group': {}}
+        with self.repo.read() as connection:
+            rows = connection.execute(
+                "SELECT a.kind, a.entry_id, s.setup_value FROM acl_entries a JOIN setup_state s "
+                "ON s.setup_key = ('access_label:' || a.kind || ':' || a.entry_id)"
+            ).fetchall()
+        for row in rows:
+            result[row['kind']][str(row['entry_id'])] = row['setup_value']
+        return result
 
     def mark_received(self, chat_id: int, at: datetime) -> None:
         """Record only when an authorized group's voice/audio update was observed."""

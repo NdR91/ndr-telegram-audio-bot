@@ -90,6 +90,11 @@ class PairingService:
                 "INSERT OR IGNORE INTO acl_entries(kind, entry_id) VALUES (?, ?)",
                 (row["kind"], row["candidate_id"]),
             )
+            if row['candidate_name']:
+                connection.execute(
+                    'INSERT OR IGNORE INTO setup_state(setup_key, setup_value) VALUES (?, ?)',
+                    (f'access_label:{row["kind"]}:{row["candidate_id"]}', row['candidate_name'][:80]),
+                )
             if row["kind"] == "owner":
                 connection.execute(
                     "INSERT INTO setup_state(setup_key, setup_value) VALUES ('owner_bot_id', ?) ON CONFLICT(setup_key) DO UPDATE SET setup_value=excluded.setup_value",

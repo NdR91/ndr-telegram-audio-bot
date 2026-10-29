@@ -9,6 +9,46 @@ from bot.web.auth import hash_password
 from bot.web.v2_app import create_app
 
 
+async def test_renaming_key_preserves_credential_and_configuration(tmp_path):
+    from bot.transcription.configuration import ConfigurationService
+    from bot.transcription.models import ConfigInput, Prerequisites, RuntimeLimits, TestReceipt
+    from bot.transcription.configuration import VALIDATOR_VERSION
+    from datetime import datetime, timezone
+
+    settings = DeploymentSettings(tmp_path, tmp_path / 'app-v2.sqlite3', tmp_path / 'key')
+    services = build_services(settings)
+    services.repo.set_setup_state('web_admin_hash', hash_password('synthetic-admin-password'))
+    version = services.repo.put_credential_with_state('openai', 'synthetic-secret', 'openai_credential_version', saved_label='Prima')
+    config = ConfigurationService(services.repo, lambda: Prerequisites(True, True, True))
+    values = ConfigInput('openai', 'multimodal', 'gpt-audio-1.5', None, version, 'Faithful', '{raw_text}', RuntimeLimits())
+    draft = config.save_draft(None, values)
+    config.record_test(TestReceipt('synthetic-proof', draft.number, version, VALIDATOR_VERSION, True, ('model',), datetime.now(timezone.utc)))
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+        path = '/api/transcription/credentials/openai/1/label'
+        assert (await client.put(path, json={'label': 'Lavoro'})).status_code == 401
+        csrf = (await client.post('/api/login', json={'password': 'synthetic-admin-password'})).json()['csrf_token']
+        assert (await client.put(path, json={'label': 'Lavoro'})).status_code == 403
+        headers = {'x-csrf-token': csrf}
+        assert (await client.put(path, headers=headers, json={'label': 'synthetic-secret'})).status_code == 422
+        assert (await client.put(path, headers=headers, json={'label': '   '})).status_code == 422
+        assert (await client.put('/api/transcription/credentials/gemini/1/label', headers=headers, json={'label': 'X'})).status_code == 404
+        assert (await client.put('/api/transcription/credentials/openai/9223372036854775808/label', headers=headers, json={'label': 'X'})).status_code == 422
+        renamed = await client.put(path, headers=headers, json={'label': 'Lavoro'})
+        assert renamed.status_code == 200
+        assert 'synthetic-secret' not in renamed.text
+        assert renamed.json()['keys'] == [{'version': 1, 'label': 'Lavoro'}]
+        assert services.repo.read_credential('openai', version) == 'synthetic-secret'
+        assert config.draft() == draft
+        assert config.activate(draft.number) == draft
+    services.repo.close()
+    restarted = build_services(settings)
+    try:
+        assert restarted.repo.get_setup_state('saved_key:openai:1') == 'Lavoro'
+    finally:
+        restarted.repo.close()
+
+
 async def test_multiple_saved_keys_are_selectable_without_exposing_secrets(tmp_path):
     settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
     services = build_services(settings)

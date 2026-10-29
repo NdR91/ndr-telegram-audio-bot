@@ -91,7 +91,10 @@ the chosen configuration before activation.
 
 You can save several API keys for each service under optional names and select
 one for a draft without entering it again. The keys remain encrypted and are
-never displayed. An existing key stays associated with the active configuration;
+never displayed. Use “Rinomina la chiave selezionata” to change a saved key's
+display name without changing the key or invalidating a successful test. In
+Accessi, assign or edit names for owners, users and groups; Telegram IDs remain
+the basis for authorization. An existing key stays associated with the active configuration;
 choosing a different one requires saving and testing a new draft before activation.
 
 This checkout's V2 implementation is not a production release. A browser test

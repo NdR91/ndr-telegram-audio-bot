@@ -26,6 +26,39 @@ async def _client(tmp_path, raise_app_exceptions=True):
     return client, services, login.json()["csrf_token"]
 
 
+async def test_access_labels_can_be_renamed_without_changing_authorization(tmp_path):
+    client, services, csrf = await _client(tmp_path)
+    try:
+        services.access.authorize('owner', 11)
+        services.access.authorize('user', 22)
+        services.access.authorize('group', -33)
+        headers = {'x-csrf-token': csrf}
+        path = '/api/access/entries/user/22/label'
+        anonymous = httpx.AsyncClient(transport=client._transport, base_url='http://test')
+        try:
+            assert (await anonymous.put(path, json={'label': 'Ada'})).status_code == 401
+        finally:
+            await anonymous.aclose()
+        assert (await client.put(path, json={'label': 'Ada'})).status_code == 403
+        assert (await client.put(path, headers=headers, json={'label': 'x' * 81})).status_code == 422
+        assert (await client.put(path, headers=headers, json={'label': ''})).status_code == 422
+        for kind, entry_id, label in [('owner', 11, 'Proprietario'), ('user', 22, 'Ada'), ('group', -33, 'Famiglia')]:
+            response = await client.put(f'/api/access/entries/{kind}/{entry_id}/label', headers=headers, json={'label': label})
+            assert response.status_code == 200
+        assert (await client.put('/api/access/entries/user/99/label', headers=headers, json={'label': 'X'})).status_code == 404
+        listing = (await client.get('/api/access')).json()
+        assert listing['labels'] == {'owner': {'11': 'Proprietario'}, 'user': {'22': 'Ada'}, 'group': {'-33': 'Famiglia'}}
+        assert services.access.allowed(22, 22, 'private')
+        assert services.access.allowed(99, -33, 'supergroup')
+        assert services.access.has_owner()
+        services.access.remove('user', 22)
+        services.access.authorize('user', 22)
+        assert '22' not in (await client.get('/api/access')).json()['labels']['user']
+    finally:
+        await client.aclose()
+        services.repo.close()
+
+
 async def test_guided_and_manual_access_share_acl(tmp_path):
     client, services, csrf = await _client(tmp_path)
     try:

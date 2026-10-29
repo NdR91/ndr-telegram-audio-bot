@@ -75,6 +75,8 @@
 .v2-access-layout li { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; padding:12px 0; border-top:1px solid var(--color-border); font-size:.86rem; }
 .v2-access-layout li > span { min-width:0; overflow-wrap:anywhere; }
 .v2-access-layout li .btn { flex:none; padding:7px 10px; font-size:.78rem; }
+.v2-access-rename { display:flex; flex-wrap:wrap; gap:8px; flex-basis:100%; }
+.v2-access-rename input { flex:1 1 12rem; min-width:0; }
 .v2-access-layout .v2-empty { color:oklch(0.35 0.008 30); }
 .v2-invite-panel { border-top:1px solid var(--color-border); margin-top:18px; padding-top:14px; }
 .v2-invite-panel p { overflow-wrap:anywhere; font-size:.86rem; line-height:1.55; }

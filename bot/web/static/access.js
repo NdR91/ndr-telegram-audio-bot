@@ -1,6 +1,7 @@
 (() => {
   const csrf = window.v2AccessPage.csrf;
   const status = document.getElementById("access-status");
+  const listStatus = document.getElementById("access-list-status");
   const response = async (url, options = {}) => {
     const result = await fetch(url, { credentials: "same-origin", ...options,
       headers: { ...(options.body ? { "Content-Type": "application/json" } : {}),
@@ -23,8 +24,40 @@
     const item = (kind, id, detail = "") => {
       const li = document.createElement("li");
       const label = document.createElement("span");
-      label.textContent = `${id}${detail ? ` · ${detail}` : ""}`;
+      const displayName = data.labels?.[kind]?.[String(id)] || "";
+      const identity = displayName ? `${displayName} · ID ${id}` : String(id);
+      label.textContent = `${identity}${detail ? ` · ${detail}` : ""}`;
       li.append(label);
+      const rename = document.createElement("button");
+      rename.type = "button";
+      rename.className = "btn btn-secondary";
+      rename.textContent = displayName ? "Rinomina" : "Dai un nome";
+      rename.setAttribute("aria-label", `Modifica nome ${kind} ${id}`);
+      rename.addEventListener("click", () => {
+        rename.disabled = true;
+        const form = document.createElement("form");
+        form.className = "v2-access-rename";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.maxLength = 80;
+        input.required = true;
+        input.value = displayName;
+        input.setAttribute("aria-label", `Nome per ${kind} ${id}`);
+        const save = document.createElement("button");
+        save.type = "submit"; save.className = "btn btn-secondary"; save.textContent = "Salva nome";
+        const cancel = document.createElement("button");
+        cancel.type = "button"; cancel.className = "btn btn-secondary"; cancel.textContent = "Annulla";
+        cancel.addEventListener("click", () => { form.remove(); rename.disabled = false; rename.focus(); });
+        form.addEventListener("submit", async event => {
+          event.preventDefault(); save.disabled = true;
+          try {
+            await response(`/api/access/entries/${kind}/${id}/label`, { method: "PUT", body: JSON.stringify({ label: input.value.trim() }) });
+            await render(); listStatus.textContent = "Nome aggiornato.";
+          } catch (error) { listStatus.textContent = error.message; save.disabled = false; }
+        });
+        form.append(input, save, cancel); li.append(form); input.focus();
+      });
+      li.append(rename);
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "btn btn-secondary";
@@ -59,9 +92,11 @@
         check.disabled = true;
         try {
           const result = await response(`/api/access/groups/${group.id}/membership`, { method: "POST" });
-          row.querySelector("span").textContent = `${group.id} · ${received} · appartenenza: ${membershipLabel(result.membership)}`;
+          const groupName = data.labels?.group?.[String(group.id)];
+          row.querySelector("span").textContent = `${groupName ? `${groupName} · ID ` : ""}${group.id} · ${received} · appartenenza: ${membershipLabel(result.membership)}`;
         } catch (error) {
-          row.querySelector("span").textContent = `${group.id} · ${received} · ${error.message}`;
+          const groupName = data.labels?.group?.[String(group.id)];
+          row.querySelector("span").textContent = `${groupName ? `${groupName} · ID ` : ""}${group.id} · ${received} · ${error.message}`;
         } finally {
           check.disabled = false;
         }

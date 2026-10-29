@@ -33,7 +33,7 @@ function element(id, defaults = {}) {
   return item;
 }
 const ids = [
-  "service", "draft-form", "credential", "credential-label", "credential-version", "audio-model-id",
+  "service", "draft-form", "credential", "credential-label", "credential-version", "rename-credential-label", "rename-credential", "audio-model-id",
   "text-model-id", "text-model", "audio-model", "audio-model-search", "text-model-search", "text-model-wrap", "system-prompt",
   "refine-template", "max-file-size", "max-user", "max-global", "cooldown",
   "transcribe-timeout", "refine-timeout", "queue-enabled", "draft-state", "save-status",
@@ -46,7 +46,7 @@ element("save-draft");
 const radioModes = [
   { value: "multimodal", checked: true }, { value: "two_stage", checked: false },
 ].map((mode) => ({ ...element(`mode-${mode.value}`), ...mode }));
-const buttons = ["save-draft", "save-credential", "load-models", "load-text-models", "run-test", "activate", "restore"]
+const buttons = ["save-draft", "save-credential", "rename-credential", "load-models", "load-text-models", "run-test", "activate", "restore"]
   .map((id) => elements.get(id));
 const form = elements.get("draft-form");
 form.elements = [elements.get("service"), elements.get("credential"), elements.get("credential-version"),
@@ -75,6 +75,9 @@ const requests = [];
 let nextRevision = initialDraft.revision;
 const fetch = async (url, options = {}) => {
   requests.push(url);
+  if (url === '/api/transcription/credentials/openai/1/label') {
+    return { ok: true, json: async () => ({ keys: [{version: 1, label: 'Rinominata'}, {version: 2, label: 'Lavoro'}] }) };
+  }
   if (url.startsWith("/api/transcription/models?")) {
     return { ok: true, json: async () => ({ models: [
       { id: "audio-v2", label: "Audio model" }, { id: "same-id", label: "same-id" },
@@ -147,6 +150,15 @@ async function fire(target, name, event = {}) {
   assert.equal(runTest.disabled, false, "saving the visible edits makes them eligible for a test");
   await click("run-test");
   assert.equal(activate.disabled, false, "successful test enables activation");
+
+  const renameInput = elements.get('rename-credential-label');
+  renameInput.value = 'Rinominata';
+  await fire(form, 'input', { target: renameInput });
+  await fire(form, 'change', { target: renameInput });
+  await click('rename-credential');
+  assert.equal(elements.get('credential-version').value, '1', 'renaming preserves the selected key');
+  assert.ok(elements.get('credential-version').options.some(option => option.textContent === 'Rinominata'));
+  assert.equal(activate.disabled, false, 'renaming does not invalidate a successful proof');
 
   await click("activate");
   assert.equal(activate.disabled, false, "failed activation preserves a valid proof for retry");

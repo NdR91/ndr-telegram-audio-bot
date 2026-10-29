@@ -298,7 +298,24 @@ def create_app(settings: DeploymentSettings | None = None,
         entries = services.access.list_entries_with_status()
         current_bot_id = repo.get_setup_state("current_bot_id")
         return {"owner": entries["owner"], "users": entries["user"],
-                "groups": entries["group"], "bot_connected": bool(current_bot_id)}
+                "groups": entries["group"], "labels": services.access.labels(),
+                "bot_connected": bool(current_bot_id)}
+
+    @app.put("/api/access/entries/{kind}/{entry_id}/label")
+    async def rename_access_entry(kind: str, entry_id: str, request: Request):
+        current, error = admin_or_error(request)
+        if error: return error
+        if not csrf_ok(current, request): return JSONResponse({"error": "csrf"}, status_code=403)
+        try:
+            if not re.fullmatch(r'-?[0-9]+', entry_id):
+                raise ValueError('ID non valido.')
+            body = await request.json()
+            services.access.rename(kind, int(entry_id), body.get('label'))
+            return {"ok": True}
+        except LookupError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=404)
+        except (ValueError, TypeError, AttributeError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
 
     @app.post("/api/access/entries")
     async def add_access_entry(request: Request):
@@ -477,6 +494,24 @@ def create_app(settings: DeploymentSettings | None = None,
             return {"service": service, "credential_version": version, "configured": True,
                     "keys": credential_status()[service]["keys"]}
         except (ValueError, ConfigurationInvalid) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+
+    @app.put("/api/transcription/credentials/{service}/{version}/label")
+    async def rename_transcription_credential(service: str, version: int, request: Request):
+        current, error = admin_or_error(request)
+        if error: return error
+        if not csrf_ok(current, request): return JSONResponse({"error": "csrf"}, status_code=403)
+        try:
+            body = await request.json()
+            label = body.get("label")
+            if not isinstance(label, str):
+                raise ValueError("Inserisci un nome valido.")
+            repo.rename_saved_credential(service, version, label.strip())
+            return {"service": service, "credential_version": version,
+                    "keys": credential_status()[service]["keys"]}
+        except LookupError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=404)
+        except (ValueError, TypeError, AttributeError, ConfigurationInvalid) as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
 
     @app.get("/api/transcription/models")

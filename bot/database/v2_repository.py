@@ -300,6 +300,31 @@ class V2Repository:
             )
         return version
 
+    def rename_saved_credential(self, service: str, version: int, label: str) -> None:
+        """Rename a saved provider credential without changing its encrypted value."""
+        if service not in ('openai', 'gemini', 'openrouter') or not 1 <= version <= 2**63 - 1:
+            raise ConfigurationInvalid('Servizio o chiave non validi.')
+        if not label or len(label) > 80:
+            raise ConfigurationInvalid('Inserisci un nome da 1 a 80 caratteri.')
+        with self.transaction() as connection:
+            row = connection.execute(
+                'SELECT encrypted_value FROM credentials WHERE service = ? AND version = ?',
+                (service, version),
+            ).fetchone()
+            if row is None:
+                raise LookupError('Chiave non trovata.')
+            try:
+                secret = self._secret_store.decrypt(row[0])
+            except SecretStoreError as exc:
+                raise ConfigurationInvalid('Impossibile verificare la chiave.') from exc
+            if secret and secret in label:
+                raise ConfigurationInvalid('Il nome non deve contenere la chiave.')
+            connection.execute(
+                'INSERT INTO setup_state(setup_key, setup_value) VALUES (?, ?) '
+                'ON CONFLICT(setup_key) DO UPDATE SET setup_value=excluded.setup_value, updated_at=datetime(\'now\')',
+                (f'saved_key:{service}:{version}', label),
+            )
+
     def read_credential(self, service: CredentialOwner, version: int) -> str:
         with self.read() as connection:
             row = connection.execute(

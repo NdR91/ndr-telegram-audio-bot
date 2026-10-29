@@ -20,6 +20,7 @@ def test_link_observation_requires_browser_confirmation(repo, clock):
         service.observe(nonce, 7, 7, "private", "Ada")
     service.confirm(invite.id)
     assert access.has_owner()
+    assert access.labels()['owner']['7'] == 'Ada'
     with pytest.raises(ValueError):
         service.confirm(invite.id)
 
