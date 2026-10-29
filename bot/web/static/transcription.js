@@ -37,8 +37,8 @@
     $('input[name="mode"][value="' + draft.mode + '"]').checked = true;
     $('#audio-model-id').value = draft.audio_model;
     $('#text-model-id').value = draft.text_model || '';
-    renderModels($('#audio-model'), $('#audio-model-search'), draft.audio_model);
-    renderModels($('#text-model'), $('#text-model-search'), draft.text_model || '');
+    syncModelSummary('audio');
+    syncModelSummary('text');
     renderCredentials(draft.credential_version);
     $('#system-prompt').value = draft.system_prompt;
     $('#refine-template').value = draft.refine_template;
@@ -161,109 +161,200 @@
     const version = keys.some(key => String(key.version) === String(selected)) ? selected : info?.credential_version;
     select.value = version == null ? '' : String(version);
   }
-  service.addEventListener('change', () => { clearModels(true); renderCredentials(null); showCredentialState(); updateModelToolbars(); });
-  const modelLists = { 'audio-model': [], 'text-model': [] };
+  const modelLists = { audio: [], text: [] };
   function clearModels(clearIds) {
-    for (const id of ['audio-model', 'text-model']) {
-      modelLists[id] = [];
-      $('#' + id).replaceChildren(new Option('Carica i modelli disponibili', ''));
-      $('#' + id + '-search').value = '';
-      if (clearIds) $('#' + id + '-id').value = '';
+    for (const role of ['audio', 'text']) {
+      modelLists[role] = [];
+      if (clearIds) $('#' + role + '-model-id').value = '';
+      syncModelSummary(role);
     }
   }
-  function updateModelToolbars() {
-    ['audio-model-toolbar', 'text-model-toolbar'].forEach(id => { $('#' + id).hidden = service.value !== 'openrouter'; });
+  const picker = $('#model-picker');
+  let pickerRole = 'audio';
+  let pickerTrigger = null;
+  let pickerGeneration = 0;
+  let resultLimit = 60;
+  picker.addEventListener('close', () => { pickerGeneration += 1; });
+  function syncModelSummary(role) {
+    const id = $('#' + role + '-model-id').value.trim();
+    const selected = modelLists[role].find(item => item.id === id);
+    $('#' + role + '-model-current').textContent = id || 'Nessun modello selezionato';
+    $('#' + role + '-model-description').textContent = selected?.label && selected.label !== id
+      ? selected.label : 'Scegli un modello dal catalogo o inserisci il suo ID.';
   }
   function pricePerMillion(value) {
     if (value == null || value === '') return null;
     const price = Number(value);
     return Number.isFinite(price) && price >= 0 ? price * 1_000_000 : null;
   }
-  function modelLabel(item) {
-    const name = item.label === item.id ? item.id : item.label + ' · ' + item.id;
-    if (service.value !== 'openrouter') return name;
-    const prices = item.pricing || {};
-    const details = [];
-    const input = pricePerMillion(prices.prompt);
-    const output = pricePerMillion(prices.completion);
-    if (input !== null) details.push('prompt $' + input.toLocaleString(undefined, { maximumSignificantDigits: 6 }) + '/M');
-    if (output !== null) details.push('output $' + output.toLocaleString(undefined, { maximumSignificantDigits: 6 }) + '/M');
-    if (prices.input_audio !== undefined) details.push('audio in $' + prices.input_audio + ' (unità API)');
-    if (prices.output_audio !== undefined) details.push('audio out $' + prices.output_audio + ' (unità API)');
-    if (prices.request !== undefined) details.push('$' + prices.request + '/request');
-    if (item.context_length) details.push(Number(item.context_length).toLocaleString() + ' token contesto');
-    return name + (details.length ? ' · ' + details.join(' · ') : ' · prezzi non disponibili');
+  function providerName(item) {
+    const id = String(item.id || '');
+    return id.includes('/') ? id.split('/')[0] : 'Altro';
   }
-  function renderModels(select, search, selectedId) {
-    const query = search.value.trim().toLocaleLowerCase();
-    const prefix = select.id === 'audio-model' ? 'audio' : 'text';
-    const models = modelLists[select.id].filter(item =>
-      (item.label + ' ' + item.id).toLocaleLowerCase().includes(query) || item.id === selectedId);
-    const sort = $('#' + prefix + '-model-sort').value;
-    const freePrompt = $('#' + prefix + '-free-prompt').checked;
-    const freeCompletion = $('#' + prefix + '-free-completion').checked;
-    const minContext = Number($('#' + prefix + '-context-filter').value);
-    let visible = models.filter(item => {
-      if (freePrompt && pricePerMillion(item.pricing?.prompt) !== 0) return false;
-      if (freeCompletion && pricePerMillion(item.pricing?.completion) !== 0) return false;
-      if (minContext && (!item.context_length || item.context_length < minContext)) return false;
+  function formatPrice(value, perMillion = false) {
+    if (value == null || value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) return 'Non disponibile';
+    const amount = perMillion ? Number(value) * 1_000_000 : Number(value);
+    return '$' + amount.toLocaleString(undefined, { maximumSignificantDigits: 6 }) + (perMillion ? ' / milione di token' : ' / unità API');
+  }
+  function appendMeta(container, label, value) {
+    const item = document.createElement('div');
+    const term = document.createElement('dt');
+    const description = document.createElement('dd');
+    term.textContent = label;
+    description.textContent = value;
+    item.append(term, description);
+    container.append(item);
+  }
+  function updateProviderOptions() {
+    const filter = $('#model-provider-filter');
+    filter.replaceChildren(new Option('Tutti i provider', ''));
+    const providers = [...new Set(modelLists[pickerRole].map(providerName))].sort((a, b) => a.localeCompare(b));
+    providers.forEach(name => filter.add(new Option(name, name)));
+    $('#model-provider-filter-wrap').hidden = service.value !== 'openrouter' || providers.length < 2;
+    $('#model-price-controls').hidden = service.value !== 'openrouter';
+  }
+  function renderPicker() {
+    const results = $('#model-picker-results');
+    const query = $('#model-picker-search').value.trim().toLocaleLowerCase();
+    const selectedId = $('#' + pickerRole + '-model-id').value.trim();
+    const provider = $('#model-provider-filter').value;
+    const sort = $('#model-sort').value;
+    const freeInput = $('#model-free-prompt').checked;
+    const freeOutput = $('#model-free-completion').checked;
+    const minContext = Number($('#model-context-filter').value);
+    const matchesNonSearchFilters = item => (!provider || providerName(item) === provider)
+      && (!freeInput || pricePerMillion(item.pricing?.prompt) === 0)
+      && (!freeOutput || pricePerMillion(item.pricing?.completion) === 0)
+      && (!minContext || (item.context_length && item.context_length >= minContext));
+    const filtered = modelLists[pickerRole].filter(item => {
+      const matchQuery = (String(item.label || '') + ' ' + String(item.id || '')).toLocaleLowerCase().includes(query);
+      if (!matchQuery && item.id !== selectedId) return false;
+      if (item.id !== selectedId) {
+        if (!matchesNonSearchFilters(item)) return false;
+      }
       return true;
     });
     if (sort !== 'default') {
-      visible = visible.map((item, index) => ({ item, index, price: pricePerMillion(item.pricing?.[sort]) }))
-        .sort((left, right) => {
-          if (left.price === null) return right.price === null ? left.index - right.index : 1;
-          if (right.price === null) return -1;
-          return left.price - right.price || left.index - right.index;
-        }).map(entry => entry.item);
-    }
-    if (!query && sort === 'default' && !freePrompt && !freeCompletion && !minContext && visible.length > 8) {
-      const selected = visible.find(item => item.id === selectedId);
-      visible = visible.slice(0, 8);
-      if (selected && !visible.includes(selected)) visible.push(selected);
-    }
-    select.replaceChildren(new Option('Seleziona un modello', ''));
-    visible.forEach(item => select.add(new Option(modelLabel(item), item.id)));
-    if (selectedId) {
-      if (!visible.some(item => item.id === selectedId)) {
-        select.add(new Option(selectedId + ' · selezione attuale (fuori dai filtri)', selectedId));
-      }
-      select.value = selectedId;
-    }
-  }
-  ['audio', 'text'].forEach(prefix => {
-    ['model-sort', 'free-prompt', 'free-completion', 'context-filter'].forEach(suffix => {
-      $('#' + prefix + '-' + suffix).addEventListener('change', () => {
-        const select = $('#' + prefix + '-model');
-        renderModels(select, $('#' + prefix + '-model-search'), $('#' + prefix + '-model-id').value);
+      filtered.sort((left, right) => {
+        const a = pricePerMillion(left.pricing?.[sort]);
+        const b = pricePerMillion(right.pricing?.[sort]);
+        if (a === null) return b === null ? 0 : 1;
+        if (b === null) return -1;
+        return a - b;
       });
+    }
+    results.replaceChildren();
+    const more = $('#model-picker-more');
+    more.hidden = filtered.length <= resultLimit;
+    more.textContent = 'Mostra altri modelli (' + (filtered.length - resultLimit) + ')';
+    if (!filtered.length) {
+      const empty = document.createElement('p');
+      empty.className = 'model-picker-empty';
+      empty.textContent = modelLists[pickerRole].length
+        ? 'Nessun modello corrisponde alla ricerca e ai filtri. Modifica i criteri o inserisci un ID manualmente.'
+        : 'Il catalogo non contiene modelli per questo percorso. Chiudi la ricerca e inserisci un ID manualmente.';
+      results.append(empty);
+      return;
+    }
+    filtered.slice(0, resultLimit).forEach(item => {
+      const card = document.createElement('article');
+      card.className = 'model-picker-card';
+      if (item.id === selectedId) card.classList.add('is-selected');
+      const main = document.createElement('div');
+      main.className = 'model-picker-card-main';
+      const name = document.createElement('strong');
+      name.textContent = item.label || item.id;
+      const id = document.createElement('code');
+      id.textContent = item.id;
+      main.append(name, id);
+      if (item.description) {
+        const description = document.createElement('p');
+        description.textContent = item.description;
+        main.append(description);
+      }
+      const metadata = document.createElement('dl');
+      metadata.className = 'model-picker-metadata';
+      if (service.value === 'openrouter') {
+        appendMeta(metadata, 'Provider', providerName(item));
+        appendMeta(metadata, 'Prompt testuale', formatPrice(item.pricing?.prompt, true));
+        appendMeta(metadata, 'Output token', formatPrice(item.pricing?.completion, true));
+        if (item.pricing?.input_audio != null) appendMeta(metadata, 'Input audio', formatPrice(item.pricing.input_audio));
+        if (item.pricing?.output_audio != null) appendMeta(metadata, 'Output audio', formatPrice(item.pricing.output_audio));
+        if (item.pricing?.request != null) appendMeta(metadata, 'Richiesta', formatPrice(item.pricing.request));
+      }
+      appendMeta(metadata, 'Contesto', item.context_length ? Number(item.context_length).toLocaleString() + ' token' : 'Non disponibile');
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = 'btn btn-secondary';
+      const selectedOutsideFilters = item.id === selectedId && (!matchesNonSearchFilters(item) || !String(item.label || item.id).toLocaleLowerCase().includes(query) && !String(item.id).toLocaleLowerCase().includes(query));
+      action.textContent = item.id === selectedId
+        ? selectedOutsideFilters ? 'Selezionato · fuori dai filtri' : 'Selezionato'
+        : 'Scegli questo modello';
+      action.setAttribute('aria-pressed', item.id === selectedId ? 'true' : 'false');
+      action.addEventListener('click', () => {
+        $('#' + pickerRole + '-model-id').value = item.id;
+        editGeneration += 1;
+        syncModelSummary(pickerRole);
+        invalidate();
+        pickerGeneration += 1;
+        picker.close();
+        pickerTrigger?.focus();
+      });
+      card.append(main, metadata, action);
+      results.append(card);
     });
-  });
-  $('#audio-model-search').addEventListener('input', () => renderModels($('#audio-model'), $('#audio-model-search'), $('#audio-model-id').value));
-  $('#text-model-search').addEventListener('input', () => renderModels($('#text-model'), $('#text-model-search'), $('#text-model-id').value));
-  $('#load-models').addEventListener('click', async () => {
-    const role = mode() === 'multimodal' ? 'multimodal' : 'transcription';
-    await loadCatalog(role, $('#audio-model'), $('#load-models'));
-  });
-  $('#load-text-models').addEventListener('click', async () => await loadCatalog('refinement', $('#text-model'), $('#load-text-models')));
-  async function loadCatalog(role, select, button) {
-    if (!setFormBusy(true)) return;
-    $('#save-status').textContent = 'Caricamento modelli…';
-    const query = new URLSearchParams({ service: service.value, role, credential_version: $('#credential-version').value });
+  }
+  function openPicker(role, trigger) {
+    const generation = ++pickerGeneration;
+    const requestedService = service.value;
+    pickerRole = role;
+    pickerTrigger = trigger;
+    const title = role === 'audio' ? 'Modello audio' : 'Modello di correzione';
+    $('#model-picker-title').textContent = 'Cerca ' + title.toLocaleLowerCase();
+    $('#model-picker-role').textContent = service.options?.[service.selectedIndex]?.textContent
+      ? 'Catalogo ' + service.options[service.selectedIndex].textContent + ' · ' + title.toLocaleLowerCase()
+      : 'Catalogo collegato al servizio selezionato · ' + title.toLocaleLowerCase();
+    $('#model-picker-search').value = '';
+    resultLimit = 60;
+    $('#model-provider-filter').value = '';
+    $('#model-sort').value = 'default';
+    $('#model-free-prompt').checked = false;
+    $('#model-free-completion').checked = false;
+    $('#model-context-filter').value = '0';
+    $('#model-picker-status').textContent = 'Caricamento del catalogo…';
+    $('#model-picker-results').replaceChildren();
+    picker.showModal();
+    $('#model-picker-search').focus();
+    return loadCatalog(role, generation, requestedService);
+  }
+  $('#load-models').addEventListener('click', event => openPicker('audio', event.currentTarget));
+  $('#load-text-models').addEventListener('click', event => openPicker('text', event.currentTarget));
+  async function loadCatalog(targetRole, generation, requestedService) {
+    const catalogRole = targetRole === 'text' ? 'refinement' : mode() === 'multimodal' ? 'multimodal' : 'transcription';
+    const query = new URLSearchParams({ service: service.value, role: catalogRole, credential_version: $('#credential-version').value });
     try {
       const response = await fetch('/api/transcription/models?' + query);
-      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Catalogo non disponibile.');
-      modelLists[select.id] = data.models;
-      const search = $('#' + select.id + '-search');
-      renderModels(select, search, $('#' + select.id + '-id').value);
-      updateModelToolbars();
-      $('#save-status').textContent = data.models.length
-        ? 'Modelli caricati. Usa la ricerca per trovare altre opzioni.' : 'Nessun modello disponibile. Puoi inserire un ID manualmente.';
-    } catch (error) { $('#save-status').textContent = error.message + ' Puoi inserire un ID manualmente.'; }
-    finally { setFormBusy(false); }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Catalogo non disponibile.');
+      if (generation !== pickerGeneration || !picker.open || pickerRole !== targetRole || service.value !== requestedService) return;
+      modelLists[targetRole] = Array.isArray(data.models) ? data.models : [];
+      updateProviderOptions();
+      $('#model-picker-status').textContent = modelLists[targetRole].length
+        ? modelLists[targetRole].length + ' modelli disponibili. Cerca per nome o ID e scegli una riga.'
+        : 'Nessun modello disponibile per questo percorso.';
+      renderPicker();
+    } catch (error) {
+      if (generation !== pickerGeneration || !picker.open || pickerRole !== targetRole || service.value !== requestedService) return;
+      $('#model-picker-status').textContent = error.message + ' Puoi chiudere la ricerca e inserire un ID manualmente.';
+      $('#model-picker-results').replaceChildren();
+    }
   }
-  $('#audio-model').addEventListener('change', () => { if ($('#audio-model').value) $('#audio-model-id').value = $('#audio-model').value; invalidate(); });
-  $('#text-model').addEventListener('change', () => { if ($('#text-model').value) $('#text-model-id').value = $('#text-model').value; invalidate(); });
+  ['model-picker-search'].forEach(id => $('#' + id).addEventListener('input', renderPicker));
+  ['model-provider-filter', 'model-sort', 'model-free-prompt', 'model-free-completion', 'model-context-filter']
+    .forEach(id => $('#' + id).addEventListener('change', renderPicker));
+  $('#model-picker-more').addEventListener('click', () => { resultLimit += 60; renderPicker(); });
+  ['audio', 'text'].forEach(role => $('#' + role + '-model-id').addEventListener('input', () => syncModelSummary(role)));
+  service.addEventListener('change', () => { clearModels(true); renderCredentials(null); showCredentialState(); });
   $('#run-test').addEventListener('click', async () => {
     if (revision === null || !hasSavedDraft() || credentialNeedsUpdate) return;
     if (!setFormBusy(true)) return;
@@ -321,6 +412,5 @@
   loadDraft(state.draft);
   if (!state.draft) renderCredentials(null);
   showCredentialState();
-  updateModelToolbars();
   if (state.active) $('#active-summary').textContent = state.active.service + ' · ' + state.active.audio_model + ' · revisione ' + state.active.revision;
 })();

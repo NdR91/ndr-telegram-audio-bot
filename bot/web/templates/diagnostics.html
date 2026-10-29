@@ -13,8 +13,8 @@
 <ul class="v2-health-list">{% for key, label in [("configured", "Configurazione attiva"), ("running", "Bot in esecuzione"), ("verified", "Prova riuscita"), ("receiving", "Vocale ricevuto in un gruppo autorizzato")] %}
 <li><span>{{ label }}</span><strong class="{% if health[key] %}v2-health-ok{% else %}v2-health-muted{% endif %}" role="status">{% if health[key] %}Confermato{% else %}Non confermato{% endif %}</strong></li>
 {% endfor %}</ul></section>
-{% if not overview %}<section class="v2-editor" style="margin-top:20px"><header><h2>Esiti recenti</h2><span class="v2-badge">Massimo 100 · 7 giorni</span></header>
-{% if events %}<ul style="list-style:none;padding:0">{% for event in events %}<li style="border-top:1px solid var(--color-border);padding:12px 0;display:grid;gap:4px">
+{% if not overview %}<section class="v2-editor v2-event-panel"><header><h2>Esiti recenti</h2><span class="v2-badge">Massimo 100 · 7 giorni</span></header>
+{% if events %}<ul class="v2-event-list">{% for event in events %}<li>
 <strong>{{ event.stage }} · {{ event.status }}{% if event.error_code %} · {{ event.error_code }}{% endif %}</strong>
 <span>{{ event.at }}{% if event.revision %} · revisione {{ event.revision }}{% endif %}{% if event.duration_ms is not none %} · {{ event.duration_ms }} ms{% endif %}</span>
 {% if event.models %}<span>Modelli: {{ event.models|join(", ") }}</span>{% endif %}</li>{% endfor %}</ul>

@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Primo avvio</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><main class="container"><section class="card card-narrow">
+<body class="v2-auth"><header class="v2-auth-brand"><a href="/">Audio Bot</a><span>Area amministrativa</span></header><main class="container"><section class="card card-narrow">
 <h1>Avvia il tuo bot</h1>
 {% if step == 'create_admin' %}<p>Genera un codice locale sul server con <code>python -m bot.v2_setup_code</code>, poi inseriscilo qui. Scade dopo 30 minuti; puoi generarne uno nuovo se scade.</p>
 <form id="setup"><label for="code">Codice di configurazione</label><input id="code" required autocomplete="off"><label for="password">Password</label><input id="password" type="password" required autocomplete="new-password"><button class="btn btn-primary">Crea accesso</button></form>

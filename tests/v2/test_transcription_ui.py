@@ -37,7 +37,7 @@ async def test_ui_separates_active_draft_and_escapes_test_output(tmp_path):
         assert "setFormBusy(true)" in javascript
         assert "...document.querySelectorAll('.v2-main button')" in javascript
         assert "if (control.id !== 'save-draft')" not in javascript
-        assert "loadCatalog('refinement'" in javascript
+        assert "targetRole === 'text' ? 'refinement'" in javascript
         assert "state.credentials" in javascript
         assert "transcriptionState.credentialNeedsUpdate(state.draft, state.credentials)" in javascript
         assert 'id="credential-version"' in response.text

@@ -1,0 +1,169 @@
+.v2-label {
+  color: var(--color-text);
+  font-size: .88rem;
+  font-weight: 600;
+}
+
+.model-choice-summary {
+  align-items: center;
+  display: flex;
+  gap: .75rem;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.model-choice-summary code {
+  background: transparent;
+  border: 0;
+  color: var(--color-text);
+  font-size: .9rem;
+  overflow-wrap: anywhere;
+  padding: 0;
+}
+
+.model-choice-field > small { line-height: 1.45; }
+.model-choice-field details { margin-top: .25rem; }
+
+.v2-config-checkpoints {
+  align-items: center;
+  color: oklch(0.31 0.025 155);
+  display: flex;
+  gap: .5rem;
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.v2-config-checkpoints li {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  gap: .55rem;
+  min-width: 0;
+}
+
+.v2-config-checkpoints li:not(:last-child)::after {
+  background: oklch(0.78 0.012 155);
+  content: "";
+  height: 1px;
+  margin-left: auto;
+  width: clamp(.5rem, 3vw, 2rem);
+}
+
+.v2-config-checkpoints li > span,
+.v2-step-number {
+  align-items: center;
+  background: oklch(0.91 0.025 155);
+  border: 1px solid oklch(0.74 0.045 155);
+  border-radius: 50%;
+  color: oklch(0.25 0.06 155);
+  display: inline-flex;
+  flex: 0 0 1.65rem;
+  font-size: .78rem;
+  font-weight: 700;
+  height: 1.65rem;
+  justify-content: center;
+}
+
+.v2-config-checkpoints b { font-size: .8rem; white-space: nowrap; }
+.v2-config-section { border-top: 1px solid var(--color-border); margin: 1.3rem 0; padding-top: 1rem; }
+.v2-config-section > header { align-items: flex-start; display: flex; gap: .7rem; margin: 0 0 1rem; }
+.v2-config-section > header h3 { font-size: .98rem; margin: .05rem 0 .15rem; }
+.v2-config-section > header p { color: var(--color-text-muted); font-size: .82rem; line-height: 1.4; margin: 0; }
+.v2-advanced { border-top: 1px solid var(--color-border); padding-top: .9rem; }
+
+.model-picker-dialog {
+  --color-surface: oklch(0.99 0 0);
+  --color-surface-raised: oklch(0.95 0.005 90);
+  --color-text: oklch(0.19 0.006 30);
+  --color-text-muted: oklch(0.38 0.008 30);
+  --color-border: oklch(0.78 0.006 80);
+  --color-primary: oklch(0.68 0.17 38);
+  --color-primary-hover: oklch(0.62 0.16 38);
+  --color-accent: oklch(0.36 0.08 195);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px oklch(0.12 0.02 200 / .28);
+  color: var(--color-text, #222);
+  inset: 0;
+  margin: auto;
+  max-height: min(88vh, 920px);
+  max-width: min(940px, calc(100vw - 32px));
+  overflow: auto;
+  padding: 0;
+  position: fixed;
+  width: 100%;
+}
+
+.model-picker-dialog::backdrop { background: oklch(0.10 0.02 200 / .58); }
+.model-picker-dialog[open] { animation: model-picker-enter 170ms cubic-bezier(.16, 1, .3, 1); }
+@keyframes model-picker-enter { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
+
+.model-picker-heading {
+  align-items: flex-start;
+  background: var(--color-surface, #fff);
+  border-bottom: 1px solid var(--color-border, #ccc);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.2rem 1.35rem 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.model-picker-heading h2 { font-size: 1.18rem; margin: 0; }
+.model-picker-heading p { color: var(--color-text-muted); font-size: .86rem; margin: .25rem 0 0; }
+.model-picker-close { background: transparent; border: 1px solid var(--color-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: .45rem .7rem; }
+.model-picker-controls { display: grid; gap: .5rem; padding: 1rem 1.35rem .75rem; }
+.model-picker-controls > label, .model-picker-filters label { font-size: .82rem; font-weight: 600; }
+.model-picker-controls input[type="search"], .model-picker-filters select { background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-text); font: inherit; min-height: 42px; padding: .55rem .7rem; width: 100%; }
+.model-picker-controls input:focus-visible, .model-picker-filters select:focus-visible, .model-picker-close:focus-visible { outline: 3px solid oklch(0.61 0.16 43 / .48); outline-offset: 2px; }
+.model-picker-filters { display: flex; flex-wrap: wrap; gap: .75rem 1rem; padding-top: .25rem; }
+.model-picker-filters > div { align-items: center; display: flex; flex-wrap: wrap; gap: .5rem; }
+.model-picker-filters > div[hidden] { display: none; }
+.model-picker-filters select { min-height: 36px; padding: .35rem .55rem; width: auto; }
+.model-picker-price-controls { border-top: 1px solid var(--color-border); flex-basis: 100%; padding-top: .7rem; }
+.model-picker-price-controls label:not(:has(input)) { margin-left: .35rem; }
+.model-picker-price-controls label:has(input) { align-items: center; display: inline-flex; gap: .35rem; font-weight: 500; }
+.model-picker-price-controls input { accent-color: var(--color-accent); }
+.model-picker-status { color: var(--color-text-muted); font-size: .85rem; padding: .2rem 1.35rem .65rem; }
+.model-picker-results { align-content: start; display: grid; gap: .55rem; grid-auto-rows: max-content; max-height: min(48vh, 500px); overflow: auto; padding: 0 1.35rem .9rem; }
+.model-picker-card { align-items: center; border: 1px solid var(--color-border); border-radius: 8px; display: grid; gap: .35rem .8rem; grid-template-columns: minmax(9rem, 1fr) minmax(15rem, 1.5fr) auto; height: auto; min-height: 0; padding: .5rem .65rem; }
+.model-picker-card.is-selected { background: oklch(0.94 0.025 155); border-color: oklch(0.58 0.09 155); }
+.model-picker-card-main { min-width: 0; }
+.model-picker-card-main strong { display: block; font-size: .94rem; line-height: 1.35; overflow-wrap: anywhere; }
+.model-picker-card-main code { background: none; border: 0; color: var(--color-text-muted); display: block; font-size: .8rem; overflow-wrap: anywhere; padding: .12rem 0 0; }
+.model-picker-card-main p { color: var(--color-text-muted); font-size: .82rem; line-height: 1.45; margin: .4rem 0 0; }
+.model-picker-metadata { display: flex; flex-wrap: wrap; gap: .25rem .6rem; grid-column: 2; margin: 0; }
+.model-picker-metadata > div { min-width: 5.3rem; }
+.model-picker-metadata dt { color: var(--color-text-muted); font-size: .62rem; font-weight: 700; letter-spacing: .025em; text-transform: uppercase; }
+.model-picker-metadata dd { font-size: .72rem; line-height: 1.25; margin: .02rem 0 0; overflow-wrap: anywhere; }
+.model-picker-card > button { grid-column: 3; grid-row: 1; min-height: 36px; padding: .42rem .65rem; white-space: nowrap; }
+.model-picker-more { background: transparent; border: 0; color: oklch(0.29 0.08 195); cursor: pointer; font: inherit; font-size: .84rem; margin: 0 .9rem .7rem; padding: .4rem; text-decoration: underline; text-underline-offset: 3px; }
+.model-picker-more:focus-visible { outline: 3px solid oklch(0.61 0.16 43 / .48); outline-offset: 2px; }
+.model-picker-empty { background: var(--color-surface-raised); border-radius: 8px; color: var(--color-text-muted); line-height: 1.5; margin: 0; padding: 1rem; }
+.model-picker-note { border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: .76rem; line-height: 1.45; margin: 0; padding: .8rem 1.35rem 1rem; }
+
+@media (max-width: 620px) {
+  .model-picker-dialog { max-height: 94vh; max-width: calc(100vw - 16px); }
+  .model-picker-heading { padding: 1rem; }
+  .model-picker-controls { padding: .8rem 1rem .6rem; }
+  .model-picker-results { max-height: 50vh; padding: 0 .75rem .75rem; }
+  .model-picker-card { grid-template-columns: minmax(0, 1fr); }
+  .model-picker-metadata { grid-column: 1; }
+  .model-picker-card > button { grid-column: 1; grid-row: auto; justify-self: start; }
+  .model-picker-note { padding: .7rem 1rem .85rem; }
+  .model-choice-summary { align-items: stretch; flex-direction: column; }
+  .model-choice-summary .btn { width: 100%; }
+  .model-picker-filters > div { align-items: start; flex-basis: 100%; }
+  .v2-config-checkpoints { gap: .2rem; }
+  .v2-config-checkpoints li { gap: .3rem; }
+  .v2-config-checkpoints li:not(:last-child)::after { width: .35rem; }
+  .v2-config-checkpoints b { font-size: .68rem; white-space: normal; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-picker-dialog[open] { animation: none; }
+}

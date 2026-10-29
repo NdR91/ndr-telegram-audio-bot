@@ -104,3 +104,11 @@ Task: interfaccia amministrativa rivista; catalogo OpenRouter con prezzi token d
 Verifiche: browser Chromium con template reali e risposte simulate ai viewport 1440×900 e 390×844, compresi filtri OpenRouter; integrazioni reali non provate. Test mirati e stato commit sono riportati nel messaggio di consegna.
 Problemi aperti: prove operative previste da `docs/V2-VALIDATION.md` e verifica del catalogo con credenziali reali.
 Prossima azione precisa: effettuare i gate operativi S7 in ambiente idoneo.
+
+Sessione / data: S7, ricerca modelli e revisione UX — 29 ottobre 2026
+Stato: miglioramenti implementati e verificati offline; gate operativi S7 ancora pendenti.
+Branch / worktree: `codex/v2-product-design` / `/home/ndr/config/telegram-audio-bot`.
+Task: ricerca basata su cataloghi OpenRouter e Hugging Face; dialogo ricercabile, filtri e selezione per ruolo, riorganizzazione del workbench e conferma rimozione accessi.
+Verifiche: suite `tests` con `dotenv.load_dotenv` disattivato prima della raccolta: 170 passati, un warning passlib/crypt. Chromium su template effettivi e 40 modelli sintetici, desktop 1440×900 e mobile 390×844: ricerca, selezione, Escape, focus e overflow; nessuna API reale chiamata.
+Problemi aperti: le prove operative Telegram/provider e i gate di rilascio di `docs/V2-VALIDATION.md` restano da svolgere.
+Prossima azione precisa: verificare nel deployment con dati reali soltanto secondo protocollo operativo autorizzato.

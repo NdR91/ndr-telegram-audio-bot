@@ -64,10 +64,21 @@
       remove.textContent = "Rimuovi";
       remove.setAttribute("aria-label", `Rimuovi ${kind} ${id}`);
       remove.addEventListener("click", async () => {
+        const kindLabel = {owner: "proprietario", user: "utente", group: "gruppo"}[kind];
+        const subject = displayName ? `${displayName} (ID ${id})` : `${kindLabel} ${id}`;
+        const consequence = kind === "group"
+          ? "Il bot smetterà di trascrivere automaticamente i nuovi vocali inviati da tutti i membri di questo gruppo."
+          : kind === "user"
+            ? "Questa persona non potrà più inviare audio in privato."
+            : "Questa persona perderà l'accesso amministrativo Telegram al bot.";
+        if (!window.confirm(`Rimuovere ${kindLabel} ${subject}? ${consequence}`)) {
+          status.textContent = `Rimozione annullata: ${subject} mantiene l'accesso.`;
+          return;
+        }
         remove.disabled = true;
         try {
           await response(`/api/access/entries/${kind}/${id}`, { method: "DELETE" });
-          status.textContent = "Accesso rimosso.";
+          status.textContent = `Accesso rimosso: ${subject}.`;
           await render();
         } catch (error) {
           status.textContent = error.message;

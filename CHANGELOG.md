@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replaced the long native model menu with a searchable catalog dialog with
+  readable results, provider and price filters, keyboard navigation, and a
+  manual ID fallback. Reorganized the workbench into clear configuration,
+  saving and testing steps and added confirmation before access removal.
+
 - Refined the administration interface with clearer navigation, form hierarchy,
   responsive layouts, and keyboard focus states.
 

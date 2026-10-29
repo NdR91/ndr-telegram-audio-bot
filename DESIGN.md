@@ -31,9 +31,11 @@ bounded operational evidence.
 ## Visual language
 
 The shared stylesheet defines dark and light themes. The administration area
-uses a dark green navigation, a cool neutral background and light panels, with
-orange primary actions and distinct colors for status. Compact controls,
-clear section headings and responsive navigation support the operator's work.
+uses a dark green top navigation and a warm neutral workspace, with orange
+primary actions and distinct colors for status. The draft is grouped into
+service, key and model decisions, alongside the test and activation actions.
+The model catalog uses a searchable dialog with readable rows, explicit
+filters and separate price units. Navigation and forms reflow on mobile.
 Inter is the interface font; monospace is used
 for technical values. These tokens are implemented in
 `bot/web/static/style.css`; this document describes the code, not a completed
