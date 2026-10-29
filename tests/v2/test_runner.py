@@ -6,6 +6,7 @@ from types import ModuleType
 
 import pytest
 
+from bot.transcription.adapters.openai import OpenAIAdapter
 from bot.transcription.errors import ServiceFailure
 from bot.transcription.models import ConfigRevision, StageResult
 from bot.transcription.runner import TranscriptionRunner
@@ -89,8 +90,8 @@ async def test_conversion_only_when_needed_and_cleanup_on_failure(tmp_path, conf
     converted=[]
     async def convert(src, dst):
         converted.append((src, dst)); Path(dst).write_bytes(b"synthetic mp3")
-    fake_utils=ModuleType("bot.utils"); fake_utils.convert_to_mp3=convert
-    monkeypatch.setitem(sys.modules, "bot.utils", fake_utils)
+    fake_ffmpeg=ModuleType("bot.transcription.ffmpeg"); fake_ffmpeg.convert_to_mp3=convert
+    monkeypatch.setitem(sys.modules, "bot.transcription.ffmpeg", fake_ffmpeg)
     class Failing(Adapter):
         def accepted_formats(self, model, role): return frozenset({"mp3"})
         async def transcribe(self, audio, model):
@@ -102,13 +103,54 @@ async def test_conversion_only_when_needed_and_cleanup_on_failure(tmp_path, conf
     assert list((tmp_path / "work").iterdir()) == []
 
 
+async def test_openai_converts_telegram_ogg_voice_before_transcription(tmp_path, config_values, monkeypatch):
+    from types import SimpleNamespace
+
+    source=tmp_path / "voice.ogg"; source.write_bytes(b"synthetic OGG voice")
+    converted=[]
+    async def convert(src, dst):
+        converted.append((src, dst))
+        Path(dst).write_bytes(b"converted MP3 voice")
+    fake_ffmpeg=ModuleType("bot.transcription.ffmpeg"); fake_ffmpeg.convert_to_mp3=convert
+    monkeypatch.setitem(sys.modules, "bot.transcription.ffmpeg", fake_ffmpeg)
+
+    uploads=[]
+    class Client:
+        class Audio:
+            class Transcriptions:
+                async def create(self, **kwargs):
+                    uploads.append(kwargs["file"])
+                    return SimpleNamespace(text="spoken")
+            transcriptions=Transcriptions()
+        audio=Audio()
+        class Chat:
+            class Completions:
+                async def create(self, **kwargs):
+                    return SimpleNamespace(choices=[SimpleNamespace(
+                        message=SimpleNamespace(content="edited")
+                    )])
+            completions=Completions()
+        chat=Chat()
+
+    adapter=OpenAIAdapter("synthetic", Client())
+    result=await TranscriptionRunner(Pool(adapter), tmp_path / "work").run(
+        _snapshot(config_values), source
+    )
+
+    assert len(converted) == 1
+    assert uploads[0][0].endswith(".mp3")
+    assert uploads[0][1] == b"converted MP3 voice"
+    assert result.text == "edited"
+    assert source.exists() and list((tmp_path / "work").iterdir()) == []
+
+
 async def test_conversion_derivative_removed_after_cancellation(tmp_path, config_values, monkeypatch):
     source=tmp_path / "sample.opus"; source.write_bytes(b"synthetic")
     ready=asyncio.Event()
     async def convert(src, dst):
         Path(dst).write_bytes(b"partial mp3"); ready.set(); await asyncio.Event().wait()
-    fake_utils=ModuleType("bot.utils"); fake_utils.convert_to_mp3=convert
-    monkeypatch.setitem(sys.modules, "bot.utils", fake_utils)
+    fake_ffmpeg=ModuleType("bot.transcription.ffmpeg"); fake_ffmpeg.convert_to_mp3=convert
+    monkeypatch.setitem(sys.modules, "bot.transcription.ffmpeg", fake_ffmpeg)
     task=asyncio.create_task(TranscriptionRunner(Pool(Adapter()), tmp_path / "work").run(_snapshot(config_values), source))
     await ready.wait(); task.cancel()
     with pytest.raises(asyncio.CancelledError): await task
@@ -119,8 +161,8 @@ async def test_conversion_derivative_removed_after_stage_timeout(tmp_path, confi
     from dataclasses import replace
     source=tmp_path / "sample.opus"; source.write_bytes(b"synthetic")
     async def convert(src, dst): Path(dst).write_bytes(b"synthetic mp3")
-    fake_utils=ModuleType("bot.utils"); fake_utils.convert_to_mp3=convert
-    monkeypatch.setitem(sys.modules, "bot.utils", fake_utils)
+    fake_ffmpeg=ModuleType("bot.transcription.ffmpeg"); fake_ffmpeg.convert_to_mp3=convert
+    monkeypatch.setitem(sys.modules, "bot.transcription.ffmpeg", fake_ffmpeg)
     class Slow(Adapter):
         def accepted_formats(self, model, role): return frozenset({"mp3"})
         async def transcribe(self, audio, model): await asyncio.Event().wait()

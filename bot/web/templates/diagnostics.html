@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% if overview %}Panoramica{% else %}Diagnostica{% endif %} · Audio Bot</title><link rel="stylesheet" href="/static/style.css"></head>
+<body class="v2-shell"><aside class="v2-nav"><a class="v2-brand" href="/admin/dashboard">Audio Bot</a><nav aria-label="Navigazione amministratore">
+<a href="/admin/transcription">Configurazione e prova</a><a href="/admin/access">Accessi</a>
+<a href="/admin/dashboard"{% if overview %} class="selected"{% endif %}>Panoramica</a>
+<a href="/admin/diagnostics"{% if not overview %} class="selected"{% endif %}>Diagnostica</a></nav>
+<div class="v2-nav-foot">Installazione privata<br><span>Gestita dal proprietario</span></div></aside>
+<main class="v2-main"><header class="v2-heading"><div><h1>{% if overview %}Panoramica{% else %}Diagnostica{% endif %}</h1>
+<p>{% if overview %}Stato di configurazione e ricezione del bot.{% else %}Ultimi esiti operativi, senza testo, audio o credenziali.{% endif %}</p></div>
+<a class="v2-logout" href="/">Primo avvio</a></header>
+<section class="v2-editor" aria-label="Stato del servizio"><header><h2>Stato del servizio</h2></header>
+<ul class="v2-health-list">{% for key, label in [("configured", "Configurazione attiva"), ("running", "Bot in esecuzione"), ("verified", "Prova riuscita"), ("receiving", "Vocale ricevuto in un gruppo autorizzato")] %}
+<li><span>{{ label }}</span><strong class="{% if health[key] %}v2-health-ok{% else %}v2-health-muted{% endif %}" role="status">{% if health[key] %}Confermato{% else %}Non confermato{% endif %}</strong></li>
+{% endfor %}</ul></section>
+{% if not overview %}<section class="v2-editor" style="margin-top:20px"><header><h2>Esiti recenti</h2><span class="v2-badge">Massimo 100 · 7 giorni</span></header>
+{% if events %}<ul style="list-style:none;padding:0">{% for event in events %}<li style="border-top:1px solid var(--color-border);padding:12px 0;display:grid;gap:4px">
+<strong>{{ event.stage }} · {{ event.status }}{% if event.error_code %} · {{ event.error_code }}{% endif %}</strong>
+<span>{{ event.at }}{% if event.revision %} · revisione {{ event.revision }}{% endif %}{% if event.duration_ms is not none %} · {{ event.duration_ms }} ms{% endif %}</span>
+{% if event.models %}<span>Modelli: {{ event.models|join(", ") }}</span>{% endif %}</li>{% endfor %}</ul>
+{% else %}<p>Nessun esito registrato.</p>{% endif %}</section>{% endif %}</main></body></html>

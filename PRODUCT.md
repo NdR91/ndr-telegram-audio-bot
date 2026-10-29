@@ -1,35 +1,49 @@
 # Product
 
-## Register
+## Promise
 
-product
+A self-hosted Telegram bot that turns authorized voice messages into faithful,
+readable text. It adds punctuation, removes fillers, and makes minimal
+corrections while preserving meaning, numbers, negations, and significant
+repetitions.
 
-## Users
+## Audience
 
-Power users and tinkerers who self-host this bot. Technical people who enjoy configuring pipelines, exploring AI providers, and optimizing transcription quality. They open the admin UI with intent — to configure, inspect, or tune — not to browse. They expect the tool to respect their expertise.
+An operator runs one installation and configures it in a browser using their
+own Telegram bot and AI-provider credentials. Telegram users do not receive
+provider accounts or independent configuration profiles.
 
-## Product Purpose
+## Product shape
 
-A self-hosted web admin for a Telegram audio transcription bot. Lets the operator manage AI providers (OpenAI, Gemini, OpenRouter), configure transcription/refinement pipelines, control access, and monitor bot health. Success looks like: zero friction to reach any setting, full confidence that the pipeline is correctly configured, fast recovery when something breaks.
+- Supported services: OpenAI, Gemini, and OpenRouter.
+- One service and one immutable active revision at a time.
+- Two audio paths: one multimodal generation, or transcription followed by
+  refinement on the same service.
+- A browser setup, an authenticated configuration workbench, contextual access
+  management, and bounded diagnostics.
+- Private users and authorized groups have separate access rules. New voice
+  messages in an authorized group are processed automatically.
+- Draft changes require an explicit successful audio test before activation.
+- Audio and transcript text are temporary; the database stores configuration,
+  access state, test proof metadata, and bounded operational metadata.
 
-## Brand Personality
+## UX direction
 
-Precise, confident, capable. The tool should feel like it was built by someone who uses it themselves.
+The approved direction is “Configurazione e prova”: edit a draft beside an
+explicit test action, with the active revision visible as separate state. The
+other operating areas are Panoramica, Accessi, and Diagnostica. Setup, login,
+and local recovery are part of the operator journey.
 
-## Anti-references
+## Product boundaries
 
-- Generic AI-generated SaaS look: cream backgrounds, eyebrow labels on every section, hero-metric dashboards, identical card grids
-- Weekend-project UI: bare HTML forms with no visual hierarchy, no feedback states
-- Enterprise bloat: deeply nested sidebars, excessive modals, information overload
+The application does not summarize or translate by default, compose multiple
+providers, select a fallback service, maintain per-chat profiles, or retain an
+audio/transcript archive. Models in the catalog are candidates. The project
+does not claim a model recommendation until an operator has measured quality,
+latency, and available cost in their own environment.
 
-## Design Principles
+## Release evidence
 
-1. **Respect expertise**: expose complexity without hiding it behind over-simplified flows. Power users want direct access.
-2. **Status at a glance**: the operator needs to know immediately whether the bot is healthy, what pipeline is active, and whether any provider is degraded.
-3. **Confident defaults**: opinionated layout and color choices that feel production-grade, not neutral-by-default.
-4. **Friction-free recovery**: error states, degraded-provider warnings, and recovery flows are first-class citizens, not afterthoughts.
-5. **Earn every pixel**: no decoration that doesn't carry meaning. Motion and color are purposeful.
-
-## Accessibility & Inclusion
-
-Personal/self-hosted tool. Reasonable usability as baseline; no formal WCAG target.
+The V2 checkout has offline tests using synthetic data and mocked services.
+Live Telegram/provider behavior and visual browser checks require the operator
+and remain separate release gates. See [V2 validation](docs/V2-VALIDATION.md).

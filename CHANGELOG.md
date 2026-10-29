@@ -9,6 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Optional legacy authorization mount**: The default Compose setup starts
+  without `authorized.json`; `docker-compose.legacy.yml` opts into an existing
+  file mounted read-only and disables host-path creation. V2 never reads it.
+
+- **V2 acceptance scenarios and release evidence (S7)**: Added four synthetic
+  integration scenarios for blank setup through first voice, restart
+  persistence, rejected model edits, and incompatible migration followed by
+  reconfiguration. `docs/V2-VALIDATION.md` maps all 16 acceptance criteria to
+  evidence and separates offline mocks from operator browser/live checks. No
+  real Telegram/provider calls or production data were used.
+
+- **Ritirata la catena runtime V1 (S6.3)**: Il checkout avvia solo il runtime
+  V2. Rimossi resolver, provider factory, configurazione, repository SQL V1,
+  handlers, route e template concorrenti; `bot/migrate_v1.py` è l'unico lettore
+  del vecchio schema. La suite root V1-only è stata ritirata, mantenendo i test
+  SecretStore e portando copertura di ACL, limiti, cleanup, web auth e pipeline
+  nei test V2. Elenco preciso e sostituzioni in `docs/V2-S6-RETIREMENT.md`.
+
+- **V2 migration and diagnostics (S6)**: Added an explicit, one-shot importer
+  for operator-created V1 database/key copies. Compatible same-service two-stage
+  profiles become an untested draft; ambiguous, cross-service, or single-pass
+  profiles require reconfiguration. Added an authenticated overview and bounded
+  diagnostics history (100 events, seven days) containing normalized metadata
+  only, with Telegram/browser test result recording. V2 schema migration 3
+  adds the event store. Tests use synthetic SQLite fixtures and keys; no live
+  migration, Telegram call, or provider call was performed.
+
+- **V2 access management (S5.2)**: Added the authenticated Access page for
+  guided owner/user/group pairing and advanced integer IDs, with CSRF-protected
+  mutations sharing the Telegram ACL service. Group membership checks are
+  displayed separately from voice receipt; only a timestamp for a group update
+  is retained, with no message or audio history. Preserved the owner-only
+  Telegram access commands on the same service. Offline route tests use
+  synthetic IDs and mocked membership responses.
+
+- **V2 configuration and explicit test workbench (S4)**: Added revision-checked
+  draft APIs, encrypted versioned provider credentials, role-aware model catalog,
+  bounded temporary audio uploads, and test runs through the shared transcription
+  runner. Transcript output stays in process memory for up to ten minutes;
+  activation requires a successful proof for the current draft and credential
+  version. Added the responsive “Configurazione e prova” screen with separate
+  active/draft state. Offline V2 tests use temporary databases, synthetic audio,
+  and mocked runner/provider calls; no live provider call was performed.
+
+- **V2 onboarding and setup-only Telegram lifecycle (S3)**: Added one web
+  startup path, infrastructure-only deployment settings, encrypted Telegram
+  and session credentials, web login, time-limited pairing invites with
+  browser confirmation, UTC-expiring local setup/recovery codes, session
+  revocation on password recovery, and contextual owner/user/group access
+  rules. Codes are emitted only by explicit local commands, never app logs.
+  Login, setup, and recovery allow five tries per socket address every 15
+  minutes; they return `429`/`Retry-After` when limited. Setup and recovery
+  reject invalid codes before running password hashing and consume valid codes
+  only after an atomic recheck. A Telegram polling startup failure leaves the
+  web login available for repair. Group pairing displays the group title.
+  The Telegram poller remains setup-only; ordinary audio processing is not
+  yet connected. Offline tests use synthetic IDs and tokens.
+
 - **V2 configuration foundation (S1)**: Added a separate version-marked SQLite
   repository, encrypted versioned credentials, immutable configuration values,
   revision-checked drafts, test receipts, atomic activation and rollback, plus

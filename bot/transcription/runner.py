@@ -66,7 +66,7 @@ class TranscriptionRunner:
                 derivative.unlink(missing_ok=True)
 
     async def _convert(self, source: Path, timeout: int) -> Path:
-        from bot.utils import convert_to_mp3
+        from bot.transcription.ffmpeg import convert_to_mp3
 
         destination = self._work_dir / f"v2-{uuid.uuid4().hex}.mp3"
         try:

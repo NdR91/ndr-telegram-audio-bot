@@ -20,9 +20,10 @@ testo AI con HTML e fallimento del catalogo: test sotto.
 
 ### Task S4.1: servizio di prova e ricevute verificabili
 
-**Files:** creare `bot/transcription/testing.py`, `bot/web/routes_transcription.py`,
-`tests/v2/test_configuration_testing.py`, `test_transcription_routes.py`;
-integrare `services.py`, `web/app.py`.
+**Files:** creare `bot/transcription/testing.py`, integrare `bot/services.py` e
+le route in `bot/web/v2_app.py`, con `tests/v2/test_configuration_testing.py`
+e `test_transcription_routes.py`. Il branch S3 avvia `v2_app.py`; non usare il
+wiring V1 `web/app.py`.
 
 **Interfaces:** `ConfigurationTestService(configuration, runner, clock)` con
 `async run(revision: int, audio: Path) -> TestView`, `result(test_id: str) -> TestView | None`.
@@ -33,34 +34,29 @@ API autenticata: `GET/PUT /api/transcription/draft`, `POST /api/transcription/te
 `POST /api/transcription/restore`; `/api/transcription/models` per servizio/ruolo/versione;
 `POST /api/transcription/credentials` restituisce solo versione e stato configurato.
 
-- [ ] Scrivere `test_test_uses_same_runner_and_exact_revision`, `test_late_success_does_not_activate_edited_draft`, `test_failed_or_partial_test_does_not_enable_activation`: ricevuta tecnica riuscita solo se l'intero percorso selezionato riesce.
-- [ ] Scrivere `test_result_expires_after_600_seconds_and_restart`, `test_upload_removed_on_cancel_and_timeout`, `test_get_does_not_start_billable_calls`: nessun testo nel DB, nessuna generazione per autosalvataggio o polling.
-- [ ] Scrivere `test_routes_require_auth_csrf_and_expected_revision`, `test_credentials_never_echo`, `test_active_credentials_unchanged_by_draft_replacement`.
-- [ ] Eseguire `python -m pytest tests/v2/test_configuration_testing.py tests/v2/test_transcription_routes.py -q`: atteso FAIL.
-- [ ] Implementare i contratti con snapshot catturato prima della prova e ricevuta generata solo dal server. Un solo test amministrativo simultaneo; seconda richiesta → `409`, senza chiamata pagata duplicata. La route possiede upload in directory temporanea validata e lo pulisce in `finally`; il runner riceve lo stesso snapshot usato da Telegram.
-- [ ] Usare nella prima V2 un audio caricato volontariamente dall'operatore. Nessun audio reale accessibile all'assistente, nessun audio generato committato; i test offline usano byte sintetici e mock. Esplicitare l'uso delle API prima dell'azione. Una prova parziale mostra il testo disponibile ma non certifica l'intera configurazione.
-- [ ] Rieseguire i due file e test configurazione/runner: PASS. Committare: `feat: test draft revisions through the production transcription runner`.
+- [x] Scrivere test su runner/snapshot esatto, bozza cambiata durante la prova, prova parziale, credenziale sostituita durante e dopo la prova, scadenza memoria, auth/CSRF/conflitto revisioni, credenziali mai restituite, cleanup upload e testo XSS reso inerte.
+- [x] Implementare i contratti con snapshot prima della prova, ricevuta solo dal server e soltanto per percorso completo. Una sola prova può essere in corso; upload limitato a `min(max_file_size_mb, 20)` e salvato sotto `AUDIO_DIR/tmp`, rimosso in `finally`. Il runner condiviso riceve lo snapshot immutabile.
+- [x] La prova parte solo su azione esplicita; il testo resta in memoria per 600 secondi e il DB conserva solo ricevuta tecnica. Esiti parziali mostrano il testo ma non abilitano l'attivazione.
+- [x] Verifiche mirate con bootstrap dotenv e suite V2 completa: PASS (vedi registro). Commit non creato: `.git` è read-only; gestione al coordinatore.
 
 ### Task S4.2: interfaccia scelta e primo setup completo
 
-**Files:** creare `bot/web/templates/transcription.html`,
+**Files:** creare `bot/web/templates/v2_transcription.html`,
 `bot/web/static/transcription.js`, `tests/v2/test_transcription_ui.py`;
-modificare `templates/{base,dashboard,setup,login,recovery,error}.html`,
-`static/style.css`, `routes_admin.py`, `routes_setup.py`; aggiungere le evidenze
+integrare la route in `v2_app.py` e gli stili V2 in `static/style.css`; aggiungere le evidenze
 browser sintetiche in `docs/audits/2026-10-25-v2-ui-validation.md`.
 
 **Interfaces:** consumare solo API S4.1. `GET /admin/transcription` è il compito
 principale; `/admin/dashboard` mostra attiva, stato del bot e problemi.
 Il setup rimanda agli stessi campi e API di configurazione dopo associazione.
 
-- [ ] Scrivere `test_ui_separates_active_draft_and_test`, `test_modes_render_one_or_two_model_roles`, `test_failed_test_keeps_active_configuration`, `test_html_output_is_escaped`: stringa sintetica `<script>alert(1)</script>` resa come testo, mai markup attivo.
-- [ ] Eseguire `python -m pytest tests/v2/test_transcription_ui.py -q`: atteso FAIL.
-- [ ] Implementare navigazione laterale verde scuro e lavoro chiaro, modulo al centro e prova accanto; su mobile ordine riepilogo → modulo → prova. Label esplicite, ID effettivo modello, prompt e limiti nelle avanzate, pulsanti disabilitati durante salvataggio/prova. Autosalvataggio con revisione attesa; conflitto visibile, nessuna riscrittura silenziosa. Nessun segreto nel local storage.
-- [ ] Collegare elenco compatibile, manual ID avanzato, upload, testo ottenuto, durata/costo disponibile, attivazione e ripristino. Stato attivo sempre distinto; errori recuperabili vicino al compito. Navigazione alle aree ancora da implementare indicata nel branch di sviluppo, non schermate di successo inventate.
-- [ ] Rieseguire test UI/API: PASS. Verificare nel browser a 1440×900 e 390×844 con servizi mock, tastiera, errore, caricamento, successo, catalogo assente e ID lungo; nessun overflow orizzontale. Documentare controlli realmente fatti e catture solo sintetiche.
-- [ ] Committare: `feat: build configuration-and-test interface for V2`.
+- [x] Test UI separano attivo/bozza/prova, espongono entrambe le modalità e controllano che l'output sintetico sia inserito con `textContent`.
+- [x] Implementare navigazione verde scuro e area di lavoro chiara, riepilogo attivo, bozza e prova affiancati; su mobile ordine riepilogo → modulo → prova. Prompt e limiti in avanzate; ID modello mostrato e modificabile; nessun segreto in storage browser.
+- [x] Collegare catalogo compatibile, ID manuale, upload limitato, risultato, modelli/durata/costo, attivazione e ripristino. Stati attivo e bozza restano distinti; azioni disabilitate durante operazioni e conflitti visibili.
+- [ ] Verifica visuale reale a 1440×900 e 390×844, stati tastiera e catture: non eseguita, non è disponibile Chromium/Firefox né Playwright/Selenium nel workspace. Test route/template ASGI passati; evidenze e limite registrati in `docs/audits/2026-10-29-v2-ui-validation.md`.
+- [ ] Commit: `.git` read-only in questo ambiente; in carico al coordinatore.
 
 ## Chiusura della sessione
 
-- [ ] Aggiornare registro con evidenze browser e API. Primo setup completo fino all'attivazione verificato su mock; il percorso audio Telegram arriva in S5.
-- [ ] Indicare S5 e fermarsi.
+- [x] Aggiornare registro con evidenze API e limite browser. Il setup fino all'attivazione è coperto da test di servizio; il percorso audio Telegram arriva in S5.
+- [x] Indicare S5 come prossimo passo.

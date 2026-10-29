@@ -7,7 +7,7 @@ from bot.transcription.errors import ServiceFailure
 from bot.transcription.models import ModelChoice, ModelRole, StageResult
 from bot.transcription.prompts import render_refinement
 
-_TRANSCRIPTION_FORMATS = frozenset({"mp3", "wav", "m4a", "ogg", "webm", "flac"})
+_TRANSCRIPTION_FORMATS = frozenset({"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"})
 _MULTIMODAL_FORMATS = frozenset({"wav"})
 
 

@@ -148,6 +148,12 @@ class ConfigurationService:
                 raise RevisionConflict("Draft changed; reload before activation")
             if not _is_ready(self._readiness()):
                 raise PrerequisiteMissing("Web access, Telegram and an owner must be ready")
+            latest_credential = connection.execute(
+                "SELECT MAX(version) FROM credentials WHERE service = ?",
+                (draft["service"],),
+            ).fetchone()[0]
+            if int(latest_credential or 0) != int(draft["credential_version"]):
+                raise TestRequired("Credential changed; save and test the draft again")
             receipt = connection.execute(
                 "SELECT success, credential_version, validator_version "
                 "FROM test_receipts WHERE revision = ? "
@@ -252,6 +258,21 @@ def _validate_config(values: ConfigInput) -> None:
         raise ConfigurationInvalid("Refinement template must contain {raw_text}")
     if values.credential_version < 1:
         raise ConfigurationInvalid("Credential version must be positive")
+    bounds = {
+        "max_per_user": (1, 10), "cooldown_seconds": (0, 3600),
+        "max_concurrent_global": (1, 30), "max_file_size_mb": (1, 20),
+        "max_queue_size": (0, 100), "max_queued_per_user": (1, 10),
+        "download_timeout": (1, 300), "convert_timeout": (1, 300),
+        "transcribe_timeout": (1, 600), "refine_timeout": (1, 600),
+        "failure_threshold": (1, 20), "breaker_cooldown_seconds": (1, 3600),
+        "shutdown_seconds": (1, 120),
+    }
+    for name, (minimum, maximum) in bounds.items():
+        value = getattr(values.limits, name)
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise ConfigurationInvalid(f"Runtime limit {name} must be between {minimum} and {maximum}")
+    if not isinstance(values.limits.queue_enabled, bool) or not isinstance(values.limits.resilience_enabled, bool):
+        raise ConfigurationInvalid("Runtime feature switches must be boolean")
 
 
 def _is_ready(prerequisites: Prerequisites) -> bool:

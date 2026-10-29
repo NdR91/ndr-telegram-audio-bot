@@ -4,22 +4,24 @@
 > are in [V2 handoff](docs/V2-HANDOFF.md) and the linked approved specification.
 > This roadmap retains V1 history; conflicting proposals such as multi-provider
 > composition, per-chat profiles, and optional refinement are superseded by V2.
-> Implementation has not started; track sessions in [V2 progress](docs/V2-PROGRESS.md).
+> S1–S6 implementation is present in the development checkout. S7 is recording
+> offline evidence and operator checks. Browser review and live Telegram/provider
+> verification remain release gates; track session status in
+> [V2 progress](docs/V2-PROGRESS.md) and criterion evidence in
+> [V2 validation](docs/V2-VALIDATION.md).
 
 This is a living decision document, not a commitment to implement every item.
 Work should be reviewed and approved one item at a time.
 
 ## Product direction
 
-The project is evolving from an environment-configured Telegram bot into a
-self-hosted application with:
+The approved V2 direction is a self-hosted application with:
 
 - a browser-based setup and administration frontend;
 - Telegram as the primary end-user interface;
 - no mandatory `.env` or manually maintained JSON files;
-- cloud and local AI provider connections;
-- automatic use of one provider for the complete pipeline when possible;
-- advanced multi-provider composition only when needed;
+- OpenAI, Gemini, and OpenRouter;
+- one active service and two fixed audio paths;
 - no transcript history stored by default.
 
 The core product promise remains:
@@ -27,8 +29,9 @@ The core product promise remains:
 > Deploy the application, complete a guided setup, then turn Telegram audio
 > into useful text with minimal friction.
 
-The frontend is the application's control plane. The Telegram bot is the
-runtime interface that receives and processes user requests.
+The frontend is the configuration and operations surface. Telegram receives
+authorized audio and returns the result from the active revision. Legacy V1
+milestones below remain historical context, not current V2 requirements.
 
 ## Guiding decisions
 
@@ -41,14 +44,13 @@ These decisions define the intended architecture unless explicitly revisited.
 | Configuration | Store runtime settings in the application database and manage them through the frontend or Telegram. |
 | Secrets | Enter primarily through the frontend, encrypt at rest, and never display again in full. |
 | Telegram configuration | Use for safe, common, non-sensitive settings. |
-| Provider model | Represent a connected service, its models, and detected capabilities separately. |
-| Default pipeline | Prefer one provider connection for every supported stage. |
-| Advanced pipeline | Allow different transcription and text-processing providers only when required or explicitly selected. |
-| Required capability | Transcription is required; text refinement is optional. |
-| Multimodal single pass | Deferred until the transparent two-stage pipeline is stable and quality-tested. |
+| Provider model | Select one service and role-appropriate model IDs in the V2 configuration. |
+| Audio paths | Use multimodal or two stages on the same service; do not compose provider graphs. |
+| Text behavior | Keep transcripts faithful with punctuation and minimal correction. |
+| Multimodal single pass | Supported as one of the two fixed V2 paths and must be explicitly tested. |
 | Local models | Prefer HTTP services such as Ollama or vLLM; keep heavyweight in-process runtimes optional. |
 | Transcript retention | Do not persist audio or transcripts by default. |
-| Compatibility | Preserve the current bot while the new control plane is built and provide a migration path. |
+| Migration | Import only from operator-created copies; never run migration during startup. |
 | Component reuse | Prefer maintained open-source libraries and templates before building custom components. Custom code is justified for bot-specific domain logic, migration boundaries, or security constraints. |
 
 ## Component reuse policy

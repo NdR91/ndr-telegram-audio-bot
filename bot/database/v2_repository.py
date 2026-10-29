@@ -66,9 +66,25 @@ class V2Repository:
                         "SELECT MAX(version) FROM schema_version"
                     ).fetchone()
                     version = row[0]
-            if marker != V2_MARKER or version != V2_SCHEMA_VERSION:
+            if marker != V2_MARKER or version not in (1, 2, V2_SCHEMA_VERSION):
                 connection.close()
                 raise ConfigurationInvalid("Database is not a compatible V2 database")
+            if version in (1, 2):
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    if version == 1:
+                        connection.execute(
+                            "CREATE TABLE pairing_invites (invite_id TEXT PRIMARY KEY, nonce_hash TEXT NOT NULL UNIQUE, kind TEXT NOT NULL CHECK(kind IN ('owner', 'user', 'group')), bot_id INTEGER, expires_at TEXT NOT NULL, candidate_id INTEGER, candidate_name TEXT, candidate_chat_id INTEGER, candidate_chat_type TEXT, observed_at TEXT, confirmed_at TEXT)"
+                        )
+                    connection.execute(
+                        "CREATE TABLE diagnostic_events (event_id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, stage TEXT NOT NULL, status TEXT NOT NULL, revision INTEGER, models_json TEXT NOT NULL, duration_ms INTEGER, error_code TEXT)"
+                    )
+                    connection.execute("INSERT INTO schema_version (version) VALUES (?)", (V2_SCHEMA_VERSION,))
+                    connection.commit()
+                except BaseException:
+                    connection.rollback()
+                    connection.close()
+                    raise
         else:
             try:
                 connection.execute("BEGIN IMMEDIATE")
@@ -145,6 +161,70 @@ class V2Repository:
                 (key, value),
             )
 
+    def import_v1_payload(self, payload: dict) -> bool:
+        """Atomically import one validated, already-decrypted V1 snapshot.
+
+        The payload is deliberately accepted only at this migration boundary;
+        a marker makes retries idempotent and keeps runtime code out of V1.
+        """
+        encrypted_credentials = []
+        for service, plaintext in payload.get("credentials", []):
+            try:
+                encrypted_credentials.append((service, self._secret_store.encrypt(plaintext)))
+            except SecretStoreError as exc:
+                raise ConfigurationInvalid("Credential encryption is unavailable") from exc
+        with self.transaction() as connection:
+            if connection.execute(
+                "SELECT 1 FROM app_metadata WHERE metadata_key='v1_import_completed'"
+            ).fetchone():
+                return False
+            existing = connection.execute(
+                "SELECT COUNT(*) FROM acl_entries"
+            ).fetchone()[0]
+            if existing or connection.execute("SELECT COUNT(*) FROM credentials").fetchone()[0]:
+                raise ConfigurationInvalid("V2 target is not empty")
+            for kind, entry_id in set(payload.get("acl", [])):
+                connection.execute(
+                    "INSERT INTO acl_entries(kind, entry_id) VALUES (?, ?)", (kind, entry_id)
+                )
+            connection.executemany(
+                "INSERT INTO setup_state(setup_key, setup_value) VALUES (?, ?)",
+                payload.get("setup_state", []),
+            )
+            for service, encrypted in encrypted_credentials:
+                connection.execute(
+                    "INSERT INTO credentials(service, version, encrypted_value) VALUES (?, 1, ?)",
+                    (service, encrypted),
+                )
+                connection.execute(
+                    "INSERT INTO credential_sequences(service, next_version) VALUES (?, 2)",
+                    (service,),
+                )
+                connection.execute(
+                    "INSERT INTO setup_state(setup_key, setup_value) VALUES (?, '1') "
+                    "ON CONFLICT(setup_key) DO UPDATE SET setup_value=excluded.setup_value",
+                    (f"{service}_credential_version",),
+                )
+            revision = payload.get("revision")
+            if revision:
+                values = revision["values"]
+                import json
+                connection.execute(
+                    "INSERT INTO config_revisions(revision, service, mode, audio_model, text_model, credential_version, system_prompt, refine_template, limits_json) "
+                    "VALUES (1, ?, ?, ?, ?, 1, ?, ?, ?)",
+                    (values["service"], values["mode"], values["audio_model"], values["text_model"],
+                     values["system_prompt"], values["refine_template"], json.dumps(values["limits"])),
+                )
+                connection.execute("UPDATE revision_sequence SET next_revision=2 WHERE singleton=1")
+                connection.execute(
+                    "INSERT INTO config_references(reference_type, revision, credential_service, credential_version) VALUES ('draft', 1, ?, 1)",
+                    (values["service"],),
+                )
+            connection.execute(
+                "INSERT INTO app_metadata(metadata_key, metadata_value) VALUES ('v1_import_completed', '1')"
+            )
+        return True
+
     def put_credential(self, service: CredentialOwner, plaintext: str) -> int:
         if service not in ("telegram", "web_session", "openai", "gemini", "openrouter"):
             raise ConfigurationInvalid("Credential service is invalid")
@@ -172,6 +252,42 @@ class V2Repository:
             connection.execute(
                 "UPDATE credential_sequences SET next_version = ? WHERE service = ?",
                 (version + 1, service),
+            )
+        return version
+
+    def put_credential_with_state(
+        self, service: CredentialOwner, plaintext: str, version_key: str,
+        state: dict[str, str] | None = None,
+    ) -> int:
+        """Encrypt a credential and replace its setup-state reference atomically."""
+        if service not in ("telegram", "web_session", "openai", "gemini", "openrouter"):
+            raise ConfigurationInvalid("Credential service is invalid")
+        if not plaintext:
+            raise ConfigurationInvalid("Credential cannot be empty")
+        try:
+            encrypted = self._secret_store.encrypt(plaintext)
+        except SecretStoreError as exc:
+            raise ConfigurationInvalid("Credential encryption is unavailable") from exc
+        with self.transaction() as connection:
+            connection.execute(
+                "INSERT INTO credential_sequences(service, next_version) VALUES (?, 1) ON CONFLICT(service) DO NOTHING",
+                (service,),
+            )
+            version = int(connection.execute(
+                "SELECT next_version FROM credential_sequences WHERE service=?", (service,)
+            ).fetchone()[0])
+            connection.execute(
+                "INSERT INTO credentials(service, version, encrypted_value) VALUES (?, ?, ?)",
+                (service, version, encrypted),
+            )
+            connection.execute(
+                "UPDATE credential_sequences SET next_version=? WHERE service=?", (version + 1, service)
+            )
+            values = dict(state or {})
+            values[version_key] = str(version)
+            connection.executemany(
+                "INSERT INTO setup_state(setup_key, setup_value) VALUES (?, ?) ON CONFLICT(setup_key) DO UPDATE SET setup_value=excluded.setup_value, updated_at=datetime('now')",
+                values.items(),
             )
         return version
 

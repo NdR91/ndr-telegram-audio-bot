@@ -1,6 +1,6 @@
 """SQLite schema for the isolated V2 application database."""
 
-V2_SCHEMA_VERSION = 1
+V2_SCHEMA_VERSION = 3
 V2_MARKER = "telegram-audio-bot-v2"
 
 DDL = (
@@ -15,5 +15,7 @@ DDL = (
     "CREATE TABLE config_revisions (revision INTEGER PRIMARY KEY CHECK(revision > 0), service TEXT NOT NULL, mode TEXT NOT NULL, audio_model TEXT NOT NULL, text_model TEXT, credential_version INTEGER NOT NULL, system_prompt TEXT NOT NULL, refine_template TEXT NOT NULL, limits_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))",
     "CREATE TABLE config_references (reference_type TEXT NOT NULL CHECK(reference_type IN ('draft', 'active', 'previous')), revision INTEGER NOT NULL REFERENCES config_revisions(revision), credential_service TEXT NOT NULL, credential_version INTEGER NOT NULL, PRIMARY KEY(reference_type))",
     "CREATE TABLE test_receipts (recorded_order INTEGER PRIMARY KEY AUTOINCREMENT, receipt_id TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL REFERENCES config_revisions(revision) ON DELETE CASCADE, credential_version INTEGER NOT NULL, validator_version TEXT NOT NULL, success INTEGER NOT NULL CHECK(success IN (0, 1)), models_json TEXT NOT NULL, finished_at TEXT NOT NULL)",
+    "CREATE TABLE pairing_invites (invite_id TEXT PRIMARY KEY, nonce_hash TEXT NOT NULL UNIQUE, kind TEXT NOT NULL CHECK(kind IN ('owner', 'user', 'group')), bot_id INTEGER, expires_at TEXT NOT NULL, candidate_id INTEGER, candidate_name TEXT, candidate_chat_id INTEGER, candidate_chat_type TEXT, observed_at TEXT, confirmed_at TEXT)",
+    "CREATE TABLE diagnostic_events (event_id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, stage TEXT NOT NULL, status TEXT NOT NULL, revision INTEGER, models_json TEXT NOT NULL, duration_ms INTEGER, error_code TEXT)",
     "INSERT INTO revision_sequence (singleton, next_revision) VALUES (1, 1)",
 )

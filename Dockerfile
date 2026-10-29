@@ -25,6 +25,5 @@ RUN adduser --disabled-password --gecos "" appuser && mkdir -p ./audio_files && 
 
 USER appuser
 
-# Comando di avvio — web frontend control plane
-# Legacy CLI: python -u bot/main.py
+# Entrypoint — V2 web control plane
 CMD ["python", "-u", "-m", "bot.web.main"]

@@ -2,11 +2,13 @@
 
 ## Stato al 29 ottobre 2026
 
-L'utente ha approvato la specifica completa della V2 e ha chiesto di eseguire
-il lavoro in più sessioni. Le sessioni **S1** e **S2** sono completate; la
-prossima sessione è **S3**, come indicato in `V2-PROGRESS.md`. S1 e S2
-aggiungono fondamenta isolate: il runtime V1 resta quello attivo. Metodo:
-esecuzione nativa, una sessione per chat.
+L'utente ha approvato la specifica completa della V2 e ha chiesto di completare
+la roadmap con subagenti nella stessa chat. **S1–S6** sono implementate e
+verificate offline; **S7 è in corso**. Il runtime V2 include web, pairing,
+trascrizione Telegram, ACL, migrazione e diagnostica. Il branch non è ancora
+una release pronta: mancano controllo visuale browser e build Docker isolata;
+le prove reali previste sono affidate all'operatore. Vedi `V2-PROGRESS.md` e
+`V2-VALIDATION.md` per evidenze e limiti.
 
 ## Leggere in quest'ordine
 
@@ -62,7 +64,8 @@ Controllare directory corrente, branch, worktree, `git status --short` e ultimi
 commit. Non cambiare branch, resettare file o creare copie del lavoro alla cieca.
 Se serve isolamento, seguire `superpowers:using-git-worktrees`; non copiare
 configurazioni o dati operativi nel worktree. Registrarne il percorso nel registro.
-Il lavoro procede in sequenza: nessuna necessità di più chat contemporanee.
+Il lavoro procede in sequenza per dipendenze; il coordinamento può distribuire
+sessioni indipendenti solo su esplicita richiesta dell'utente.
 
 Seguire `superpowers:executing-plans` se l'utente sceglie il metodo nativo;
 leggere il piano e implementare la sessione selezionata. Non eseguire le
@@ -79,11 +82,11 @@ database temporanei, credenziali fittizie, client mock e contenuti sintetici.
 Non lanciare `docker compose up` sul deployment reale per verificare il codice.
 
 Baseline V1: **97 test mirati passati** su builder, resolver e model picker.
-Verifica V2 S2: `python3 -m pytest tests/v2/ -q -p no:cacheprovider` → 44
-passati; `python3 -m compileall -q bot/transcription tests/v2` e
-`git diff --check` completati. Le prove provider sono mock offline; nessuna API
-reale o suite V1 completa è stata eseguita in S2. Ogni sessione registra i
-propri comandi e risultati in `V2-PROGRESS.md`.
+Verifica corrente: suite `tests` con `.venv/bin/python` e `dotenv.load_dotenv`
+disattivato prima della raccolta → 159 passati, un warning passlib/`crypt`.
+Le prove provider e Telegram sono mock offline. Browser non disponibile e
+build Docker bloccata dai permessi del daemon; nessuna migrazione operativa o
+API reale è stata eseguita. Dettagli in `V2-PROGRESS.md`.
 
 ## Fine di ogni sessione
 
