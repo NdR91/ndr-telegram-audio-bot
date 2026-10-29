@@ -138,13 +138,15 @@
   $('#load-text-models').addEventListener('click', async () => await loadCatalog('refinement', $('#text-model'), $('#load-text-models')));
   async function loadCatalog(role, select, button) {
     if (!setFormBusy(true)) return;
+    $('#save-status').textContent = 'Caricamento modelli…';
     const query = new URLSearchParams({ service: service.value, role, credential_version: $('#credential-version').value });
     try {
       const response = await fetch('/api/transcription/models?' + query);
       const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Catalogo non disponibile.');
       select.replaceChildren(new Option('Seleziona un modello', ''));
       data.models.forEach((item) => select.add(new Option(item.label + ' · ' + item.id, item.id)));
-      if (!data.models.length) $('#save-status').textContent = 'Nessun modello compatibile. Inserisci un ID manualmente.';
+      $('#save-status').textContent = data.models.length
+        ? 'Modelli caricati.' : 'Nessun modello compatibile. Inserisci un ID manualmente.';
     } catch (error) { $('#save-status').textContent = error.message + ' Puoi inserire un ID manualmente.'; }
     finally { setFormBusy(false); }
   }

@@ -2,7 +2,7 @@
 
 Ultimo aggiornamento: 29 ottobre 2026, implementazione S3–S6 e verifica offline S7.
 
-**Prossima azione:** completare S7: controlli visuali browser e prove operative previste dal protocollo; non dichiarare pronta la release senza queste evidenze.
+**Prossima azione:** completare le prove operative previste dal protocollo e verificare il flusso browser con il servizio effettivo; non dichiarare pronta la release senza queste evidenze.
 **Branch di preparazione:** `codex/v2-product-design`.
 **Workspace di esecuzione:** `/home/ndr/config/telegram-audio-bot` (branch esistente, invariato).
 **Metodo:** esecuzione coordinata con subagenti, su richiesta dell'utente, attraversando più sessioni nella stessa chat.
@@ -13,10 +13,10 @@ Ultimo aggiornamento: 29 ottobre 2026, implementazione S3–S6 e verifica offlin
 | S1 | Configurazione persistita, credenziali versionate, attivazione atomica | Preparazione | Completata | `2973ca8`, `c822fcd`, fix review in sessione; 22 test V2 passati |
 | S2 | Tre adapter e due percorsi audio verificati offline | S1 | Completata | `668051b`, `412f96d`; 44 test V2 passati |
 | S3 | Un avvio web, login e associazione del proprietario | S1, S2 | Implementata e verificata offline | Review e regressioni su login, pairing e lifecycle |
-| S4 | Configurazione e prova collegate al motore reale | S3 | Implementata; verifica browser pendente | Test UI/API offline; `docs/audits/2026-10-29-v2-ui-validation.md` |
+| S4 | Configurazione e prova collegate al motore reale | S3 | Implementata e verificata con browser sintetico | Test UI/API offline; `docs/audits/2026-10-29-v2-ui-validation.md` |
 | S5 | Elaborazione Telegram, gruppi e gestione accessi | S4 | Implementata e verificata offline | Test Telegram simulati, ACL, consegna e shutdown |
 | S6 | Migrazione, diagnostica e rimozione dei percorsi superati | S5 | Implementata e verificata offline | Fixture sintetiche; `docs/V2-S6-RETIREMENT.md` |
-| S7 | Verifica finale, rifinitura UI, documentazione e consegna | S6 | In corso; browser non disponibile | `docs/V2-VALIDATION.md`; 159 test passati e build Docker riuscita |
+| S7 | Verifica finale, rifinitura UI, documentazione e consegna | S6 | In corso; prove operative pendenti | `docs/V2-VALIDATION.md`; 159 test passati, browser sintetico e build Docker riuscita |
 
 ## Evidenze di partenza
 
@@ -41,11 +41,11 @@ Aggiungere una voce alla fine di ogni chat, anche se la sessione resta incomplet
 Non sostituire le evidenze precedenti con un generico “test verdi”.
 
 Sessioni / data: S3–S7 — 29 ottobre 2026
-Stato: S3–S6 implementate e verificate offline; S7 in corso, con verifiche browser pendenti.
+Stato: S3–S6 implementate e verificate offline; S7 in corso, con prove operative pendenti.
 Branch / worktree: `codex/v2-product-design` / `/home/ndr/config/telegram-audio-bot`.
 Task completati: avvio e pairing, interfaccia configurazione/prova, Telegram e ACL, migrazione su fixture, diagnostica e ritiro V1; scenari di accettazione e matrice in `docs/V2-VALIDATION.md`. Review indipendenti hanno portato correzioni a sicurezza, concorrenza, migrazione e interfaccia. Commit implementazione: `3144bba`.
-Verifiche: `.venv/bin/python` con `dotenv.load_dotenv` disattivato prima della raccolta: `pytest -q -p no:cacheprovider tests` → 159 passed, un warning passlib/`crypt`. `docker build --tag telegram-audio-bot-v2-validation .` riuscita; immagine `sha256:26db31dff021a7dd89e6ba30ad3056a99f90bb3e2d2368baa1cedaadd30d68a0`, utente `appuser`. Nessuna API reale, migrazione operativa o deployment eseguiti. Browser non disponibile; risultati della matrice CI remota non disponibili.
-Problemi aperti: verifica visuale a desktop/mobile e prove reali dell'operatore secondo `docs/V2-VALIDATION.md`.
+Verifiche: `.venv/bin/python` con `dotenv.load_dotenv` disattivato prima della raccolta: `pytest -q -p no:cacheprovider tests` → 159 passed, un warning passlib/`crypt`; dopo le modifiche UI, test mirati → 14 passed. Chromium headless ha verificato 14 viste a desktop/mobile con API simulate; dettagli e limiti in `docs/audits/2026-10-29-v2-ui-validation.md`. `docker build --tag telegram-audio-bot-v2-validation .` riuscita dopo i fix UI; immagine `sha256:ee60e20afd24ecc985f1eb2a1be942ae3b8ae5ecd6ba4ffffe8d0c016ffb5092`, utente `appuser`. Nessuna API reale, migrazione operativa o deployment eseguiti. Risultati della matrice CI remota non disponibili.
+Problemi aperti: prova del flusso browser con servizio effettivo e prove reali dell'operatore secondo `docs/V2-VALIDATION.md`.
 Prossima azione precisa: completare i gate S7 rimanenti in un ambiente idoneo; aggiornare le evidenze prima di dichiarare la release pronta.
 
 ```text

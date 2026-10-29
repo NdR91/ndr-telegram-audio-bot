@@ -17,7 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   integration scenarios for blank setup through first voice, restart
   persistence, rejected model edits, and incompatible migration followed by
   reconfiguration. `docs/V2-VALIDATION.md` maps all 16 acceptance criteria to
-  evidence and separates offline mocks from operator browser/live checks. No
+  evidence and separates offline mocks from operator browser/live checks.
+  Chromium review covered 14 synthetic views, keyboard focus, responsive states,
+  contrast, reduced motion, and overflow; the review also improved initial-form
+  layout, focus visibility, placeholder contrast, and loading announcements. No
   real Telegram/provider calls or production data were used.
 
 - **Ritirata la catena runtime V1 (S6.3)**: Il checkout avvia solo il runtime

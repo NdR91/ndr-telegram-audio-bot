@@ -30,9 +30,43 @@ PY
 Esito: 79 passed; `compileall` e `git diff --check` passati; un warning di
 deprecazione `crypt` proveniente da passlib.
 
-## Verifica visuale non eseguita
+## Stato della verifica S4
 
-Nel workspace non sono disponibili Chromium, Firefox, Playwright, Selenium o
-Pyppeteer. Non sono state prodotte schermate né dichiarati controlli reali a
-1440×900 o 390×844. Restano da controllare nel browser la gerarchia, il focus da
-tastiera, i diversi stati di caricamento/errore e l'assenza di overflow.
+La verifica visuale non era disponibile durante la sessione S4. Il controllo
+browser S7 e le relative evidenze sintetiche sono registrati qui sotto.
+
+## Verifica visuale browser S7
+
+Data: 29 ottobre 2026. Browser Chromium 156.0.8078.4, Playwright Core;
+viewport desktop 1440×900 e mobile 390×844. Sono state catturate 14 viste
+(setup, accesso e recupero più quattro aree amministrative ai due viewport),
+11 controlli del focus da tastiera e 13 stati sintetici. Il report JSON e tutte
+le schermate si trovano in `/tmp/v2-s7-browser/evidence/`.
+
+Le pagine sono state renderizzate dai template Jinja effettivi con CSS e
+JavaScript dell'applicazione. Le richieste API sono state soddisfatte da
+fixture mock nel browser, con database e chiave sintetici temporanei in `/tmp`;
+non è stato avviato alcun servizio reale e non sono state lette credenziali,
+dati utente, registrazioni o trascrizioni reali.
+
+Esito: tutte le viste hanno `scrollWidth == clientWidth`; il testo ordinario
+ha rapporto minimo 5,88:1 e i placeholder dei modelli 6,66:1. Non risultano
+errori di contrasto, le 11 verifiche di focus mostrano un indicatore visibile,
+e con `prefers-reduced-motion: reduce` non restano animazioni attive. Sono
+stati provati setup riuscito, errori di login e recupero, caricamento ed errore
+del catalogo, caricamento/errore/successo accessi, ID e nomi lunghi,
+conferma pairing e output contenente markup letterale; il markup resta testo.
+
+Difetti corretti durante la revisione: layout e dimensione minima dei controlli
+nei moduli iniziali; indicatore di focus esplicito nella navigazione; colore
+`/setprivacy` accessibile sul riquadro informativo; contrasto placeholder;
+annunci `role=status` durante caricamento di catalogo e accessi. Il controllo
+con ID lunghi non riproduce overflow a 390 px.
+
+Limiti: le risposte di setup, pairing e API sono sintetiche e non dimostrano
+l'integrazione di rete con Telegram o provider; non sono stati provati touch,
+browser diversi, tecnologie assistive, chiamate provider reali o un rilascio.
+Gli stati sono stati selezionati dal piano di accettazione, non costituiscono
+una validazione completa di tutte le combinazioni applicative. Le verifiche
+operative e di qualità modello restano a carico dell'operatore, come descritto
+in `docs/V2-VALIDATION.md`.

@@ -6,8 +6,8 @@ L'utente ha approvato la specifica completa della V2 e ha chiesto di completare
 la roadmap con subagenti nella stessa chat. **S1–S6** sono implementate e
 verificate offline; **S7 è in corso**. Il runtime V2 include web, pairing,
 trascrizione Telegram, ACL, migrazione e diagnostica. Il branch non è ancora
-una release pronta: manca il controllo visuale browser;
-le prove reali previste sono affidate all'operatore. Vedi `V2-PROGRESS.md` e
+una release pronta: il controllo browser ha usato API simulate e le prove reali
+previste sono affidate all'operatore. Vedi `V2-PROGRESS.md` e
 `V2-VALIDATION.md` per evidenze e limiti.
 
 ## Leggere in quest'ordine
@@ -85,7 +85,7 @@ Baseline V1: **97 test mirati passati** su builder, resolver e model picker.
 Verifica corrente: suite `tests` con `.venv/bin/python` e `dotenv.load_dotenv`
 disattivato prima della raccolta → 159 passati, un warning passlib/`crypt`.
 Le prove provider e Telegram sono mock offline. Build Docker isolata riuscita;
-browser non disponibile; nessuna migrazione operativa o
+browser desktop/mobile verificato con risposte simulate; nessuna migrazione operativa o
 API reale è stata eseguita. Dettagli in `V2-PROGRESS.md`.
 
 ## Fine di ogni sessione

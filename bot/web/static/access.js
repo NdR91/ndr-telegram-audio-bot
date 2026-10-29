@@ -11,7 +11,8 @@
     return body;
   };
 
-  const render = async () => {
+  const render = async (showLoading = false) => {
+    if (showLoading) status.textContent = "Caricamento accessi…";
     const data = await response("/api/access");
     const owners = document.getElementById("owners");
     const users = document.getElementById("users");
@@ -71,6 +72,7 @@
     if (!data.owner.length) owners.innerHTML = '<li class="v2-empty">Nessun proprietario Telegram associato.</li>';
     if (!data.users.length) users.innerHTML = '<li class="v2-empty">Nessun utente privato aggiunto.</li>';
     if (!data.groups.length) groups.innerHTML = '<li class="v2-empty">Nessun gruppo autorizzato.</li>';
+    if (showLoading) status.textContent = "";
   };
   const membershipLabel = value => ({
     unchecked: "non verificata (bot non connesso)", member: "membro", administrator: "amministratore",
@@ -78,7 +80,7 @@
   }[value] || "non disponibile");
 
   document.getElementById("refresh-access").addEventListener("click", () => {
-    render().catch(error => { status.textContent = error.message; });
+    render(true).catch(error => { status.textContent = error.message; });
   });
   document.getElementById("manual-access").addEventListener("submit", async event => {
     event.preventDefault();
@@ -166,5 +168,5 @@
     }
   };
 
-  render().catch(error => { status.textContent = error.message; });
+  render(true).catch(error => { status.textContent = error.message; });
 })();
