@@ -44,7 +44,13 @@ class OpenRouterAdapter:
                 if "text" in modalities and "text" in outputs: roles.add("refinement")
                 if role in roles:
                     formats = _MULTIMODAL_FORMATS if "multimodal" in roles else _TRANSCRIPTION_FORMATS
-                    choices.append(ModelChoice(item["id"], item.get("name") or item["id"], frozenset(roles), formats))
+                    pricing = item.get("pricing") or {}
+                    choices.append(ModelChoice(
+                        item["id"], item.get("name") or item["id"], frozenset(roles), formats,
+                        pricing={key: str(value) for key, value in pricing.items()
+                                 if value is not None and _is_nonnegative_number(value)} or None,
+                        context_length=item.get("context_length") if isinstance(item.get("context_length"), int) else None,
+                    ))
             return choices
         except Exception as exc:
             raise _failure("catalog") from exc
@@ -96,3 +102,10 @@ def _reported_cost(payload):
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+
+
+def _is_nonnegative_number(value):
+    try:
+        return Decimal(str(value)).is_finite() and Decimal(str(value)) >= 0
+    except (InvalidOperation, ValueError):
+        return False

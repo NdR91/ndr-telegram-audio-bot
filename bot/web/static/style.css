@@ -120,6 +120,197 @@
   .v2-access-prereq { padding:15px 16px; }
 }
 
+/* V2 operator workbench: consistent structure across admin screens. */
+.v2-shell {
+    --admin-ink: oklch(0.18 0.01 250);
+    --admin-muted: oklch(0.43 0.015 250);
+    --admin-ground: oklch(0.945 0.008 250);
+    --admin-panel: oklch(0.99 0.004 250);
+    --admin-edge: oklch(0.86 0.012 250);
+    --admin-accent: oklch(0.62 0.16 42);
+    --color-text-muted: var(--admin-muted);
+    grid-template-columns: 248px minmax(0, 1fr);
+    min-height: 100vh;
+    background: var(--admin-ground);
+    color: var(--admin-ink);
+}
+
+.v2-nav {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    min-height: 560px;
+    padding: 30px 18px 20px;
+    gap: 38px;
+    background: oklch(0.17 0.025 175);
+    box-shadow: inset -1px 0 oklch(1 0 0 / 0.08);
+}
+
+.v2-brand {
+    display: flex;
+    align-items: center;
+    min-height: 42px;
+    padding: 0 12px;
+    font-size: 1.08rem;
+    letter-spacing: -0.025em;
+}
+
+.v2-nav nav { gap: 6px; }
+.v2-nav nav a {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 10px 12px;
+    color: oklch(0.82 0.015 175);
+    font-size: .9rem;
+    font-weight: 500;
+    transition: background-color 160ms ease, color 160ms ease;
+}
+.v2-nav nav a:hover { background: oklch(1 0 0 / .08); color: white; }
+.v2-nav nav a.selected {
+    color: white;
+    background: oklch(0.27 0.035 175);
+    box-shadow: inset 3px 0 var(--admin-accent);
+}
+.v2-nav nav a:focus-visible, .v2-shell a:focus-visible {
+    outline: 3px solid oklch(0.78 0.13 75);
+    outline-offset: 3px;
+    z-index: 1;
+}
+.v2-nav-foot { padding: 12px; color: oklch(0.88 0.01 175); }
+.v2-nav-foot span { color: oklch(0.70 0.02 175); }
+
+.v2-main {
+    --color-bg: var(--admin-ground);
+    --color-surface: var(--admin-panel);
+    --color-surface-raised: oklch(0.955 0.008 250);
+    --color-text: var(--admin-ink);
+    --color-text-muted: var(--admin-muted);
+    --color-border: var(--admin-edge);
+    --color-primary: var(--admin-accent);
+    --color-primary-hover: oklch(0.56 0.16 42);
+    --color-accent: oklch(0.34 0.09 205);
+    width: min(100%, 1600px);
+    max-width: none;
+    padding: 42px clamp(24px, 4vw, 64px) 64px;
+    background: var(--admin-ground);
+}
+
+.v2-heading {
+    align-items: center;
+    margin-bottom: 30px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--admin-edge);
+}
+.v2-heading h1 {
+    color: var(--admin-ink);
+    font-size: 1.9rem;
+    line-height: 1.18;
+    letter-spacing: -.035em;
+}
+.v2-heading p { margin-top: 7px; font-size: .95rem; line-height: 1.55; }
+.v2-logout { padding: 8px 12px; border-radius: 6px; font-weight: 600; }
+.v2-logout:hover { background: oklch(0.90 0.012 250); color: var(--admin-ink); }
+
+.v2-active, .v2-access-prereq {
+    border: 0;
+    border-left: 4px solid oklch(0.59 0.13 155);
+    border-radius: 7px;
+    box-shadow: 0 1px 2px oklch(0.2 0.02 250 / .06);
+}
+.v2-active { padding: 17px 20px; margin-bottom: 22px; }
+.v2-active h2 { font-size: 1rem; }
+.v2-active p { margin-top: 3px; }
+.v2-columns, .v2-access-layout { gap: 22px; }
+.v2-editor, .v2-test {
+    border: 1px solid var(--admin-edge);
+    border-radius: 9px;
+    padding: 24px;
+    box-shadow: 0 2px 8px oklch(0.2 0.02 250 / .035);
+}
+.v2-editor > header, .v2-test > header { margin-bottom: 22px; }
+.v2-editor h2, .v2-test h2 { font-size: 1.16rem; letter-spacing: -.02em; }
+.v2-badge { padding: 5px 9px; border-radius: 5px; font-size: .78rem; }
+.v2-field { gap: 8px; margin-bottom: 19px; }
+.v2-field label, .v2-test h3, .v2-editor legend { color: var(--admin-ink); }
+.v2-field small, .v2-radio small, .v2-upload small, .v2-note { line-height: 1.5; }
+.v2-editor input, .v2-editor select, .v2-editor textarea,
+.v2-test input[type=file], .v2-access-layout input, .v2-access-layout select {
+    min-height: 43px;
+    border-color: oklch(0.79 0.012 250);
+    border-radius: 6px;
+    background: white;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.v2-editor textarea { min-height: 92px; line-height: 1.5; }
+.v2-editor input:focus, .v2-editor select:focus, .v2-editor textarea:focus,
+.v2-test input:focus, .v2-access-layout input:focus, .v2-access-layout select:focus {
+    outline: 3px solid oklch(0.66 0.15 42 / .25);
+    outline-offset: 1px;
+    border-color: var(--admin-accent);
+}
+.v2-editor details { margin: 17px 0; padding-top: 13px; border-color: var(--admin-edge); }
+.v2-editor summary { min-height: 28px; color: oklch(0.31 0.035 205); }
+.v2-editor fieldset { padding: 14px 16px; border-radius: 7px; background: oklch(0.96 0.008 250); }
+.v2-radio { margin: 10px 0; }
+.v2-upload { padding: 20px; background: oklch(0.965 0.008 250); border-color: oklch(0.72 0.02 250); }
+.v2-test [role=status] { line-height: 1.5; }
+.v2-test pre { border: 1px solid var(--admin-edge); }
+.v2-access-prereq {
+    color: var(--admin-ink);
+    background: oklch(0.91 0.025 155);
+    padding: 19px 22px;
+}
+.v2-access-prereq p { max-width: 90ch; }
+.v2-access-prereq a { color: oklch(0.28 0.09 195); font-weight: 600; }
+.v2-access-layout .v2-editor > p { line-height: 1.6; }
+.v2-access-layout li { padding: 14px 0; }
+.v2-health-list li { padding: 16px 4px; }
+.v2-health-list li:first-child { border-top: 0; }
+.v2-health-ok { color: oklch(0.34 0.12 155); }
+.v2-shell .btn { min-height: 40px; border-radius: 6px; font-weight: 600; transition: transform 120ms ease, background-color 150ms ease, border-color 150ms ease; }
+.v2-shell .btn:active { transform: translateY(1px); }
+.v2-shell button:focus-visible { outline: 3px solid oklch(0.66 0.15 42 / .5); outline-offset: 2px; }
+.v2-main section[aria-label="Stato del servizio"] { max-width: 900px; }
+.v2-main section[style*="margin-top"] { margin-top: 22px !important; }
+
+@media (max-width: 800px) {
+    .v2-shell { grid-template-columns: 1fr; }
+    .v2-nav { position: static; height: auto; min-height: 0; padding: 14px 20px 12px; gap: 12px; }
+    .v2-brand { min-height: 34px; padding: 0 8px; }
+    .v2-nav nav { gap: 4px; }
+    .v2-nav nav a { min-height: 40px; padding: 8px 10px; }
+    .v2-main { padding: 28px 24px 44px; }
+    .v2-columns { display: grid; grid-template-columns: 1fr; }
+    .v2-access-layout { display: grid; grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+    .v2-nav { padding: 12px 14px 10px; }
+    .v2-nav nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .v2-nav nav a { font-size: .82rem; }
+    .v2-main { padding: 22px 16px 36px; }
+    .v2-heading { display: block; margin-bottom: 22px; padding-bottom: 18px; }
+    .v2-heading h1 { font-size: 1.65rem; }
+    .v2-logout { margin-top: 12px; }
+    .v2-editor, .v2-test { padding: 18px 16px; }
+    .v2-active { padding: 16px; }
+    .v2-active > div { gap: 9px; }
+    .v2-access-prereq { padding: 16px; }
+    .v2-inline { flex-wrap: wrap; }
+    .v2-inline > * { flex: 1 1 100%; }
+    .v2-inline .btn { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .v2-shell *, .v2-shell *::before, .v2-shell *::after {
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
 /* --- Reset & Base ------------------------------------------- */
 
 *, *::before, *::after {
@@ -1672,12 +1863,32 @@ main.container {
 }
 
 .model-picker-toolbar {
-    align-items: end;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.875rem;
-    margin-top: 1rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+    margin-top: 12px;
+    padding: 14px;
+    border-radius: 8px;
+    background: var(--color-surface-raised);
 }
+
+.model-picker-toolbar[hidden] { display: none; }
+.model-picker-toolbar label { font-size: .82rem; }
+.model-picker-toolbar label[for] { grid-column: 1 / -1; }
+.model-picker-toolbar label:has(input[type="checkbox"]) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+}
+.v2-editor .model-picker-toolbar input[type="checkbox"] {
+    width: 17px;
+    height: 17px;
+    min-height: 0;
+    padding: 0;
+    accent-color: var(--color-primary);
+}
+.model-picker-toolbar select { grid-column: 1 / -1; }
 
 .model-picker-sort {
     flex: 0 1 190px;

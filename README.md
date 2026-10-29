@@ -84,10 +84,14 @@ after changing privacy mode, remove and re-add the bot. The Access page keeps
 bot membership and the most recent observed voice receipt as separate states.
 It does not retrieve group history.
 
-The model picker shows a short set of candidates for the selected service and
-role. Search narrows longer lists; an ID can also be entered manually. A listed
-model may be unavailable to a particular API key: the explicit audio test checks
-the chosen configuration before activation.
+The model picker shows candidates for the selected service and role. For
+OpenRouter, prices are shown separately for input and output tokens; available
+audio and per-request rates are shown as raw API values and are not compared. You can sort by either token
+rate, filter for a zero-priced text prompt or output, or require a minimum context
+size. Missing prices remain unknown and are not treated as free. Search narrows
+the list; an ID can also be entered manually. A listed model may be unavailable
+to a particular API key: the explicit audio test checks the chosen configuration
+before activation.
 
 You can save several API keys for each service under optional names and select
 one for a draft without entering it again. The keys remain encrypted and are

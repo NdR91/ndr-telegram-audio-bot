@@ -39,7 +39,9 @@ const ids = [
   "transcribe-timeout", "refine-timeout", "queue-enabled", "draft-state", "save-status",
   "save-credential", "credential-state", "load-models", "load-text-models", "audio-file",
   "run-test", "test-status", "test-result", "result-text", "result-meta", "activate",
-  "restore", "active-summary", "max-label",
+  "restore", "active-summary", "max-label", "audio-model-toolbar", "text-model-toolbar",
+  "audio-model-sort", "text-model-sort", "audio-free-prompt", "audio-free-completion",
+  "text-free-prompt", "text-free-completion", "audio-context-filter", "text-context-filter",
 ];
 ids.forEach((id) => element(id));
 element("save-draft");
@@ -80,8 +82,10 @@ const fetch = async (url, options = {}) => {
   }
   if (url.startsWith("/api/transcription/models?")) {
     return { ok: true, json: async () => ({ models: [
-      { id: "audio-v2", label: "Audio model" }, { id: "same-id", label: "same-id" },
-      { id: "other", label: "Another model" },
+      { id: "audio-v2", label: "Audio model", pricing: { prompt: "0.000002", completion: "0.000003", input_audio: "0.00004" }, context_length: 32000 },
+      { id: "same-id", label: "same-id", pricing: { prompt: "0", completion: "0" }, context_length: 128000 },
+      { id: "other", label: "Another model", pricing: { prompt: "0.000001", completion: "0.000009" }, context_length: 8192 },
+      { id: "unknown-price", label: "Unknown", context_length: 64000 },
     ] }) };
   }
   if (url === "/api/transcription/draft") {
@@ -123,6 +127,13 @@ async function fire(target, name, event = {}) {
 (async () => {
   assert.ok(form.listeners.submit, "draft submit handler is wired");
   assert.equal(elements.get('credential-version').value, '1', 'an existing draft keeps its selected key');
+  assert.equal(elements.get('audio-model-toolbar').hidden, true, 'price controls stay hidden for non-OpenRouter services');
+  elements.get('service').value = 'openrouter';
+  await fire(elements.get('service'), 'change');
+  assert.equal(elements.get('audio-model-toolbar').hidden, false, 'price controls appear for OpenRouter');
+  elements.get('service').value = 'openai';
+  await fire(elements.get('service'), 'change');
+  elements.get('credential-version').value = '1';
   assert.deepEqual(elements.get('credential-version').options.map(option => option.textContent),
     ['Scegli una chiave', 'Personale', 'Lavoro']);
   const runTest = elements.get("run-test");
@@ -135,8 +146,9 @@ async function fire(target, name, event = {}) {
   elements.get("audio-model-id").value = "audio-v2";
   await fire(form, "input");
   assert.equal(runTest.disabled, true, "editing the form makes its saved revision stale");
+  elements.get('service').value = 'openrouter';
   await click("load-models");
-  assert.equal(elements.get("audio-model").options.find(option => option.value === "same-id").textContent, "same-id", "equal names must not be repeated");
+  assert.match(elements.get("audio-model").options.find(option => option.value === "same-id").textContent, /^same-id · prompt \$0\/M · output \$0\/M/, "equal names are not repeated and prices are visible");
   elements.get("audio-model-search").value = "same-id";
   await fire(elements.get("audio-model-search"), "input");
   assert.ok(elements.get("audio-model").options.some(option => option.value === "same-id"), "search finds matching models");
@@ -144,6 +156,28 @@ async function fire(target, name, event = {}) {
   assert.ok(elements.get("audio-model").options.some(option => option.value === "audio-v2"), "search preserves the current selection");
   assert.equal(runTest.disabled, true, "catalogue completion cannot test dirty visible fields");
   assert.equal(activate.disabled, true, "catalogue completion cannot activate a stale revision");
+  assert.match(elements.get("audio-model").options.find(option => option.value === "audio-v2").textContent,
+    /audio in \$0\.00004 \(unità API\)/, "audio rate is shown separately in the provider's raw unit");
+  elements.get("audio-model-search").value = "";
+  await fire(elements.get("audio-model-search"), "input");
+  elements.get("audio-model-sort").value = "prompt";
+  await fire(elements.get("audio-model-sort"), "change");
+  assert.deepEqual(elements.get("audio-model").options.slice(1).map(option => option.value),
+    ["same-id", "other", "audio-v2", "unknown-price"], "input price sort keeps missing prices last");
+  elements.get("audio-free-prompt").checked = true;
+  await fire(elements.get("audio-free-prompt"), "change");
+  assert.deepEqual(elements.get("audio-model").options.slice(1).map(option => option.value),
+    ["same-id", "audio-v2"], "free input filter excludes paid/unknown results and preserves the current selection explicitly");
+  assert.match(elements.get("audio-model").options.at(-1).textContent, /fuori dai filtri/);
+  elements.get("audio-free-prompt").checked = false;
+  await fire(elements.get("audio-free-prompt"), "change");
+  elements.get("audio-context-filter").value = "128000";
+  await fire(elements.get("audio-context-filter"), "change");
+  assert.deepEqual(elements.get("audio-model").options.slice(1).map(option => option.value),
+    ["same-id", "audio-v2"], "context filter hides smaller models and preserves the current selection explicitly");
+  elements.get("audio-context-filter").value = "0";
+  await fire(elements.get("audio-context-filter"), "change");
+  elements.get('service').value = 'openai';
 
   await fire(form, "submit");
   assert.equal(draft.revision, 2, `${elements.get("save-status").textContent} requests=${requests.join(",")}`);

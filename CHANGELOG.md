@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Refined the administration interface with clearer navigation, form hierarchy,
+  responsive layouts, and keyboard focus states.
+
+- The OpenRouter model picker displays catalog pricing with separate input and
+  output token rates, keeps audio/request rates in their own units, and supports
+  free-token/context filters and independent price sorting. Unknown prices are
+  excluded from free filters and sorted after known prices.
+
 - Saved provider keys can be renamed without exposing or replacing the key and
   without invalidating a successful configuration test. Authorized owners,
   users and groups can also have editable display names, while retaining their

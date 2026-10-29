@@ -93,3 +93,5 @@ class ModelChoice:
     label: str
     roles: frozenset[ModelRole]
     formats: frozenset[str]
+    pricing: dict[str, str] | None = None
+    context_length: int | None = None

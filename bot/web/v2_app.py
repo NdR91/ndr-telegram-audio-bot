@@ -522,7 +522,9 @@ def create_app(settings: DeploymentSettings | None = None,
             return JSONResponse({"error": "Selezione servizio o ruolo non valida."}, status_code=422)
         try:
             models = await CatalogService(services.pool).choices(service, credential_version, role)
-            return {"models": [{"id": item.id, "label": item.label} for item in models]}
+            return {"models": [{"id": item.id, "label": item.label,
+                                "pricing": item.pricing, "context_length": item.context_length}
+                               for item in models]}
         except Exception:
             return JSONResponse({"error": "Catalogo non disponibile. Inserisci un ID modello manualmente."}, status_code=503)
 

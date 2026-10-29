@@ -30,10 +30,11 @@ bounded operational evidence.
 
 ## Visual language
 
-The shared stylesheet defines dark and light themes, with neutral page and
-surface layers, amber for primary actions and focus, teal for healthy states,
-and separate semantic colors for errors and warnings. Panels use restrained
-borders and 6px/10px corners. Inter is the interface font; monospace is used
+The shared stylesheet defines dark and light themes. The administration area
+uses a dark green navigation, a cool neutral background and light panels, with
+orange primary actions and distinct colors for status. Compact controls,
+clear section headings and responsive navigation support the operator's work.
+Inter is the interface font; monospace is used
 for technical values. These tokens are implemented in
 `bot/web/static/style.css`; this document describes the code, not a completed
 visual browser audit.

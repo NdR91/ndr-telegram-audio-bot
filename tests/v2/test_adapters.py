@@ -49,6 +49,25 @@ async def test_openrouter_refinement_excludes_non_text_outputs():
     assert [model.id for model in models] == ["editor"]
 
 
+async def test_openrouter_catalog_preserves_separate_price_units():
+    def handler(request):
+        return httpx.Response(200, json={"data": [{
+            "id": "audio-editor", "name": "Audio editor",
+            "architecture": {"input_modalities": ["audio", "text"], "output_modalities": ["text"]},
+            "pricing": {"prompt": "0.000001", "completion": "0.000002",
+                        "input_audio": "0.000004", "request": "0.01"},
+        }]})
+    client = httpx.AsyncClient(base_url="https://openrouter.test/api/v1", transport=httpx.MockTransport(handler))
+    try:
+        models = await OpenRouterAdapter("synthetic", client).list_models("refinement")
+    finally:
+        await client.aclose()
+    assert models[0].pricing == {
+        "prompt": "0.000001", "completion": "0.000002",
+        "input_audio": "0.000004", "request": "0.01",
+    }
+
+
 @pytest.mark.parametrize("factory,model", [(OpenAIAdapter, "stt-choice"), (GeminiAdapter, "gemini-choice")])
 async def test_selected_model_is_sent_to_native_endpoint(factory, model, tmp_path):
     calls = []

@@ -161,7 +161,7 @@
     const version = keys.some(key => String(key.version) === String(selected)) ? selected : info?.credential_version;
     select.value = version == null ? '' : String(version);
   }
-  service.addEventListener('change', () => { clearModels(true); renderCredentials(null); showCredentialState(); });
+  service.addEventListener('change', () => { clearModels(true); renderCredentials(null); showCredentialState(); updateModelToolbars(); });
   const modelLists = { 'audio-model': [], 'text-model': [] };
   function clearModels(clearIds) {
     for (const id of ['audio-model', 'text-model']) {
@@ -171,22 +171,74 @@
       if (clearIds) $('#' + id + '-id').value = '';
     }
   }
+  function updateModelToolbars() {
+    ['audio-model-toolbar', 'text-model-toolbar'].forEach(id => { $('#' + id).hidden = service.value !== 'openrouter'; });
+  }
+  function pricePerMillion(value) {
+    if (value == null || value === '') return null;
+    const price = Number(value);
+    return Number.isFinite(price) && price >= 0 ? price * 1_000_000 : null;
+  }
+  function modelLabel(item) {
+    const name = item.label === item.id ? item.id : item.label + ' · ' + item.id;
+    if (service.value !== 'openrouter') return name;
+    const prices = item.pricing || {};
+    const details = [];
+    const input = pricePerMillion(prices.prompt);
+    const output = pricePerMillion(prices.completion);
+    if (input !== null) details.push('prompt $' + input.toLocaleString(undefined, { maximumSignificantDigits: 6 }) + '/M');
+    if (output !== null) details.push('output $' + output.toLocaleString(undefined, { maximumSignificantDigits: 6 }) + '/M');
+    if (prices.input_audio !== undefined) details.push('audio in $' + prices.input_audio + ' (unità API)');
+    if (prices.output_audio !== undefined) details.push('audio out $' + prices.output_audio + ' (unità API)');
+    if (prices.request !== undefined) details.push('$' + prices.request + '/request');
+    if (item.context_length) details.push(Number(item.context_length).toLocaleString() + ' token contesto');
+    return name + (details.length ? ' · ' + details.join(' · ') : ' · prezzi non disponibili');
+  }
   function renderModels(select, search, selectedId) {
     const query = search.value.trim().toLocaleLowerCase();
-    let models = modelLists[select.id].filter(item =>
+    const prefix = select.id === 'audio-model' ? 'audio' : 'text';
+    const models = modelLists[select.id].filter(item =>
       (item.label + ' ' + item.id).toLocaleLowerCase().includes(query) || item.id === selectedId);
-    if (!query && models.length > 8) {
-      const selected = models.find(item => item.id === selectedId);
-      models = models.slice(0, 8);
-      if (selected && !models.includes(selected)) models.push(selected);
+    const sort = $('#' + prefix + '-model-sort').value;
+    const freePrompt = $('#' + prefix + '-free-prompt').checked;
+    const freeCompletion = $('#' + prefix + '-free-completion').checked;
+    const minContext = Number($('#' + prefix + '-context-filter').value);
+    let visible = models.filter(item => {
+      if (freePrompt && pricePerMillion(item.pricing?.prompt) !== 0) return false;
+      if (freeCompletion && pricePerMillion(item.pricing?.completion) !== 0) return false;
+      if (minContext && (!item.context_length || item.context_length < minContext)) return false;
+      return true;
+    });
+    if (sort !== 'default') {
+      visible = visible.map((item, index) => ({ item, index, price: pricePerMillion(item.pricing?.[sort]) }))
+        .sort((left, right) => {
+          if (left.price === null) return right.price === null ? left.index - right.index : 1;
+          if (right.price === null) return -1;
+          return left.price - right.price || left.index - right.index;
+        }).map(entry => entry.item);
+    }
+    if (!query && sort === 'default' && !freePrompt && !freeCompletion && !minContext && visible.length > 8) {
+      const selected = visible.find(item => item.id === selectedId);
+      visible = visible.slice(0, 8);
+      if (selected && !visible.includes(selected)) visible.push(selected);
     }
     select.replaceChildren(new Option('Seleziona un modello', ''));
-    models.forEach(item => select.add(new Option(item.label === item.id ? item.id : item.label + ' · ' + item.id, item.id)));
+    visible.forEach(item => select.add(new Option(modelLabel(item), item.id)));
     if (selectedId) {
-      if (!models.some(item => item.id === selectedId)) select.add(new Option(selectedId + ' · selezione attuale', selectedId));
+      if (!visible.some(item => item.id === selectedId)) {
+        select.add(new Option(selectedId + ' · selezione attuale (fuori dai filtri)', selectedId));
+      }
       select.value = selectedId;
     }
   }
+  ['audio', 'text'].forEach(prefix => {
+    ['model-sort', 'free-prompt', 'free-completion', 'context-filter'].forEach(suffix => {
+      $('#' + prefix + '-' + suffix).addEventListener('change', () => {
+        const select = $('#' + prefix + '-model');
+        renderModels(select, $('#' + prefix + '-model-search'), $('#' + prefix + '-model-id').value);
+      });
+    });
+  });
   $('#audio-model-search').addEventListener('input', () => renderModels($('#audio-model'), $('#audio-model-search'), $('#audio-model-id').value));
   $('#text-model-search').addEventListener('input', () => renderModels($('#text-model'), $('#text-model-search'), $('#text-model-id').value));
   $('#load-models').addEventListener('click', async () => {
@@ -204,6 +256,7 @@
       modelLists[select.id] = data.models;
       const search = $('#' + select.id + '-search');
       renderModels(select, search, $('#' + select.id + '-id').value);
+      updateModelToolbars();
       $('#save-status').textContent = data.models.length
         ? 'Modelli caricati. Usa la ricerca per trovare altre opzioni.' : 'Nessun modello disponibile. Puoi inserire un ID manualmente.';
     } catch (error) { $('#save-status').textContent = error.message + ' Puoi inserire un ID manualmente.'; }
@@ -268,5 +321,6 @@
   loadDraft(state.draft);
   if (!state.draft) renderCredentials(null);
   showCredentialState();
+  updateModelToolbars();
   if (state.active) $('#active-summary').textContent = state.active.service + ' · ' + state.active.audio_model + ' · revisione ' + state.active.revision;
 })();

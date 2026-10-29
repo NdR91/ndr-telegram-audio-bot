@@ -96,3 +96,11 @@ Comandi di verifica, risultato e limiti: `.venv/bin/python` con `dotenv.load_dot
 Contratti o piani aggiornati: prova usa esattamente lo snapshot del runner. Bozza modificata o credenziale sostituita durante o dopo la prova richiedono nuova prova; un esito parziale non genera ricevuta valida. Credenziali e testo AI non vengono restituiti/salvati in DB. S4 lasciato col checkbox visuale browser aperto.
 Problemi aperti: manca revisione visuale reale dei viewport 1440×900 e 390×844, focus e stati. L'implementazione resta sviluppo V2 e Telegram non elabora ancora audio ordinario.
 Prossima azione precisa: verifica visuale browser quando disponibile; quindi implementare S5 per audio e ACL Telegram.
+
+Sessione / data: S7, miglioramenti interfaccia e catalogo — 29 ottobre 2026
+Stato: in corso; prove operative reali ancora pendenti.
+Branch / worktree: `codex/v2-product-design` / `/home/ndr/config/telegram-audio-bot`.
+Task: interfaccia amministrativa rivista; catalogo OpenRouter con prezzi token distinti, filtri e ordinamento. Prezzi audio non comparati con quelli token.
+Verifiche: browser Chromium con template reali e risposte simulate ai viewport 1440×900 e 390×844, compresi filtri OpenRouter; integrazioni reali non provate. Test mirati e stato commit sono riportati nel messaggio di consegna.
+Problemi aperti: prove operative previste da `docs/V2-VALIDATION.md` e verifica del catalogo con credenziali reali.
+Prossima azione precisa: effettuare i gate operativi S7 in ambiente idoneo.

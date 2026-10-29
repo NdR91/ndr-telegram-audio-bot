@@ -162,7 +162,8 @@ async def test_model_catalog_accepts_refinement_role(tmp_path, monkeypatch):
         await client.post("/api/login", json={"password": "synthetic-admin-password"})
         response = await client.get("/api/transcription/models?service=openai&role=refinement&credential_version=1")
         assert response.status_code == 200
-        assert response.json()["models"] == [{"id": "synthetic-text", "label": "Synthetic text model"}]
+        assert response.json()["models"] == [{"id": "synthetic-text", "label": "Synthetic text model",
+                                               "pricing": None, "context_length": None}]
     services.repo.close()
 
 
