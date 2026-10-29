@@ -84,6 +84,11 @@ after changing privacy mode, remove and re-add the bot. The Access page keeps
 bot membership and the most recent observed voice receipt as separate states.
 It does not retrieve group history.
 
+The model picker shows a short set of candidates for the selected service and
+role. Search narrows longer lists; an ID can also be entered manually. A listed
+model may be unavailable to a particular API key: the explicit audio test checks
+the chosen configuration before activation.
+
 This checkout's V2 implementation is not a production release. A browser test
 uses the configured provider only after the operator uploads audio and presses
 “Avvia prova”; its temporary file is removed after processing. Telegram uses

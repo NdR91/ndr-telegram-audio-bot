@@ -7,15 +7,15 @@ sono candidati documentati, non raccomandazioni di qualità o disponibilità.
 ## OpenAI
 
 - Trascrizione: `client.audio.transcriptions.create(model=..., file=...)`;
-  ID di esempio candidati `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`,
-  `whisper-1`. Formati Audio API ammessi dall'adapter: mp3, wav, m4a, ogg,
-  webm e flac.
+  candidato corrente `gpt-transcribe`. `gpt-4o-transcribe`,
+  `gpt-4o-mini-transcribe` e `whisper-1` sono deprecati; chiusura annunciata
+  il 26 febbraio 2027. L'adapter accetta mp3, mp4, mpeg, mpga, m4a, wav e
+  webm, convertendo gli altri formati prima dell'invio.
 - Multimodale: Chat Completions con `input_audio` base64, istruzioni system e
   sola modalità testuale nella stessa generazione. Candidato documentato
   `gpt-audio-1.5`; l'adapter accetta WAV e converte gli altri formati.
 - Il client usa l'SDK `openai` già dichiarato in `requirements.txt` (`~=1.0`,
-  intervallo compatibile `<2.0`). La macchina di verifica non ha l'SDK
-  installato: mock al confine SDK, nessuna asserzione live.
+  intervallo compatibile `<2.0`); le prove usano mock al confine SDK.
 - Fonti primarie: [Speech to text](https://developers.openai.com/api/docs/guides/speech-to-text),
   [Audio in Chat Completions](https://developers.openai.com/api/docs/guides/audio-chat-completions),
   [modello GPT Audio](https://developers.openai.com/api/docs/models/gpt-audio),
@@ -29,11 +29,13 @@ sono candidati documentati, non raccomandazioni di qualità o disponibilità.
   AAC, OGG, FLAC, MPEG, M4A, L16, Opus, WebM, ALAW e MULAW.
 - `generateContent` è il protocollo comune a multimodale, trascrizione e testo;
   l'ID scelto è passato senza sostituzioni. Le prove di catalogo si basano sui
-  metodi supportati restituiti dall'API; la compatibilità audio del modello
+  metodi supportati restituiti dall'API e modelli documentati come compatibili;
+  la compatibilità audio del modello
   specifico si conferma soltanto con la prova di generazione prevista dal
   prodotto.
-- SDK già dichiarato `google-genai~=1.0` (intervallo `<2.0`); non installato
-  nell'ambiente di verifica. Client mock usati per le prove offline.
+- SDK già dichiarato `google-genai~=1.0` (intervallo `<2.0`); client mock usati
+  per le prove offline. `gemini-3.5-transcribe` usa l'Interactions API e non è
+  proposto come compatibile con il percorso `generate_content` corrente.
 - Fonti primarie: [Audio understanding](https://ai.google.dev/gemini-api/docs/generate-content/audio),
   [modelli e generate content](https://ai.google.dev/gemini-api/docs/generate-content),
   [SDK Python](https://github.com/googleapis/python-genai).

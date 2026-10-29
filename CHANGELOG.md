@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Curated role-specific model choices, searchable longer lists and an advanced
+  manual ID field replace the unfiltered OpenAI model list. OpenAI file
+  transcription now offers `gpt-transcribe`; Gemini choices are limited to
+  documented audio-capable `generateContent` models. Existing active settings
+  remain unchanged until a successful test and explicit activation.
+
 - Web administrator setup and recovery accept any nonempty password without
   length or special-character requirements. Owner setup ignores responses from
   earlier invitations after a new invitation is created.

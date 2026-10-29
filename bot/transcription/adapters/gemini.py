@@ -7,6 +7,11 @@ from bot.transcription.models import ModelChoice, ModelRole, StageResult
 from bot.transcription.prompts import render_refinement
 
 _AUDIO_FORMATS = frozenset({"mp3", "wav", "m4a", "ogg", "webm", "flac", "aac", "opus"})
+_GENERATE_CONTENT_MODELS = {
+    "gemini-3.8-flash": "Gemini 3.8 Flash",
+    "gemini-3.6-flash": "Gemini 3.6 Flash",
+    "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+}
 
 
 class GeminiAdapter:
@@ -25,10 +30,11 @@ class GeminiAdapter:
             async for item in await self._client.aio.models.list():
                 name = item.name.removeprefix("models/")
                 methods = getattr(item, "supported_actions", ()) or ()
-                if "generateContent" in methods:
+                if name in _GENERATE_CONTENT_MODELS and "generateContent" in methods:
                     roles = frozenset({"multimodal", "transcription", "refinement"})
-                    choices.append(ModelChoice(name, name, roles, _AUDIO_FORMATS))
-            return [choice for choice in choices if role in choice.roles]
+                    choices.append(ModelChoice(name, _GENERATE_CONTENT_MODELS[name], roles, _AUDIO_FORMATS))
+            order = {name: index for index, name in enumerate(_GENERATE_CONTENT_MODELS)}
+            return sorted((choice for choice in choices if role in choice.roles), key=lambda choice: order[choice.id])
         except Exception as exc:
             raise _failure("catalog") from exc
 

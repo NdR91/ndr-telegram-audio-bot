@@ -36,11 +36,12 @@ class OpenRouterAdapter:
             choices = []
             for item in response.json().get("data", []):
                 modalities = set(item.get("architecture", {}).get("input_modalities", []))
+                outputs = set(item.get("architecture", {}).get("output_modalities", []))
                 roles = set()
-                if "audio" in modalities: roles.add("multimodal")
-                if "transcription" in set(item.get("architecture", {}).get("output_modalities", [])):
+                if "audio" in modalities and "text" in outputs: roles.add("multimodal")
+                if "audio" in modalities and "transcription" in outputs:
                     roles.add("transcription")
-                if "text" in modalities: roles.add("refinement")
+                if "text" in modalities and "text" in outputs: roles.add("refinement")
                 if role in roles:
                     formats = _MULTIMODAL_FORMATS if "multimodal" in roles else _TRANSCRIPTION_FORMATS
                     choices.append(ModelChoice(item["id"], item.get("name") or item["id"], frozenset(roles), formats))

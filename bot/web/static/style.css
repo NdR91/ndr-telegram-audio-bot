@@ -33,6 +33,7 @@
 .v2-editor h2,.v2-test h2 { font-size:1.2rem; }
 .v2-badge { color:var(--color-accent); background:oklch(0.94 0.035 195); border-radius:4px; padding:3px 8px; font-size:.74rem; font-weight:600; }
 .v2-field { display:grid; gap:7px; margin:0 0 16px; }
+.v2-field[hidden] { display:none; }
 .v2-field label,.v2-test h3 { font-weight:600; font-size:.88rem; }
 .v2-field small,.v2-radio small { color:var(--color-text-muted); font-weight:400; }
 .v2-inline { display:flex; gap:8px; min-width:0; }

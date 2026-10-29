@@ -37,7 +37,8 @@
     $('input[name="mode"][value="' + draft.mode + '"]').checked = true;
     $('#audio-model-id').value = draft.audio_model;
     $('#text-model-id').value = draft.text_model || '';
-    $('#text-model').value = draft.text_model || '';
+    renderModels($('#audio-model'), $('#audio-model-search'), draft.audio_model);
+    renderModels($('#text-model'), $('#text-model-search'), draft.text_model || '');
     $('#credential-version').value = currentCredential || draft.credential_version;
     $('#system-prompt').value = draft.system_prompt;
     $('#refine-template').value = draft.refine_template;
@@ -61,11 +62,20 @@
     $('#text-model-wrap').hidden = mode() !== 'two_stage';
     if (markDirty) invalidate();
   }
-  $('#draft-form').addEventListener('input', () => { editGeneration += 1; invalidate(); });
-  $('#draft-form').addEventListener('change', () => { editGeneration += 1; updateMode(); invalidate(); });
+  const isSearch = event => ['audio-model-search', 'text-model-search'].includes(event.target?.id);
+  $('#draft-form').addEventListener('input', event => { if (!isSearch(event)) { editGeneration += 1; invalidate(); } });
+  $('#draft-form').addEventListener('change', event => {
+    if (isSearch(event)) return;
+    if (event.target?.name === 'mode') clearModels(true);
+    editGeneration += 1; updateMode(); invalidate();
+  });
   $('#max-file-size').addEventListener('input', () => { $('#max-label').textContent = $('#max-file-size').value || '0'; });
   $('#draft-form').addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (!$('#audio-model-id').value.trim() || (mode() === 'two_stage' && !$('#text-model-id').value.trim())) {
+      $('#save-status').textContent = 'Seleziona i modelli richiesti o inserisci i loro ID.';
+      return;
+    }
     if (!setFormBusy(true)) return;
     $('#save-status').textContent = 'Salvataggio…';
     const generation = editGeneration;
@@ -130,7 +140,34 @@
       : `Chiave configurata · versione ${version}. La chiave non viene mostrata di nuovo.`;
     if (!revision || state.draft?.service !== service.value) $('#credential-version').value = version;
   }
-  service.addEventListener('change', showCredentialState);
+  service.addEventListener('change', () => { clearModels(true); showCredentialState(); });
+  const modelLists = { 'audio-model': [], 'text-model': [] };
+  function clearModels(clearIds) {
+    for (const id of ['audio-model', 'text-model']) {
+      modelLists[id] = [];
+      $('#' + id).replaceChildren(new Option('Carica i modelli disponibili', ''));
+      $('#' + id + '-search').value = '';
+      if (clearIds) $('#' + id + '-id').value = '';
+    }
+  }
+  function renderModels(select, search, selectedId) {
+    const query = search.value.trim().toLocaleLowerCase();
+    let models = modelLists[select.id].filter(item =>
+      (item.label + ' ' + item.id).toLocaleLowerCase().includes(query) || item.id === selectedId);
+    if (!query && models.length > 8) {
+      const selected = models.find(item => item.id === selectedId);
+      models = models.slice(0, 8);
+      if (selected && !models.includes(selected)) models.push(selected);
+    }
+    select.replaceChildren(new Option('Seleziona un modello', ''));
+    models.forEach(item => select.add(new Option(item.label === item.id ? item.id : item.label + ' · ' + item.id, item.id)));
+    if (selectedId) {
+      if (!models.some(item => item.id === selectedId)) select.add(new Option(selectedId + ' · selezione attuale', selectedId));
+      select.value = selectedId;
+    }
+  }
+  $('#audio-model-search').addEventListener('input', () => renderModels($('#audio-model'), $('#audio-model-search'), $('#audio-model-id').value));
+  $('#text-model-search').addEventListener('input', () => renderModels($('#text-model'), $('#text-model-search'), $('#text-model-id').value));
   $('#load-models').addEventListener('click', async () => {
     const role = mode() === 'multimodal' ? 'multimodal' : 'transcription';
     await loadCatalog(role, $('#audio-model'), $('#load-models'));
@@ -143,10 +180,11 @@
     try {
       const response = await fetch('/api/transcription/models?' + query);
       const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Catalogo non disponibile.');
-      select.replaceChildren(new Option('Seleziona un modello', ''));
-      data.models.forEach((item) => select.add(new Option(item.label + ' · ' + item.id, item.id)));
+      modelLists[select.id] = data.models;
+      const search = $('#' + select.id + '-search');
+      renderModels(select, search, $('#' + select.id + '-id').value);
       $('#save-status').textContent = data.models.length
-        ? 'Modelli caricati.' : 'Nessun modello compatibile. Inserisci un ID manualmente.';
+        ? 'Modelli caricati. Usa la ricerca per trovare altre opzioni.' : 'Nessun modello disponibile. Puoi inserire un ID manualmente.';
     } catch (error) { $('#save-status').textContent = error.message + ' Puoi inserire un ID manualmente.'; }
     finally { setFormBusy(false); }
   }

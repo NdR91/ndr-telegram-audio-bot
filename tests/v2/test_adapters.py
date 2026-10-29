@@ -10,6 +10,45 @@ from bot.transcription.adapters.openrouter import OpenRouterAdapter
 from bot.transcription.adapters.gemini import GeminiAdapter
 
 
+async def test_openai_catalog_offers_current_models_without_unrelated_roles():
+    class Models:
+        async def list(self):
+            return SimpleNamespace(data=[SimpleNamespace(id=name) for name in
+                                         ("tts-1", "omni-moderation-latest", "gpt-6-luna")])
+    adapter = OpenAIAdapter("synthetic", SimpleNamespace(models=Models()))
+    transcription = await adapter.list_models("transcription")
+    refinement = await adapter.list_models("refinement")
+    assert transcription[0].id == "gpt-transcribe"
+    assert "gpt-6-luna" in {model.id for model in refinement}
+    assert not {"tts-1", "omni-moderation-latest"} & {model.id for model in refinement}
+
+
+async def test_gemini_catalog_excludes_unverified_models():
+    class Models:
+        async def list(self):
+            async def items():
+                for name in ("gemini-3.6-flash", "gemini-3.5-flash-tts", "unknown"):
+                    yield SimpleNamespace(name="models/" + name, supported_actions=["generateContent"])
+            return items()
+    adapter = GeminiAdapter("synthetic", SimpleNamespace(aio=SimpleNamespace(models=Models())))
+    models = await adapter.list_models("multimodal")
+    assert [model.id for model in models] == ["gemini-3.6-flash"]
+
+
+async def test_openrouter_refinement_excludes_non_text_outputs():
+    def handler(request):
+        return httpx.Response(200, json={"data": [
+            {"id": "speech", "architecture": {"input_modalities": ["text"], "output_modalities": ["audio"]}},
+            {"id": "editor", "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]}},
+        ]})
+    client = httpx.AsyncClient(base_url="https://openrouter.test/api/v1", transport=httpx.MockTransport(handler))
+    try:
+        models = await OpenRouterAdapter("synthetic", client).list_models("refinement")
+    finally:
+        await client.aclose()
+    assert [model.id for model in models] == ["editor"]
+
+
 @pytest.mark.parametrize("factory,model", [(OpenAIAdapter, "stt-choice"), (GeminiAdapter, "gemini-choice")])
 async def test_selected_model_is_sent_to_native_endpoint(factory, model, tmp_path):
     calls = []
@@ -131,14 +170,14 @@ async def test_gemini_remote_upload_is_deleted_after_cancellation(tmp_path):
 
 async def test_gemini_catalog_uses_async_model_list_metadata():
     class Model:
-        name="models/gemini-audio-candidate"; supported_actions=["generateContent"]
+        name="models/gemini-3.6-flash"; supported_actions=["generateContent"]
     class Models:
         async def list(self):
             async def items(): yield Model()
             return items()
     class Aio: models=Models()
     choices=await GeminiAdapter("synthetic", SimpleNamespace(aio=Aio())).list_models("multimodal")
-    assert [choice.id for choice in choices] == ["gemini-audio-candidate"]
+    assert [choice.id for choice in choices] == ["gemini-3.6-flash"]
 
 
 def _audio(tmp_path):

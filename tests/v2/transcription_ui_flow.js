@@ -34,7 +34,7 @@ function element(id, defaults = {}) {
 }
 const ids = [
   "service", "draft-form", "credential", "credential-version", "audio-model-id",
-  "text-model-id", "text-model", "audio-model", "text-model-wrap", "system-prompt",
+  "text-model-id", "text-model", "audio-model", "audio-model-search", "text-model-search", "text-model-wrap", "system-prompt",
   "refine-template", "max-file-size", "max-user", "max-global", "cooldown",
   "transcribe-timeout", "refine-timeout", "queue-enabled", "draft-state", "save-status",
   "save-credential", "credential-state", "load-models", "load-text-models", "audio-file",
@@ -76,7 +76,10 @@ let nextRevision = initialDraft.revision;
 const fetch = async (url, options = {}) => {
   requests.push(url);
   if (url.startsWith("/api/transcription/models?")) {
-    return { ok: true, json: async () => ({ models: [{ id: "audio-v2", label: "Audio model" }] }) };
+    return { ok: true, json: async () => ({ models: [
+      { id: "audio-v2", label: "Audio model" }, { id: "same-id", label: "same-id" },
+      { id: "other", label: "Another model" },
+    ] }) };
   }
   if (url === "/api/transcription/draft") {
     const body = JSON.parse(options.body);
@@ -125,6 +128,12 @@ async function fire(target, name, event = {}) {
   await fire(form, "input");
   assert.equal(runTest.disabled, true, "editing the form makes its saved revision stale");
   await click("load-models");
+  assert.equal(elements.get("audio-model").options.find(option => option.value === "same-id").textContent, "same-id", "equal names must not be repeated");
+  elements.get("audio-model-search").value = "same-id";
+  await fire(elements.get("audio-model-search"), "input");
+  assert.ok(elements.get("audio-model").options.some(option => option.value === "same-id"), "search finds matching models");
+  assert.ok(!elements.get("audio-model").options.some(option => option.value === "other"), "search filters unrelated models");
+  assert.ok(elements.get("audio-model").options.some(option => option.value === "audio-v2"), "search preserves the current selection");
   assert.equal(runTest.disabled, true, "catalogue completion cannot test dirty visible fields");
   assert.equal(activate.disabled, true, "catalogue completion cannot activate a stale revision");
 

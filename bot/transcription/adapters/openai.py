@@ -9,6 +9,12 @@ from bot.transcription.prompts import render_refinement
 
 _TRANSCRIPTION_FORMATS = frozenset({"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"})
 _MULTIMODAL_FORMATS = frozenset({"wav"})
+_REFINEMENT_MODELS = (
+    ("gpt-6-luna", "GPT-6 Luna"),
+    ("gpt-6.1-terra", "GPT-6.1 Terra"),
+    ("gpt-6.1-sol", "GPT-6.1 Sol"),
+    ("gpt-6-astra", "GPT-6 Astra"),
+)
 
 
 class OpenAIAdapter:
@@ -27,13 +33,9 @@ class OpenAIAdapter:
         if role == "multimodal":
             return [ModelChoice("gpt-audio-1.5", "GPT Audio 1.5", frozenset({role}), _MULTIMODAL_FORMATS)]
         if role == "transcription":
-            ids = ("gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1")
-            return [ModelChoice(i, i, frozenset({role}), _TRANSCRIPTION_FORMATS) for i in ids]
-        try:
-            response = await self._client.models.list()
-            return [ModelChoice(item.id, item.id, frozenset({"refinement"}), frozenset()) for item in response.data]
-        except Exception as exc:
-            raise _failure("catalog") from exc
+            return [ModelChoice("gpt-transcribe", "GPT Transcribe", frozenset({role}), _TRANSCRIPTION_FORMATS)]
+        return [ModelChoice(model_id, label, frozenset({"refinement"}), frozenset())
+                for model_id, label in _REFINEMENT_MODELS]
 
     async def audio_to_text(self, audio: Path, model: str, instructions: str) -> StageResult:
         try:
