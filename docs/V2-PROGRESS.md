@@ -2,7 +2,7 @@
 
 Ultimo aggiornamento: 29 ottobre 2026, implementazione S3–S6 e verifica offline S7.
 
-**Prossima azione:** completare S7: controlli visuali browser, build Docker isolata e prove operative previste dal protocollo; non dichiarare pronta la release senza queste evidenze.
+**Prossima azione:** completare S7: controlli visuali browser e prove operative previste dal protocollo; non dichiarare pronta la release senza queste evidenze.
 **Branch di preparazione:** `codex/v2-product-design`.
 **Workspace di esecuzione:** `/home/ndr/config/telegram-audio-bot` (branch esistente, invariato).
 **Metodo:** esecuzione coordinata con subagenti, su richiesta dell'utente, attraversando più sessioni nella stessa chat.
@@ -16,7 +16,7 @@ Ultimo aggiornamento: 29 ottobre 2026, implementazione S3–S6 e verifica offlin
 | S4 | Configurazione e prova collegate al motore reale | S3 | Implementata; verifica browser pendente | Test UI/API offline; `docs/audits/2026-10-29-v2-ui-validation.md` |
 | S5 | Elaborazione Telegram, gruppi e gestione accessi | S4 | Implementata e verificata offline | Test Telegram simulati, ACL, consegna e shutdown |
 | S6 | Migrazione, diagnostica e rimozione dei percorsi superati | S5 | Implementata e verificata offline | Fixture sintetiche; `docs/V2-S6-RETIREMENT.md` |
-| S7 | Verifica finale, rifinitura UI, documentazione e consegna | S6 | In corso; browser e build Docker bloccati dall'ambiente | `docs/V2-VALIDATION.md`; 159 test complessivi passati offline |
+| S7 | Verifica finale, rifinitura UI, documentazione e consegna | S6 | In corso; browser non disponibile | `docs/V2-VALIDATION.md`; 159 test passati e build Docker riuscita |
 
 ## Evidenze di partenza
 
@@ -41,11 +41,11 @@ Aggiungere una voce alla fine di ogni chat, anche se la sessione resta incomplet
 Non sostituire le evidenze precedenti con un generico “test verdi”.
 
 Sessioni / data: S3–S7 — 29 ottobre 2026
-Stato: S3–S6 implementate e verificate offline; S7 in corso, con verifiche browser e build Docker pendenti.
+Stato: S3–S6 implementate e verificate offline; S7 in corso, con verifiche browser pendenti.
 Branch / worktree: `codex/v2-product-design` / `/home/ndr/config/telegram-audio-bot`.
-Task completati: avvio e pairing, interfaccia configurazione/prova, Telegram e ACL, migrazione su fixture, diagnostica e ritiro V1; scenari di accettazione e matrice in `docs/V2-VALIDATION.md`. Review indipendenti hanno portato correzioni a sicurezza, concorrenza, migrazione e interfaccia.
-Verifiche: `.venv/bin/python` con `dotenv.load_dotenv` disattivato prima della raccolta: `pytest -q -p no:cacheprovider tests` → 159 passed, un warning passlib/`crypt`. Nessuna API reale, migrazione operativa o deployment eseguiti. Browser non disponibile; build Docker tentata ma daemon non accessibile. I risultati della matrice CI remota non sono disponibili.
-Problemi aperti: verifica visuale a desktop/mobile, build Docker isolata e prove reali dell'operatore secondo `docs/V2-VALIDATION.md`. Le modifiche possono non essere committate se il sandbox non consente scrittura in `.git`; verificare `git status` e `git log`.
+Task completati: avvio e pairing, interfaccia configurazione/prova, Telegram e ACL, migrazione su fixture, diagnostica e ritiro V1; scenari di accettazione e matrice in `docs/V2-VALIDATION.md`. Review indipendenti hanno portato correzioni a sicurezza, concorrenza, migrazione e interfaccia. Commit implementazione: `3144bba`.
+Verifiche: `.venv/bin/python` con `dotenv.load_dotenv` disattivato prima della raccolta: `pytest -q -p no:cacheprovider tests` → 159 passed, un warning passlib/`crypt`. `docker build --tag telegram-audio-bot-v2-validation .` riuscita; immagine `sha256:26db31dff021a7dd89e6ba30ad3056a99f90bb3e2d2368baa1cedaadd30d68a0`, utente `appuser`. Nessuna API reale, migrazione operativa o deployment eseguiti. Browser non disponibile; risultati della matrice CI remota non disponibili.
+Problemi aperti: verifica visuale a desktop/mobile e prove reali dell'operatore secondo `docs/V2-VALIDATION.md`.
 Prossima azione precisa: completare i gate S7 rimanenti in un ambiente idoneo; aggiornare le evidenze prima di dichiarare la release pronta.
 
 ```text
