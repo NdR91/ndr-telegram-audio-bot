@@ -1,3 +1,5 @@
+import asyncio
+import inspect
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,6 +9,15 @@ from bot.database.secret_store import SecretStore
 from bot.database.v2_repository import V2Repository
 from bot.transcription.models import ConfigInput, RuntimeLimits
 
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pyfunc_call(pyfuncitem):
+    """Run async V2 tests offline even in minimal environments without plugins."""
+    if inspect.iscoroutinefunction(pyfuncitem.obj):
+        kwargs = {name: pyfuncitem.funcargs[name] for name in pyfuncitem._fixtureinfo.argnames}
+        asyncio.run(pyfuncitem.obj(**kwargs))
+        return True
+    return None
 
 @pytest.fixture
 def secret_store(tmp_path: Path) -> SecretStore:
