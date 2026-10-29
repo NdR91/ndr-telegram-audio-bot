@@ -29,8 +29,8 @@ def issue_recovery_code(repo: V2Repository, now: datetime | None = None) -> str:
 
 def reset_password(repo: V2Repository, code: str, new_password: str,
                    now: datetime | None = None) -> bool:
-    if len(new_password) < 12:
-        raise ValueError("Password must contain at least 12 characters")
+    if not new_password:
+        raise ValueError("Password is required")
     digest = hashlib.sha256(code.encode()).hexdigest()
     instant = now or datetime.now(timezone.utc)
     if not _recovery_code_is_valid(repo, digest, instant):

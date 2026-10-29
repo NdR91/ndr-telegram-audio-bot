@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- Web administrator setup and recovery accept any nonempty password without
+  length or special-character requirements. Owner setup ignores responses from
+  earlier invitations after a new invitation is created.
+
 ### Added
 
 - **Optional legacy authorization mount**: The default Compose setup starts

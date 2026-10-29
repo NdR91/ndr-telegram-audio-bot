@@ -71,7 +71,8 @@ database stores only the proof metadata required for activation.
 3. Generate a local one-time setup code with
    `docker compose exec bot python -m bot.v2_setup_code`, open the web UI at
    `http://localhost:8086`, and create the web administrator. Then connect
-   the Telegram bot and confirm the proposed owner from the browser.
+   the Telegram bot and confirm the proposed owner from the browser. The web
+   password may be any nonempty value; no length or character-class rules apply.
 
 Manage private users and authorized groups at `/admin/access`. Guided invites
 require confirmation of the identity observed by the bot; operators can also

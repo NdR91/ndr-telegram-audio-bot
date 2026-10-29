@@ -180,6 +180,31 @@ async def test_recovery_requires_a_valid_single_use_local_code(tmp_path):
     services.repo.close()
 
 
+async def test_short_password_is_accepted_for_setup_and_recovery(tmp_path):
+    from bot.v2_recovery import issue_recovery_code
+    from bot.v2_setup_code import issue_setup_code
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    code = issue_setup_code(services.repo)
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        setup_page = await client.get('/setup')
+        recovery_page = await client.get('/recovery')
+        assert 'minlength="12"' not in setup_page.text
+        assert 'minlength="12"' not in recovery_page.text
+        empty = await client.post("/api/setup/admin", json={"code": code, "password": ""})
+        assert empty.status_code == 422
+        setup = await client.post("/api/setup/admin", json={"code": code, "password": "abc"})
+        assert setup.status_code == 200
+        recovery_code = issue_recovery_code(services.repo)
+        reset = await client.post("/api/recovery/reset", json={"code": recovery_code, "password": "123"})
+        assert reset.status_code == 200
+        login = await client.post("/api/login", json={"password": "123"})
+        assert login.status_code == 200
+    services.repo.close()
+
+
 async def test_setup_code_can_be_renewed_without_logging_and_is_single_use(tmp_path, caplog):
     from datetime import datetime, timedelta, timezone
 

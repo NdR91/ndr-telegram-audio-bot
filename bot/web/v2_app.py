@@ -127,8 +127,8 @@ def create_app(settings: DeploymentSettings | None = None,
             return limited
         code = str(body.get("code", ""))
         password = str(body.get("password", ""))
-        if len(password) < 12:
-            return JSONResponse({"error": "password_too_short"}, status_code=422)
+        if not password:
+            return JSONResponse({"error": "password_required"}, status_code=422)
         digest = hashlib.sha256(code.encode()).hexdigest()
         with repo.read() as connection:
             candidate_rows = dict(connection.execute(
