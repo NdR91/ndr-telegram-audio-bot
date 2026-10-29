@@ -301,6 +301,7 @@
         editGeneration += 1;
         syncModelSummary(pickerRole);
         invalidate();
+        updateActionStates();
         pickerGeneration += 1;
         picker.close();
         pickerTrigger?.focus();

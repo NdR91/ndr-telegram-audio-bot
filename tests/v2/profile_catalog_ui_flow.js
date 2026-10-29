@@ -113,6 +113,9 @@ async function run() {
   assert.match(card.children[0].children[0].children[2].textContent, /revisione 2/);
   assert.match(card.children[0].children[0].children[3].textContent, /salvata 3.*usa la revisione 2/);
   assert.match(elements.get('sample-description').textContent, /1\.8 secondi/);
+  await elements.get('create-profile').listeners.click[0]();
+  assert.equal(elements.get('run-test').disabled, true, 'a new unsaved profile cannot be tested yet');
+  assert.match(elements.get('test-status').textContent, /Salva il profilo senza eseguire una prova/i, 'the disabled test explains that saving does not require a test');
   const edit = card.children[1].children.find(button => button.textContent === 'Modifica');
   await edit.listeners.click[0]();
   assert.equal(elements.get('run-test').disabled, false, 'opening a clean saved profile enables its default sample test');
@@ -136,6 +139,7 @@ async function run() {
   const mainAction = refreshedActions.find(button => button.textContent === 'Imposta principale');
   await mainAction.listeners.click[0]();
   assert.equal(elements.get('profile-confirmation').open, true, 'main activation requires a confirmation dialog');
+  assert.match(elements.get('profile-confirmation-copy').textContent, /senza una prova valida/i, 'manual activation explains that the profile has not been tested');
   assert.equal(elements.get('profile-confirm-action').disabled, true, 'unverified main activation requires an explicit checkbox');
   elements.get('profile-unverified').checked = true;
   elements.get('profile-unverified').listeners.change[0]({ target: elements.get('profile-unverified') });

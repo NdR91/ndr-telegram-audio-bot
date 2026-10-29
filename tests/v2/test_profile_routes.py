@@ -58,6 +58,9 @@ async def test_profile_api_requires_auth_and_csrf_and_supports_catalog_roles_and
         assert profile["id"] > 0
         assert profile["revision"] > 0
         assert profile["verification"] == "unverified"
+        assert not services.profiles.has_valid_receipt(
+            profile["id"], profile["revision"], 1, VALIDATOR_VERSION,
+        ), "saving a profile must not require or create an audio test receipt"
         assert "synthetic-provider-key" not in created.text
 
         detail = await client.get(f"/api/profiles/{profile['id']}")

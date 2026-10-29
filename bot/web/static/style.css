@@ -2399,7 +2399,7 @@ button.cap-pill:disabled {
 .v2-test [role=status] { min-height: 2.8em; margin: 11px 0; color: var(--admin-muted); font-size: .86rem; line-height: 1.5; }
 .v2-test pre { max-height: 320px; overflow: auto; padding: 14px; border: 1px solid var(--admin-edge); border-radius: 5px; background: oklch(0.97 0.006 170); color: var(--admin-ink); white-space: pre-wrap; overflow-wrap: anywhere; font: .9rem/1.6 var(--font); }
 .v2-test #result-meta { color: var(--admin-muted); font-size: .78rem; }
-.v2-note { margin-top: 12px; font-size: .8rem; }
+.v2-note { margin-top: 12px; font-size: .9rem; }
 .v2-main .btn { min-height: 42px; border-radius: 5px; font-weight: 650; transition: transform 120ms ease, background-color 150ms ease, border-color 150ms ease; }
 .v2-main .btn:active { transform: translateY(1px); }
 .v2-main button:focus-visible { outline: 3px solid oklch(0.61 0.16 43 / .48); outline-offset: 2px; }

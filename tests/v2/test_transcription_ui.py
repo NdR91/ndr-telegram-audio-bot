@@ -1,7 +1,9 @@
 """The V2 workbench exposes separate active, draft and proof states."""
 
 from pathlib import Path
+import hashlib
 import json
+import re
 import shutil
 import subprocess
 
@@ -42,6 +44,15 @@ async def test_ui_separates_active_draft_and_escapes_test_output(tmp_path):
         assert "transcriptionState.credentialNeedsUpdate(state.draft, state.credentials)" in javascript
         assert 'id="credential-version"' in response.text
         assert 'id="credential-label"' in response.text
+        assert "Prova facoltativa · attiva" in response.text
+        assert "puoi attivare manualmente il profilo principale con una conferma" in response.text
+        assert "una prova parziale o non riuscita non vale come prova valida" in response.text
+        for asset in ("transcription.js", "profile_catalog.js"):
+            version = re.search(rf'/static/{re.escape(asset)}\?v=([a-f0-9]{{12}})', response.text)
+            assert version
+            content = (Path(__file__).parents[2] / "bot/web/static" / asset).read_bytes()
+            assert version.group(1) == hashlib.sha256(content).hexdigest()[:12]
+        assert "Salva il profilo senza eseguire una prova" in response.text
     services.repo.close()
 
 

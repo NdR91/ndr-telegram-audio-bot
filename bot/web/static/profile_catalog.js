@@ -16,6 +16,7 @@
   let pendingRole = null;
   let pendingDelete = null;
   let busy = false;
+  let testRunning = false;
 
   const el = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -192,8 +193,12 @@
     const audioFile = document.querySelector('#audio-file');
     audioFile.disabled = !upload;
     const uploadWithoutFile = upload && !audioFile.files.length;
-    document.querySelector('#run-test').disabled = !selected || dirty || uploadWithoutFile;
+    document.querySelector('#run-test').disabled = testRunning || !selected || dirty || uploadWithoutFile;
     document.querySelector('#activate').disabled = !selected || dirty;
+    if (testRunning) return;
+    if (!selected) document.querySelector('#test-status').textContent = 'Salva il profilo senza eseguire una prova. Dopo il salvataggio puoi provare il campione incluso.';
+    else if (dirty) document.querySelector('#test-status').textContent = 'Salva le modifiche prima di avviare la prova. La prova non è necessaria per salvare.';
+    else if (uploadWithoutFile) document.querySelector('#test-status').textContent = 'Seleziona un file audio oppure scegli il campione incluso.';
   }
   draftForm.addEventListener('submit', async event => {
     event.preventDefault();
@@ -224,7 +229,9 @@
     const unverified = profile.verification !== 'verified';
     document.querySelector('#profile-confirmation-copy').textContent = unverified && role === 'fallback'
       ? `Per assegnare ${profile.name} come fallback serve una prova valida sulla revisione corrente e sulle credenziali selezionate.`
-      : `${profile.name} diventerà ${role === 'main' ? 'il profilo principale' : 'il profilo di fallback'}. La selezione aggiorna il ruolo globale.`;
+      : unverified && role === 'main'
+        ? `${profile.name} diventerà il profilo principale senza una prova valida. Conferma per attivare manualmente questa revisione.`
+        : `${profile.name} diventerà ${role === 'main' ? 'il profilo principale' : 'il profilo di fallback'}. La selezione aggiorna il ruolo globale.`;
     document.querySelector('#profile-unverified-wrap').hidden = role !== 'main' || !unverified;
     document.querySelector('#profile-unverified').checked = false;
     document.querySelector('#profile-confirm-action').disabled = unverified;
@@ -304,27 +311,47 @@
   document.querySelector('#audio-file').addEventListener('change', updateProfileActions);
   document.querySelector('#run-test').addEventListener('click', async event => {
     event.preventDefault(); event.stopImmediatePropagation();
+    if (testRunning) return;
     if (!selected) { document.querySelector('#test-status').textContent = 'Seleziona o crea un profilo prima della prova.'; return; }
     if (isDirty()) { document.querySelector('#test-status').textContent = 'Salva le modifiche prima di eseguire la prova.'; return; }
+    const testedProfileId = selected.id;
+    const testedRevision = selected.revision;
+    const isTestSelectionCurrent = () => selected?.id === testedProfileId
+      && selected?.revision === testedRevision;
     const source = document.querySelector('input[name="test-source"]:checked').value;
-    const form = new FormData(); form.append('revision', String(selected.revision)); form.append('source', source);
+    const form = new FormData(); form.append('revision', String(testedRevision)); form.append('source', source);
     if (source === 'upload') {
       const file = document.querySelector('#audio-file').files[0];
       if (!file) { status.textContent = 'Seleziona un file audio.'; return; }
       form.append('file', file);
     }
-    const button = document.querySelector('#run-test'); button.disabled = true;
+    testRunning = true;
+    updateProfileActions();
     document.querySelector('#test-status').textContent = 'Prova in corso…';
     try {
-      const data = await request('/api/profiles/' + encodeURIComponent(selected.id) + '/test', { method: 'POST', headers: { 'x-csrf-token': csrf }, body: form });
-      const result = data.result;
-      document.querySelector('#result-text').textContent = result?.text || '';
-      document.querySelector('#result-meta').textContent = result ? `${(result.models || []).join(' → ')} · ${result.duration_ms} ms · costo ${result.cost || 'non disponibile'}` : '';
-      document.querySelector('#test-result').hidden = !result;
-      document.querySelector('#test-status').textContent = data.status === 'succeeded' ? 'Prova riuscita per la revisione ' + data.revision + '.' : (data.safe_error || 'Prova non riuscita.');
+      const data = await request('/api/profiles/' + encodeURIComponent(testedProfileId) + '/test', { method: 'POST', headers: { 'x-csrf-token': csrf }, body: form });
       await refresh();
-    } catch (error) { document.querySelector('#test-status').textContent = error.message; }
-    finally { updateProfileActions(); }
+      const refreshedProfile = catalog.profiles.find(profile => profile.id === testedProfileId);
+      if (isTestSelectionCurrent() && !refreshedProfile) {
+        selected = null;
+        workbench.hidden = true;
+      } else if (isTestSelectionCurrent() && refreshedProfile?.revision === testedRevision) {
+        selected = refreshedProfile;
+      }
+      if (isTestSelectionCurrent() && refreshedProfile?.revision === testedRevision
+          && data.revision === testedRevision) {
+        const result = data.result;
+        document.querySelector('#result-text').textContent = result?.text || '';
+        document.querySelector('#result-meta').textContent = result ? `${(result.models || []).join(' → ')} · ${result.duration_ms} ms · costo ${result.cost || 'non disponibile'}` : '';
+        document.querySelector('#test-result').hidden = !result;
+        document.querySelector('#test-status').textContent = data.status === 'succeeded' ? 'Prova riuscita per la revisione ' + data.revision + '.' : (data.safe_error || 'Prova non riuscita.');
+      }
+      else if (isTestSelectionCurrent() && refreshedProfile && refreshedProfile.revision !== testedRevision
+          && !isDirty()) await editProfile(testedProfileId);
+    } catch (error) {
+      if (isTestSelectionCurrent()) document.querySelector('#test-status').textContent = error.message;
+    }
+    finally { testRunning = false; updateProfileActions(); }
   }, true);
   document.querySelector('#activate').addEventListener('click', event => {
     event.preventDefault(); event.stopImmediatePropagation();

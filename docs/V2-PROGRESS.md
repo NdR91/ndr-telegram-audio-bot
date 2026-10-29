@@ -151,3 +151,10 @@ Branch / worktree: `main` / `/home/ndr/config/telegram-audio-bot`.
 Task: il busy gate delega al catalogo il calcolo delle azioni e conserva la selezione corretta tra campione incluso e upload; aggiunta regressione integrata per le due sorgenti e il salvataggio credenziali.
 Verifiche: `tests/v2/test_transcription_ui.py` con `dotenv.load_dotenv` disattivato → 6 passed, un warning passlib/crypt. Suite completa non ripetuta: 268 test verificati nella sessione precedente. Nessun dato operativo letto.
 Prossima azione precisa: verificare il flusso in browser con il profilo salvato; i gate operativi S7 restano pendenti.
+
+Sessione / data: prova campione e salvataggio — 29 ottobre 2026
+Stato: correzione verificata offline e in Chromium headless con fixture sintetiche.
+Branch / worktree: `main` / `/home/ndr/config/telegram-audio-bot`.
+Task: ricalcolo azioni dopo scelta modello, protezione prove concorrenti e risultati tardivi, aggiornamento verifica dopo prova, URL script versionati e indicazioni esplicite sul salvataggio senza prova e attivazione manuale.
+Verifiche: 11 test mirati UI/API passati con dotenv disattivato, warning passlib/crypt; Chromium headless con app/DB temporanei e provider simulato ha verificato salvataggio senza prova, scelta stesso/altro modello, prova pendente e attivazione. Nessun provider o database operativo letto nelle prove.
+Prossima azione: verifica dell'operatore nel browser con servizio effettivo; gate operativi S7 restano pendenti.

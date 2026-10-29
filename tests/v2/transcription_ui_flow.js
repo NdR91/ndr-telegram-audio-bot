@@ -98,23 +98,47 @@ class FakeOption {
 }
 let draft = initialDraft;
 let activationAttempts = 0;
-const profile = { id: 1, name: 'Runtime profile', revision: 1, generation: 1,
-  role: null, verification: 'verified', service: 'openai', mode: 'multimodal',
+let profile = { id: 1, name: 'Runtime profile', revision: 1, generation: 1,
+  role: null, verification: 'unverified', service: 'openai', mode: 'multimodal',
   audio_model: 'audio-v1', text_model: null };
+let deferProfileTest = false;
+let completeProfileTest = null;
 const requests = [];
 let nextRevision = initialDraft.revision;
 let deferredCatalogResponse = null;
 const fetch = async (url, options = {}) => {
   requests.push(url);
-  if (url === '/api/profiles') return { ok: true, json: async () => ({ profiles: [profile], roles_generation: 0, sample: { duration_seconds: 1.8, sha256: 'synthetic-hash' } }) };
+  if (url === '/api/profiles') return { ok: true, json: async () => ({ profiles: profile ? [profile] : [], roles_generation: 0, sample: { duration_seconds: 1.8, sha256: 'synthetic-hash' } }) };
+  if (url === '/api/profiles/1' && options.method === 'PUT') {
+    const body = JSON.parse(options.body);
+    profile = { ...profile, ...body.values, revision: profile.revision + 1,
+      generation: profile.generation + 1, verification: 'unverified' };
+    return { ok: true, json: async () => ({ profile: { ...profile, values: { ...body.values } } }) };
+  }
+  if (url === '/api/profiles/1' && options.method === 'DELETE') {
+    profile = null;
+    return { ok: true, json: async () => ({ deleted: true, id: 1 }) };
+  }
   if (url === '/api/profiles/1') return { ok: true, json: async () => ({ profile: { ...profile, values: {
-    service: 'openai', mode: 'multimodal', audio_model: 'audio-v1', text_model: null,
+    service: 'openai', mode: 'multimodal', audio_model: profile.audio_model, text_model: null,
     credential_version: 1, system_prompt: 'faithful', refine_template: '{raw_text}',
     limits: initialDraft.limits,
   } } }) };
-  if (url === '/api/profiles/1/test') return { ok: true, json: async () => ({
-    status: 'succeeded', revision: 1, result: null,
-  }) };
+  if (url === '/api/profiles/1/test') {
+    const testedRevision = Number(options.body.get('revision'));
+    const finish = resolve => {
+      if (profile?.revision === testedRevision) {
+        profile = { ...profile, verification: 'verified', last_test: { success: true, finished_at: '2026-10-29T12:00:00Z' } };
+      }
+      resolve({ ok: true, json: async () => ({ status: 'succeeded', revision: testedRevision,
+        result: { text: testedRevision === 1 ? 'first result' : 'late result', models: [], duration_ms: 1 } }) });
+    };
+    if (deferProfileTest) {
+      deferProfileTest = false;
+      return new Promise(resolve => { completeProfileTest = () => finish(resolve); });
+    }
+    return new Promise(resolve => finish(resolve));
+  }
   if (url === '/api/transcription/credentials') return { ok: true, json: async () => ({
     credential_version: 3,
     keys: [{ version: 1, label: 'Personale' }, { version: 2, label: 'Lavoro' }, { version: 3, label: 'Nuova' }],
@@ -130,6 +154,7 @@ const fetch = async (url, options = {}) => {
     }
     return { ok: true, json: async () => ({ models: [
       { id: "openai/audio-v2", label: "Audio model", pricing: { prompt: "0.000002", completion: "0.000003", input_audio: "0.00004" }, context_length: 32000 },
+      ...(catalogPath ? [{ id: "audio-v1", label: "Current audio model", context_length: 16000 }] : []),
       { id: "google/same-id", label: "same-id", pricing: { prompt: "0", completion: "0" }, context_length: 128000 },
       { id: "anthropic/other", label: "Another model", pricing: { prompt: "0.000001", completion: "0.000009" }, context_length: 8192 },
       { id: "meta/unknown-price", label: "Unknown", context_length: 64000 },
@@ -215,6 +240,17 @@ const file = elements.get('audio-file');
     await new Promise(resolve => setImmediate(resolve));
     window.V2ProfileCatalog.updateActions();
     assert.equal(runTest.disabled, false, 'opening a saved profile enables its default sample test');
+    await click('load-models');
+    let currentModel = elements.get('model-picker-results').children.find(card => card.children[0].children[1].textContent === 'audio-v1');
+    await fire(currentModel.children[2], 'click');
+    assert.equal(runTest.disabled, false, 'selecting the already saved model keeps the clean profile test enabled');
+    let differentModel = elements.get('model-picker-results').children.find(card => card.children[0].children[1].textContent === 'openai/audio-v2');
+    await fire(differentModel.children[2], 'click');
+    assert.equal(runTest.disabled, true, 'selecting a different model marks the profile dirty and disables its test');
+    await click('load-models');
+    currentModel = elements.get('model-picker-results').children.find(card => card.children[0].children[1].textContent === 'audio-v1');
+    await fire(currentModel.children[2], 'click');
+    assert.equal(runTest.disabled, false, 'restoring the saved model recalculates the profile test state');
     file.files = [];
     testSources[1].checked = true;
     testSources[0].checked = false;
@@ -224,9 +260,44 @@ const file = elements.get('audio-file');
     testSources[1].checked = false;
     await fire(testSources[0], 'change');
     assert.equal(runTest.disabled, false, 'switching back to the included sample removes the upload requirement');
-    await click('run-test');
+    deferProfileTest = true;
+    const firstPendingTest = click('run-test');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(runTest.disabled, true, 'a profile test keeps its action busy while the provider request is pending');
+    testSources[0].checked = false;
+    testSources[1].checked = true;
+    await fire(testSources[1], 'change');
+    assert.equal(elements.get('test-status').textContent, 'Prova in corso…', 'changing to upload without a file does not overwrite the pending test status');
+    testSources[0].checked = true;
+    testSources[1].checked = false;
+    await fire(testSources[0], 'change');
+    await click('load-models');
+    currentModel = elements.get('model-picker-results').children.find(card => card.children[0].children[1].textContent === 'audio-v1');
+    await fire(currentModel.children[2], 'click');
+    assert.equal(runTest.disabled, true, 'selecting the same model cannot unlock a test already in progress');
+    completeProfileTest();
+    await firstPendingTest;
     assert.ok(requests.includes('/api/profiles/1/test'), 'sample test uses the revision-bound profile route');
     assert.equal(requests.includes('/api/transcription/test'), false, 'profile sample tests do not enter the legacy upload route');
+    assert.equal(profile.verification, 'verified', 'a complete test updates the catalog verification state');
+    assert.equal(elements.get('result-text').textContent, 'first result');
+    await click('activate');
+    assert.equal(elements.get('profile-unverified-wrap').hidden, true, 'activation after a successful test does not request unverified confirmation');
+    assert.equal(elements.get('profile-confirm-action').disabled, false, 'verified activation remains available after refreshing the catalog');
+    elements.get('profile-confirmation').close();
+    deferProfileTest = true;
+    const changedRevisionTest = click('run-test');
+    await new Promise(resolve => setImmediate(resolve));
+    elements.get('audio-model-id').value = 'newer-model';
+    await fire(form, 'input', { target: elements.get('audio-model-id') });
+    await fire(form, 'submit');
+    assert.equal(window.V2ProfileCatalog.selected.revision, 2, 'saving during a test selects the new profile revision');
+    const statusAfterSave = elements.get('test-status').textContent;
+    completeProfileTest();
+    await changedRevisionTest;
+    assert.equal(elements.get('result-text').textContent, 'first result', 'a late result for a superseded revision is not shown');
+    assert.equal(elements.get('test-status').textContent, statusAfterSave, 'a late test does not overwrite the new revision state');
+    assert.equal(profile.verification, 'unverified', 'a test receipt for an older revision cannot verify the new revision');
     elements.get('audio-model-id').value = 'unsaved-model';
     await fire(form, 'input', { target: elements.get('audio-model-id') });
     assert.equal(activate.disabled, true, 'dirty profile edits keep role activation visibly disabled');
@@ -259,6 +330,17 @@ const file = elements.get('audio-file');
     assert.ok(elements.get('credential-version').options.some(option => option.textContent === 'Nuova'), 'profile editor reads the updated shared key catalog');
     await click('load-models');
     assert.equal(elements.get('model-picker').open, true, 'model catalog remains available in profile mode');
+    deferProfileTest = true;
+    const deletedProfileTest = click('run-test');
+    await new Promise(resolve => setImmediate(resolve));
+    const selectedCard = elements.get('profile-list').children[0];
+    await selectedCard.children[1].children.find(button => button.textContent === 'Elimina').listeners.click[0].callback();
+    await click('profile-delete-action');
+    assert.equal(window.V2ProfileCatalog.selected, null, 'deleting a selected profile clears the editor selection');
+    completeProfileTest();
+    await deletedProfileTest;
+    assert.equal(elements.get('result-text').textContent, 'first result', 'a late result for a deleted profile is not shown');
+    assert.equal(window.V2ProfileCatalog.selected, null, 'late test completion safely tolerates a null selected profile');
     return;
   }
   assert.ok(form.listeners.submit, "draft submit handler is wired");

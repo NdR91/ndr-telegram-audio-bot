@@ -68,6 +68,10 @@ def create_app(settings: DeploymentSettings | None = None,
             pass
     serialiser = _make_serialiser(session_secret)
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
+    asset_versions = {
+        name: hashlib.sha256((_HERE / "static" / name).read_bytes()).hexdigest()[:12]
+        for name in ("transcription.js", "profile_catalog.js")
+    }
 
     @__import__("contextlib").asynccontextmanager
     async def lifespan(app):
@@ -124,6 +128,7 @@ def create_app(settings: DeploymentSettings | None = None,
         values = dict(context or {})
         values["csrf_token"] = (session(request) or {}).get("csrf_token", "")
         values["admin"] = bool(session(request))
+        values["asset_versions"] = asset_versions
         return templates.TemplateResponse(request, f"v2_{template}", values, status_code=status)
 
     @app.get("/", response_class=HTMLResponse)
