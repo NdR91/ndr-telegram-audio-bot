@@ -1,12 +1,12 @@
 # Riprendere la V2 in una nuova chat
 
-## Stato al 25 ottobre 2026
+## Stato al 29 ottobre 2026
 
 L'utente ha approvato la specifica completa della V2 e ha chiesto di eseguire
-il lavoro in più sessioni. Questa sessione prepara il passaggio: nessuna
-funzionalità V2 è stata implementata. La prima sessione da eseguire è **S1**.
-Il piano è pronto per la lettura dell'utente; l'esecuzione inizierà in una
-nuova chat. Metodo consigliato: esecuzione nativa, una sessione per chat.
+il lavoro in più sessioni. Le sessioni **S1** e **S2** sono completate; la
+prossima sessione è **S3**, come indicato in `V2-PROGRESS.md`. S1 e S2
+aggiungono fondamenta isolate: il runtime V1 resta quello attivo. Metodo:
+esecuzione nativa, una sessione per chat.
 
 ## Leggere in quest'ordine
 
@@ -78,11 +78,12 @@ override nel README senza accedervi. Test e migrazione si sviluppano su
 database temporanei, credenziali fittizie, client mock e contenuti sintetici.
 Non lanciare `docker compose up` sul deployment reale per verificare il codice.
 
-Ultima verifica applicativa di questa revisione: **97 test mirati passati**
-su builder, resolver e model picker, con una warning passlib; nessuna nuova
-suite completa eseguita. Questo risultato riguarda la V1, non certifica la V2.
-Nella preparazione sono stati controllati link, documenti e rendering delle
-anteprime. Ogni sessione deve registrare i propri comandi e risultati nuovi.
+Baseline V1: **97 test mirati passati** su builder, resolver e model picker.
+Verifica V2 S2: `python3 -m pytest tests/v2/ -q -p no:cacheprovider` → 44
+passati; `python3 -m compileall -q bot/transcription tests/v2` e
+`git diff --check` completati. Le prove provider sono mock offline; nessuna API
+reale o suite V1 completa è stata eseguita in S2. Ogni sessione registra i
+propri comandi e risultati in `V2-PROGRESS.md`.
 
 ## Fine di ogni sessione
 

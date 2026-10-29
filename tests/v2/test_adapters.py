@@ -129,6 +129,18 @@ async def test_gemini_remote_upload_is_deleted_after_cancellation(tmp_path):
     assert actions == ["delete"]
 
 
+async def test_gemini_catalog_uses_async_model_list_metadata():
+    class Model:
+        name="models/gemini-audio-candidate"; supported_actions=["generateContent"]
+    class Models:
+        async def list(self):
+            async def items(): yield Model()
+            return items()
+    class Aio: models=Models()
+    choices=await GeminiAdapter("synthetic", SimpleNamespace(aio=Aio())).list_models("multimodal")
+    assert [choice.id for choice in choices] == ["gemini-audio-candidate"]
+
+
 def _audio(tmp_path):
     path = Path(tmp_path) / "fixture.mp3"
     path.write_bytes(b"synthetic audio")

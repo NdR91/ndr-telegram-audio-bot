@@ -21,9 +21,8 @@ class GeminiAdapter:
 
     async def list_models(self, role: ModelRole) -> list[ModelChoice]:
         try:
-            response = await self._client.aio.models.list()
             choices = []
-            for item in response:
+            async for item in await self._client.aio.models.list():
                 name = item.name.removeprefix("models/")
                 methods = getattr(item, "supported_actions", ()) or ()
                 if "generateContent" in methods:

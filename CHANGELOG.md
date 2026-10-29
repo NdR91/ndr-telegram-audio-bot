@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   literal `{raw_text}` prompt substitution. These modules are not connected to
   the V1 runtime yet. Offline V2 repository and configuration tests pass.
 
+- **V2 transcription engine (S2)**: Added OpenAI, Gemini, and OpenRouter
+  adapters with role-aware model catalog queries, credential-version client
+  reuse, and the two fixed audio paths. Gemini uploads and local conversions
+  are cleaned up after errors and cancellation. This engine remains isolated
+  from the active V1 runtime; provider tests use offline mocks.
+
 - **Capability-aware audio preparation (P7)**: FFmpeg conversion is now skipped
   when the transcriber accepts the original file format natively. Each transcriber
   exposes its supported formats via `accepted_formats()`. The handler logs the

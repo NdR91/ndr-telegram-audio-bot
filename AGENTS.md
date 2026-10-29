@@ -171,7 +171,7 @@ When behavior changes:
 - `bot/auth_store.py`: SQLite whitelist persistence (legacy).
 - `bot/database/`: unified application database (schema, migrations, repository, secret store).
 - `bot/database/v2_schema.py`, `v2_repository.py`: isolated V2 SQLite schema and persistence foundation; not connected to the V1 runtime yet.
-- `bot/transcription/models.py`, `errors.py`, `configuration.py`, `prompts.py`: immutable V2 contracts, safe errors, revisioned configuration, and literal prompt substitution; runtime integration follows in later V2 sessions.
+- `bot/transcription/`: immutable V2 contracts and configuration, provider adapters/catalog, credential-scoped client pool with resilience, and the two fixed audio paths; runtime integration follows in later V2 sessions.
 - `bot/runtime.py`: runtime configuration snapshot (A4.1) for immutable resolved config.
 - `bot/rate_limiter.py`: concurrency admission and queueing.
 - `bot/ui/`: progress and Telegram delivery adapters.
