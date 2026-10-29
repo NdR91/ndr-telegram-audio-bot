@@ -124,6 +124,97 @@ async def test_authorized_private_and_group_voice_replies(kind, chat_type, chat_
         assert group["membership"] == "unchecked"
 
 
+async def test_profile_snapshot_lease_covers_admission_download_fallback_and_delivery(config_values, tmp_path):
+    from contextlib import contextmanager
+    from dataclasses import replace
+    from bot.handlers.v2_audio import handle_audio
+    from bot.transcription.errors import ServiceFailure
+    from bot.transcription.fallback import FallbackProcessor
+    from bot.transcription.models import ConfigRevision
+    from bot.rate_limiter import RateLimiter
+
+    trace = []
+    primary = SimpleNamespace(
+        profile_id=1, name="Primary synthetic",
+        configuration=ConfigRevision(11, config_values),
+    )
+    fallback = SimpleNamespace(
+        profile_id=2, name="Fallback synthetic",
+        configuration=ConfigRevision(12, replace(config_values, audio_model="backup-model")),
+    )
+    snapshot = SimpleNamespace(primary=primary, fallback=fallback)
+
+    class Profiles:
+        @contextmanager
+        def lease_processing_snapshot(self):
+            trace.append("lease-enter")
+            try:
+                yield snapshot
+            finally:
+                trace.append("lease-exit")
+
+    class Runner:
+        async def run(self, configuration, audio, *, allow_partial_refinement=True):
+            trace.append(("run", configuration.number))
+            assert Path(audio).exists()
+            if configuration.number == 11:
+                raise ServiceFailure("provider_rate_limited", "transcription", "safe provider error")
+            return ProcessingResult("synthetic transcript", False, ("backup-model",), 8)
+
+    class TracedLimiter(RateLimiter):
+        async def request_admission(self, *args, **kwargs):
+            trace.append("admission")
+            return await super().request_admission(*args, **kwargs)
+
+    class Attachment(FakeAttachment):
+        async def get_file(self):
+            trace.append("download-start")
+            return self
+
+        async def download_to_drive(self, custom_path):
+            trace.append("download-finish")
+            await super().download_to_drive(custom_path)
+
+    class Delivery:
+        async def send_final_response(self, *args, **kwargs):
+            trace.append("delivery")
+
+    events = []
+    runner = Runner()
+    services = SimpleNamespace(
+        access=SimpleNamespace(
+            allowed=lambda *args: True,
+            mark_received=lambda *args: None,
+            list_entries=lambda: {"owner": [99]},
+        ),
+        profiles=Profiles(),
+        runner=runner,
+        fallback_processor=FallbackProcessor(
+            runner, record_event=events.append, notice_cooldown=0,
+        ),
+        diagnostics=SimpleNamespace(record=lambda event: None),
+        settings=SimpleNamespace(data_dir=tmp_path),
+    )
+    attachment = Attachment("voice")
+    message = make_message(attachment)
+    context = make_context(services, TracedLimiter(), tmp_path, Delivery())
+
+    async def send_message(**kwargs):
+        trace.append("owner-notice")
+        context.sent_messages.append(kwargs)
+
+    context.bot.send_message = send_message
+    await handle_audio(SimpleNamespace(message=message, edited_message=None), context)
+
+    assert trace.index("lease-enter") < trace.index("admission")
+    assert trace.index("admission") < trace.index("download-start") < trace.index("download-finish")
+    assert trace.index("download-finish") < trace.index(("run", 11)) < trace.index(("run", 12))
+    assert trace.index("delivery") < trace.index("lease-exit")
+    assert trace.index("owner-notice") < trace.index("delivery")
+    assert len(events) == 1 and events[0].outcome == "succeeded"
+    assert "synthetic transcript" not in repr((events, context.sent_messages))
+
+
 async def test_private_acl_cannot_bypass_group_acl(repo, config_values, ready_prerequisites, tmp_path):
     from bot.handlers.v2_audio import handle_audio
     from bot.rate_limiter import RateLimiter

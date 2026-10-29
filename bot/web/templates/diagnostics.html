@@ -17,5 +17,7 @@
 {% if events %}<ul class="v2-event-list">{% for event in events %}<li>
 <strong>{{ event.stage }} · {{ event.status }}{% if event.error_code %} · {{ event.error_code }}{% endif %}</strong>
 <span>{{ event.at }}{% if event.revision %} · revisione {{ event.revision }}{% endif %}{% if event.duration_ms is not none %} · {{ event.duration_ms }} ms{% endif %}</span>
+{% if event.primary_profile_id is not none %}<span>Profilo principale: {{ event.primary_profile_id }}{% if event.fallback_profile_id is not none %} · Profilo fallback: {{ event.fallback_profile_id }}{% endif %}</span>
+{% if event.failure_stage and event.failure_category %}<span>Fase: {{ event.failure_stage }} · Categoria: {{ event.failure_category }} · Esito: {{ event.outcome }}</span>{% else %}<span>Esito: {{ event.outcome }}</span>{% endif %}{% endif %}
 {% if event.models %}<span>Modelli: {{ event.models|join(", ") }}</span>{% endif %}</li>{% endfor %}</ul>
 {% else %}<p>Nessun esito registrato.</p>{% endif %}</section>{% endif %}</main></body></html>

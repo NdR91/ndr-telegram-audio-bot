@@ -25,6 +25,14 @@ current model availability, production security, or release readiness.
 | 14 | Incompatible migration requires guided reconfiguration and leaves a rollback path | `tests/v2/test_acceptance.py::test_migration_reconfiguration_then_activation` plus `tests/v2/test_migration.py` cover incompatible profiles, source preservation, idempotency, and failed imports. The original V1 database/key/image remain the operator's rollback set. | Synthetic fixture verified; operator backup, cutover, and rollback remain untested. |
 | 15 | Desktop/mobile UI states, keyboard use, contrast, reduced motion, and overflow are checked | `docs/audits/2026-10-29-v2-ui-validation.md` records Chromium 156 synthetic rendering: 14 views at 1440×900/390×844, 11 keyboard focus checks, 13 states, text contrast ≥5.88:1, placeholders ≥6.66:1, no horizontal overflow, and reduced-motion check. `tests/v2/test_transcription_ui.py` covers route/template behavior. | **Synthetic browser review verified.** Templates/CSS/JS and client-side states checked with mock APIs and temporary synthetic data. Real Telegram/provider calls, cross-browser/assistive-technology checks, and operator release verification remain pending. |
 | 16 | Credentials and content do not enter logs, read APIs, persisted diagnostics, or test captures | `tests/v2/test_transcription_routes.py` checks credential responses; `tests/v2/test_diagnostics.py`, `tests/v2/test_diagnostics_routes.py`, and `tests/v2/test_migration.py` cover normalized metadata and non-disclosure. Synthetic tests use temporary databases and fake credentials/audio. | Offline checks verified; no real-data inspection or production log review performed. |
+| 17 | Profile CRUD, main/fallback roles, revision-bound sample/upload tests, restore and fallback clearing work with optimistic concurrency | `tests/v2/test_profiles.py`, `tests/v2/test_profile_routes.py`, `tests/v2/test_profile_testing.py`, `tests/v2/test_profile_migration.py`, and `tests/v2/test_transcription_ui.py` use temporary databases and synthetic inputs. | Offline contracts and UI flows verified. Operator browser review of the new catalog states remains pending. |
+| 18 | One eligible primary provider failure can use a verified fallback exactly once and record safe outcome/notice metadata | `tests/v2/test_fallback.py`, `tests/v2/test_runner.py`, and `tests/v2/test_telegram_pipeline.py` exercise typed failures, no-fallback cases, output handling, cancellation, diagnostics, and notification behavior with mocks. | Offline contract verified; live provider billing, Telegram notice delivery, and operating behavior remain pending. |
+| 19 | A second live application process cannot use the same V2 database | `tests/v2/test_runtime_lock.py` covers lock ownership, contention, and release with synthetic temporary paths. | Offline lock contract verified; operator deployment/restart procedure remains pending. |
+
+The profile/fallback/lock/UI targeted set was run as
+`tests/v2/test_profiles.py tests/v2/test_profile_routes.py tests/v2/test_profile_testing.py tests/v2/test_profile_migration.py tests/v2/test_fallback.py tests/v2/test_runtime_lock.py tests/v2/test_transcription_ui.py`:
+51 passed. This is targeted offline evidence, not a full-suite run or a release
+sign-off.
 
 The complete automated suite is run with `.venv/bin/python` and dotenv loading
 patched out before collection (command below). CI is configured for Python
@@ -61,11 +69,17 @@ or authorized Italian clips. Include numbers, negations, proper names,
 hesitations, self-corrections, and representative background noise. Keep an
 expected transcript that distinguishes acceptable punctuation/filler cleanup
 from a meaning-changing error. Upload each sample only through the explicit
-browser test action and compare the returned text locally.
+browser test action and compare the returned text locally. The bundled sample
+is suitable for checking the end-to-end test path; it is not a representative
+quality benchmark.
 
 Record only safe aggregates: date, application revision, provider, exact model
 IDs, mode, sample count, count of meaning-changing errors by category, elapsed
-time, and cost when the provider reports it. Do not send audio, transcripts,
+time, and cost when the provider reports it. When fallback is enabled, a
+primary timeout/network/429/5xx may already incur provider charges before the
+fallback sends the same audio to its own provider. Treat those as separate
+provider-account charges; the app does not provide a combined cost total.
+Do not send audio, transcripts,
 API keys, Telegram IDs, or screenshots containing private material to a
 reviewer or support thread. Do not persist samples or output in the V2 database.
 Repeat a sample when model/provider versions or settings change.
@@ -93,3 +107,13 @@ plan. The operator performs these checks locally and records only aggregate
 results and model versions. Never send keys or private audio/transcripts to the
 assistant. A release remains gated until the applicable browser and live checks
 are recorded.
+
+For the profile amendment, include catalog CRUD, role changes, confirmation for
+an unverified main, removal of a fallback, restoring the previous main, sample
+and upload tests, and mobile/keyboard behavior in the operator browser review.
+The prior Chromium audit was synthetic and predates these catalog states; it
+does not satisfy this check. Before a schema update, stop the application and
+back up the V2 SQLite database and matching master key together. Keep the
+pre-migration V1 image, volume, database, and key intact for V1 rollback. The
+runtime lock allows only one live process on the same database: stop it before
+backup, restore, or starting a replacement process.

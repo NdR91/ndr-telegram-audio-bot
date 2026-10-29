@@ -5,7 +5,7 @@ import httpx
 from bot.deployment import DeploymentSettings
 from bot.database.secret_store import SecretStore
 from bot.services import build_services
-from bot.web.auth import hash_password
+from bot.web.auth import hash_password, verify_password
 from bot.web.v2_app import create_app
 
 
@@ -256,4 +256,362 @@ async def test_invite_candidate_needs_authenticated_csrf_confirmation(tmp_path):
         confirmed = await client.post(f"/api/access/invites/{invite.id}/confirm", headers={"x-csrf-token": csrf})
         assert confirmed.status_code == 200
         assert services.access.has_owner()
+    services.repo.close()
+
+
+async def test_password_change_requires_session_csrf_and_current_password(tmp_path):
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    old_hash = hash_password("synthetic-old-password")
+    services.repo.set_setup_state("web_admin_hash", old_hash)
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        unauthenticated = await client.post("/api/password/change", json={
+            "current_password": "synthetic-old-password",
+            "new_password": "synthetic-new-password",
+            "confirm_password": "synthetic-new-password",
+        })
+        assert unauthenticated.status_code == 401
+        login = await client.post("/api/login", json={"password": "synthetic-old-password"})
+        assert login.status_code == 200
+        missing_csrf = await client.post("/api/password/change", json={
+            "current_password": "synthetic-old-password",
+            "new_password": "synthetic-new-password",
+            "confirm_password": "synthetic-new-password",
+        })
+        assert missing_csrf.status_code == 403
+        wrong_current = await client.post("/api/password/change", headers={
+            "x-csrf-token": login.json()["csrf_token"],
+        }, json={
+            "current_password": "wrong-current-password",
+            "new_password": "synthetic-new-password",
+            "confirm_password": "synthetic-new-password",
+        })
+        assert wrong_current.status_code == 401
+        assert services.repo.get_setup_state("web_admin_hash") == old_hash
+    services.repo.close()
+
+
+async def test_password_change_rotates_password_and_invalidates_old_session(tmp_path):
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-old-password"))
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        login = await client.post("/api/login", json={"password": "synthetic-old-password"})
+        old_cookie = client.cookies.get("session")
+        changed = await client.post("/api/password/change", headers={
+            "x-csrf-token": login.json()["csrf_token"],
+        }, json={
+            "current_password": "synthetic-old-password",
+            "new_password": "synthetic-new-password",
+            "confirm_password": "synthetic-new-password",
+        })
+        assert changed.status_code == 200
+        assert changed.json()["ok"] is True
+        assert changed.json()["csrf_token"]
+        assert client.cookies.get("session") != old_cookie
+        assert verify_password("synthetic-new-password", services.repo.get_setup_state("web_admin_hash"))
+        assert not verify_password("synthetic-old-password", services.repo.get_setup_state("web_admin_hash"))
+        client.cookies.set("session", old_cookie)
+        stale = await client.get("/admin/access")
+        assert stale.status_code == 303
+        client.cookies.delete("session")
+        old_login = await client.post("/api/login", json={"password": "synthetic-old-password"})
+        new_login = await client.post("/api/login", json={"password": "synthetic-new-password"})
+        assert old_login.status_code == 401
+        assert new_login.status_code == 200
+    services.repo.close()
+
+
+async def test_password_change_keeps_password_and_session_when_secret_store_fails(tmp_path, monkeypatch):
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    old_hash = hash_password("synthetic-old-password")
+    services.repo.set_setup_state("web_admin_hash", old_hash)
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        login = await client.post("/api/login", json={"password": "synthetic-old-password"})
+        old_cookie = client.cookies.get("session")
+        old_version = services.repo.get_setup_state("web_session_credential_version")
+        monkeypatch.setattr(services.repo._secret_store, "encrypt", lambda _secret: (_ for _ in ()).throw(RuntimeError("synthetic store failure")))
+        failed = await client.post("/api/password/change", headers={
+            "x-csrf-token": login.json()["csrf_token"],
+        }, json={
+            "current_password": "synthetic-old-password",
+            "new_password": "synthetic-new-password",
+            "confirm_password": "synthetic-new-password",
+        })
+        assert failed.status_code == 503
+        assert failed.headers.get("set-cookie") is None
+        assert client.cookies.get("session") == old_cookie
+        assert services.repo.get_setup_state("web_admin_hash") == old_hash
+        assert services.repo.get_setup_state("web_session_credential_version") == old_version
+    services.repo.close()
+
+
+async def test_password_change_confirmation_and_empty_password_are_rejected(tmp_path):
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-old-password"))
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        login = await client.post("/api/login", json={"password": "synthetic-old-password"})
+        headers = {"x-csrf-token": login.json()["csrf_token"]}
+        mismatch = await client.post("/api/password/change", headers=headers, json={
+            "current_password": "synthetic-old-password",
+            "new_password": "synthetic-new-password",
+            "confirm_password": "different-password",
+        })
+        empty = await client.post("/api/password/change", headers=headers, json={
+            "current_password": "synthetic-old-password", "new_password": "", "confirm_password": "",
+        })
+        assert mismatch.status_code == 422
+        assert empty.status_code == 422
+        assert verify_password("synthetic-old-password", services.repo.get_setup_state("web_admin_hash"))
+    services.repo.close()
+
+
+async def test_password_change_uses_its_own_attempt_limit(tmp_path, monkeypatch):
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-old-password"))
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        login = await client.post("/api/login", json={"password": "synthetic-old-password"})
+        monkeypatch.setattr("bot.web.v2_app.verify_password", lambda _password, _hash: False)
+        body = {"current_password": "wrong", "new_password": "new", "confirm_password": "new"}
+        headers = {"x-csrf-token": login.json()["csrf_token"]}
+        for _ in range(5):
+            assert (await client.post("/api/password/change", headers=headers, json=body)).status_code == 401
+        limited = await client.post("/api/password/change", headers=headers, json=body)
+        assert limited.status_code == 429
+        assert 1 <= int(limited.headers["retry-after"]) <= 900
+    services.repo.close()
+
+
+async def test_password_change_handles_malformed_stored_hash_without_details(tmp_path):
+    from bot.web.auth import encode_session, hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-original-password"))
+    app = create_app(settings, services)
+    cookie = encode_session(app.state.serialiser, {"admin": True, "csrf_token": "synthetic-csrf"})
+    services.repo.set_setup_state("web_admin_hash", "malformed synthetic hash")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test", cookies={"session": cookie}) as client:
+        response = await client.post("/api/password/change", headers={"x-csrf-token": "synthetic-csrf"}, json={
+            "current_password": "synthetic-original-password",
+            "new_password": "synthetic-replacement-password",
+            "confirm_password": "synthetic-replacement-password",
+        })
+        assert response.status_code == 401
+        assert response.json() == {"error": "invalid_current_password"}
+        assert services.repo.get_setup_state("web_admin_hash") == "malformed synthetic hash"
+    services.repo.close()
+
+
+async def test_password_change_rejects_non_string_and_overlong_passwords(tmp_path):
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-original-password"))
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        login = await client.post("/api/login", json={"password": "synthetic-original-password"})
+        headers = {"x-csrf-token": login.json()["csrf_token"]}
+        for invalid in (None, 42):
+            response = await client.post("/api/password/change", headers=headers, json={
+                "current_password": "synthetic-original-password",
+                "new_password": invalid,
+                "confirm_password": invalid,
+            })
+            assert response.status_code == 422
+        invalid_current = await client.post("/api/password/change", headers=headers, json={
+            "current_password": None,
+            "new_password": "synthetic-new-password",
+            "confirm_password": "synthetic-new-password",
+        })
+        assert invalid_current.status_code == 422
+        long_password = "x" * 73
+        too_long = await client.post("/api/password/change", headers=headers, json={
+            "current_password": "synthetic-original-password",
+            "new_password": long_password,
+            "confirm_password": long_password,
+        })
+        assert too_long.status_code == 422
+        assert verify_password("synthetic-original-password", services.repo.get_setup_state("web_admin_hash"))
+    services.repo.close()
+
+
+async def test_login_does_not_coerce_non_string_json_passwords(tmp_path):
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("None"))
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        for value in (None, 42):
+            response = await client.post("/api/login", json={"password": value})
+            assert response.status_code == 401
+        valid = await client.post("/api/login", json={"password": "None"})
+        assert valid.status_code == 200
+    services.repo.close()
+
+
+async def test_password_change_keeps_session_when_attempt_counter_clear_fails(tmp_path, monkeypatch):
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-old-password"))
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        login = await client.post("/api/login", json={"password": "synthetic-old-password"})
+        monkeypatch.setattr(app.state.auth_attempts, "clear", lambda *_args: (_ for _ in ()).throw(RuntimeError("synthetic limiter failure")))
+        changed = await client.post("/api/password/change", headers={
+            "x-csrf-token": login.json()["csrf_token"],
+        }, json={
+            "current_password": "synthetic-old-password",
+            "new_password": "synthetic-new-password",
+            "confirm_password": "synthetic-new-password",
+        })
+        assert changed.status_code == 200
+        assert (await client.get("/api/diagnostics")).status_code == 200
+        assert verify_password("synthetic-new-password", services.repo.get_setup_state("web_admin_hash"))
+    services.repo.close()
+
+
+async def test_recovery_rotates_signer_even_if_attempt_counter_clear_fails(tmp_path, monkeypatch):
+    from bot.v2_recovery import issue_recovery_code
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-old-password"))
+    recovery_code = issue_recovery_code(services.repo)
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        login = await client.post("/api/login", json={"password": "synthetic-old-password"})
+        old_cookie = client.cookies.get("session")
+        clear_attempts = app.state.auth_attempts.clear
+        def fail_recovery_clear(endpoint, address):
+            if endpoint == "recovery":
+                raise RuntimeError("synthetic limiter failure")
+            return clear_attempts(endpoint, address)
+        monkeypatch.setattr(app.state.auth_attempts, "clear", fail_recovery_clear)
+        recovered = await client.post("/api/recovery/reset", json={
+            "code": recovery_code, "password": "synthetic-recovered-password",
+        })
+        assert recovered.status_code == 200
+        assert recovered.json()["sessions_invalidated"] is True
+        assert client.cookies.get("session") == old_cookie
+        assert (await client.get("/api/diagnostics")).status_code == 401
+        new_login = await client.post("/api/login", json={"password": "synthetic-recovered-password"})
+        assert new_login.status_code == 200
+        assert (await client.get("/api/diagnostics")).status_code == 200
+    services.repo.close()
+
+
+async def test_access_page_renders_password_change_for_authenticated_admin(tmp_path):
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-admin-password"))
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        assert (await client.get("/admin/access")).status_code == 303
+        login = await client.post("/api/login", json={"password": "synthetic-admin-password"})
+        page = await client.get("/admin/access")
+        assert page.status_code == 200
+        assert 'id="password-change"' in page.text
+        assert 'id="password-current"' in page.text
+        assert 'id="password-new"' in page.text
+        assert 'id="password-confirm"' in page.text
+        assert "Le altre sessioni verranno chiuse" in page.text
+        assert "/static/password_change.js" in page.text
+    services.repo.close()
+
+
+async def test_setup_and_recovery_load_localized_password_errors(tmp_path):
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        setup = await client.get("/setup")
+        recovery = await client.get("/recovery")
+        assert '/static/password_errors.js' in setup.text
+        assert '/static/password_errors.js' in recovery.text
+        assert 'window.v2PasswordError(d.error)' in setup.text
+        assert 'window.v2PasswordError(d.error)' in recovery.text
+    services.repo.close()
+
+
+def test_password_rotation_is_atomic_against_concurrent_changes(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    old_hash = hash_password("synthetic-old-password")
+    services.repo.set_setup_state("web_admin_hash", old_hash)
+    barrier = Barrier(2)
+
+    def rotate(new_password):
+        new_hash = hash_password(new_password)
+        barrier.wait()
+        return services.repo.rotate_web_admin_password(
+            expected_password_hash=old_hash,
+            new_password_hash=new_hash,
+            new_session_secret=f"synthetic-session-secret-{new_password}",
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(rotate, ("synthetic-password-one", "synthetic-password-two")))
+    assert sorted(results) == [False, True]
+    final_hash = services.repo.get_setup_state("web_admin_hash")
+    assert sum(verify_password(value, final_hash) for value in (
+        "synthetic-password-one", "synthetic-password-two",
+    )) == 1
+    services.repo.close()
+
+
+async def test_recovery_store_failure_leaves_password_and_existing_session_unchanged(tmp_path, monkeypatch):
+    from bot.v2_recovery import issue_recovery_code
+    from bot.web.auth import hash_password
+
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    old_hash = hash_password("synthetic-old-password")
+    services.repo.set_setup_state("web_admin_hash", old_hash)
+    recovery_code = issue_recovery_code(services.repo)
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        login = await client.post("/api/login", json={"password": "synthetic-old-password"})
+        old_cookie = client.cookies.get("session")
+        old_version = services.repo.get_setup_state("web_session_credential_version")
+        monkeypatch.setattr(services.repo._secret_store, "encrypt", lambda _secret: (_ for _ in ()).throw(RuntimeError("synthetic store failure")))
+        failed = await client.post("/api/recovery/reset", json={
+            "code": recovery_code, "password": "synthetic-new-password",
+        })
+        assert failed.status_code == 503
+        assert services.repo.get_setup_state("web_admin_hash") == old_hash
+        assert client.cookies.get("session") == old_cookie
+        assert services.repo.get_setup_state("web_session_credential_version") == old_version
+        assert (await client.get("/admin/access")).status_code == 200
     services.repo.close()

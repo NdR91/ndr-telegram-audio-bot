@@ -45,6 +45,31 @@ async def test_ui_separates_active_draft_and_escapes_test_output(tmp_path):
     services.repo.close()
 
 
+async def test_profile_catalog_ui_exposes_accessible_profile_actions(tmp_path):
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-admin-password"))
+    app = create_app(settings, services)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post("/api/login", json={"password": "synthetic-admin-password"})
+        response = await client.get("/admin/transcription")
+        assert response.status_code == 200
+        assert 'id="profile-catalog"' in response.text
+        assert 'id="profile-list"' in response.text
+        assert 'id="profile-editor"' in response.text
+        assert 'id="profile-status"' in response.text
+        assert 'id="profile-confirmation"' in response.text
+        assert "/static/profile_catalog.js" in response.text
+        script = Path(__file__).parents[2] / "bot/web/static/profile_catalog.js"
+        javascript = script.read_text()
+        assert "roles_generation" in javascript
+        assert "confirm_unverified" in javascript
+        assert "textContent" in javascript
+        assert "innerHTML" not in javascript
+    services.repo.close()
+
+
 def test_transcription_ui_busy_unlock_recomputes_file_and_credential_state():
     node = shutil.which("node")
     if not node:
@@ -97,6 +122,18 @@ assert.equal(runTest.disabled, false, 'the selected file can be tested after sav
     subprocess.run([node, "-e", script], check=True, capture_output=True, text=True)
 
 
+def test_profile_catalog_ui_flow_requires_confirmation_for_unverified_main_role():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required to execute the profile catalog UI flow")
+    root = Path(__file__).parents[2]
+    subprocess.run([
+        node,
+        str(Path(__file__).with_name("profile_catalog_ui_flow.js")),
+        str(root / "bot/web/static/profile_catalog.js"),
+    ], check=True, capture_output=True, text=True)
+
+
 def test_transcription_ui_flow_keeps_dirty_revisions_blocked_and_allows_activation_retry():
     node = shutil.which("node")
     if not node:
@@ -107,4 +144,18 @@ def test_transcription_ui_flow_keeps_dirty_revisions_blocked_and_allows_activati
         str(Path(__file__).with_name("transcription_ui_flow.js")),
         str(root / "bot/web/templates/v2_transcription.html"),
         str(root / "bot/web/static/transcription_state.js"),
+    ], check=True, capture_output=True, text=True)
+
+
+def test_profile_mode_integrates_with_workbench_without_legacy_requests():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required to exercise the integrated transcription UI")
+    root = Path(__file__).parents[2]
+    subprocess.run([
+        node,
+        str(Path(__file__).with_name("transcription_ui_flow.js")),
+        str(root / "bot/web/templates/v2_transcription.html"),
+        str(root / "bot/web/static/transcription_state.js"),
+        str(root / "bot/web/static/profile_catalog.js"),
     ], check=True, capture_output=True, text=True)

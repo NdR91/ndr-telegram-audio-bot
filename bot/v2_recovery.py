@@ -28,33 +28,23 @@ def issue_recovery_code(repo: V2Repository, now: datetime | None = None) -> str:
 
 
 def reset_password(repo: V2Repository, code: str, new_password: str,
-                   now: datetime | None = None) -> bool:
+                   now: datetime | None = None,
+                   new_session_secret: str | None = None) -> bool:
     if not new_password:
         raise ValueError("Password is required")
     digest = hashlib.sha256(code.encode()).hexdigest()
     instant = now or datetime.now(timezone.utc)
     if not _recovery_code_is_valid(repo, digest, instant):
         return False
+    expected_hash = repo.get_setup_state("web_admin_hash") or ""
     encoded_password = hash_password(new_password)
-    with repo.transaction() as connection:
-        rows = dict(connection.execute(
-            "SELECT setup_key, setup_value FROM setup_state WHERE setup_key IN ('v2_recovery_hash', 'v2_recovery_expires_at')"
-        ).fetchall())
-        try:
-            expires = datetime.fromisoformat(rows.get("v2_recovery_expires_at", ""))
-        except ValueError:
-            return False
-        stored = rows.get("v2_recovery_hash", "")
-        if expires.tzinfo is None or instant >= expires or not secrets.compare_digest(stored, digest):
-            return False
-        connection.execute(
-            "UPDATE setup_state SET setup_value=?, updated_at=datetime('now') WHERE setup_key='web_admin_hash'",
-            (encoded_password,),
-        )
-        connection.execute(
-            "UPDATE setup_state SET setup_value='', updated_at=datetime('now') WHERE setup_key IN ('v2_recovery_hash', 'v2_recovery_expires_at')"
-        )
-    return True
+    return repo.rotate_web_admin_password(
+        expected_password_hash=expected_hash,
+        new_password_hash=encoded_password,
+        new_session_secret=new_session_secret or secrets.token_urlsafe(48),
+        recovery_code_hash=digest,
+        now=instant,
+    )
 
 
 def _recovery_code_is_valid(repo: V2Repository, digest: str, instant: datetime) -> bool:

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from bot.diagnostics import DiagnosticEvent, DiagnosticsService
+from bot.transcription.fallback import FallbackEvent
 
 
 def test_diagnostics_retains_at_most_100_events_and_7_days(repo):
@@ -31,6 +32,74 @@ def test_error_body_text_and_credentials_never_persist(repo):
     assert "synthetic-api-key" not in raw
     assert "provider_error" not in raw
     assert row["error_code"] is None
+
+
+def test_fallback_diagnostic_persists_only_profile_ids_and_normalized_metadata(repo):
+    service = DiagnosticsService(repo)
+    service.record_fallback(FallbackEvent(
+        datetime.now(timezone.utc), 12, 27, "refinement", "provider_rate_limited",
+        "succeeded",
+    ))
+    with repo.read() as connection:
+        row = dict(connection.execute("SELECT * FROM diagnostic_events").fetchone())
+    assert row["primary_profile_id"] == 12
+    assert row["fallback_profile_id"] == 27
+    assert row["failure_stage"] == "refinement"
+    assert row["failure_category"] == "provider_rate_limited"
+    assert row["outcome"] == "succeeded"
+    assert row["status"] == "success"
+    assert row["models_json"] == "[]"
+    event = service.recent()[0]
+    assert event.primary_profile_id == 12
+    assert event.fallback_profile_id == 27
+    assert event.failure_stage == "refinement"
+    assert event.failure_category == "provider_rate_limited"
+    assert event.outcome == "succeeded"
+
+
+def test_primary_processing_diagnostic_persists_normalized_metadata_without_content(repo):
+    service = DiagnosticsService(repo)
+    service.record_fallback(FallbackEvent(
+        datetime.now(timezone.utc), 12, None, "transcription", "empty_response",
+        "primary_failed", final_failure_stage="transcription",
+        final_failure_code="empty_response",
+    ))
+    with repo.read() as connection:
+        row = dict(connection.execute("SELECT * FROM diagnostic_events").fetchone())
+    assert row["primary_profile_id"] == 12
+    assert row["fallback_profile_id"] is None
+    assert row["failure_stage"] == "transcription"
+    assert row["failure_category"] == "empty_response"
+    assert row["outcome"] == "primary_failed"
+    assert row["status"] == "error"
+    assert "synthetic transcript" not in repr(row)
+
+
+def test_primary_success_diagnostic_has_profile_and_outcome(repo):
+    service = DiagnosticsService(repo)
+    service.record_fallback(FallbackEvent(
+        datetime.now(timezone.utc), 12, None, None, None, "primary_succeeded",
+    ))
+    event = service.recent()[0]
+    assert event.primary_profile_id == 12
+    assert event.fallback_profile_id is None
+    assert event.failure_stage is None
+    assert event.failure_category is None
+    assert event.outcome == "primary_succeeded"
+    assert event.status == "success"
+
+
+def test_notification_failure_diagnostic_contains_no_notice_payload(repo):
+    service = DiagnosticsService(repo)
+    at = datetime.now(timezone.utc)
+    service.record_notice_failure(at)
+    event = service.recent()[0]
+    assert event.at == at
+    assert event.stage == "telegram"
+    assert event.status == "error"
+    assert event.error_code == "telegram"
+    assert event.primary_profile_id is None
+    assert event.models == ()
 
 
 def test_health_distinguishes_configured_running_and_verified_receiving(repo):

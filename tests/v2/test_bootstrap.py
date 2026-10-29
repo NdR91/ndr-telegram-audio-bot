@@ -101,24 +101,10 @@ def test_v2_app_factory_module_does_not_import_legacy_config(monkeypatch):
     assert imports == []
 
 
-def test_v2_schema_migrates_v1_database_for_pairing_and_diagnostics(repo, secret_store):
-    import sqlite3
-
-    path = repo.path
-    repo.close()
-    connection = sqlite3.connect(path)
-    connection.execute("DROP TABLE pairing_invites")
-    connection.execute("DROP TABLE diagnostic_events")
-    connection.execute("DELETE FROM schema_version")
-    connection.execute("INSERT INTO schema_version(version) VALUES (1)")
-    connection.commit()
-    connection.close()
-    migrated = V2Repository(path, secret_store)
-    migrated.initialize()
-    with migrated.read() as connection:
-        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+def test_new_v2_schema_includes_profile_fallback_diagnostics(repo):
+    with repo.read() as connection:
         version = connection.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-    assert "pairing_invites" in tables
-    assert "diagnostic_events" in tables
-    assert version == 3
-    migrated.close()
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(diagnostic_events)")}
+    assert version == 5
+    assert {"primary_profile_id", "fallback_profile_id", "failure_stage",
+            "failure_category", "outcome"} <= columns

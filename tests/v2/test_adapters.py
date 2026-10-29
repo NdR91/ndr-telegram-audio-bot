@@ -132,6 +132,107 @@ def test_provider_errors_are_sanitized():
     assert error.stage == "transcription"
 
 
+@pytest.mark.parametrize("status,code,eligible", [
+    (408, "provider_timeout", True),
+    (429, "provider_rate_limited", True),
+    (500, "provider_server_error", True),
+    (503, "provider_server_error", True),
+    (400, "provider_error", False),
+    (401, "provider_error", False),
+])
+def test_provider_http_status_classification(status, code, eligible):
+    from bot.transcription.errors import classify_provider_failure
+
+    error = classify_provider_failure(
+        httpx.HTTPStatusError(
+            "synthetic provider body",
+            request=httpx.Request("POST", "https://provider.test"),
+            response=httpx.Response(status),
+        ),
+        "transcription",
+    )
+    assert error.code == code
+    assert error.fallback_eligible is eligible
+    assert "synthetic provider body" not in str(error)
+
+
+@pytest.mark.parametrize("exception,code", [
+    (httpx.ConnectError("synthetic network detail"), "provider_network_error"),
+    (httpx.ReadTimeout("synthetic timeout detail"), "provider_timeout"),
+    (TimeoutError("synthetic timeout detail"), "provider_timeout"),
+])
+def test_typed_network_causes_are_classified_without_exception_text(exception, code):
+    from bot.transcription.errors import classify_provider_failure
+
+    error = classify_provider_failure(exception, "refinement")
+    assert error.code == code
+    assert error.fallback_eligible is True
+    assert "synthetic" not in str(error)
+
+
+def test_non_provider_failures_and_empty_output_are_not_fallback_eligible():
+    from bot.transcription.errors import ServiceFailure, classify_provider_failure
+
+    provider = classify_provider_failure(ValueError("synthetic parse detail"), "catalog")
+    empty = ServiceFailure("empty_response", "transcription", "Il servizio AI non ha restituito testo.")
+    assert provider.code == "provider_error"
+    assert provider.fallback_eligible is False
+    assert empty.fallback_eligible is False
+
+
+async def test_openai_adapter_classifies_sdk_timeout_without_exposing_details(tmp_path):
+    from openai import APITimeoutError
+    from bot.transcription.errors import ServiceFailure
+
+    class Transcriptions:
+        async def create(self, **kwargs):
+            raise APITimeoutError(request=httpx.Request("POST", "https://api.openai.test"))
+    class Audio: transcriptions = Transcriptions()
+    class Client:
+        audio = Audio()
+        async def close(self): pass
+
+    with pytest.raises(ServiceFailure) as captured:
+        await OpenAIAdapter("synthetic", Client()).transcribe(_audio(tmp_path), "model")
+    assert captured.value.code == "provider_timeout"
+    assert captured.value.fallback_eligible is True
+
+
+async def test_gemini_adapter_classifies_typed_server_status():
+    from google.genai.errors import APIError
+    from bot.transcription.errors import ServiceFailure
+
+    class Models:
+        async def generate_content(self, **kwargs):
+            raise APIError(503, {"message": "synthetic private provider detail"})
+    class Aio: models = Models()
+    adapter = GeminiAdapter("synthetic", SimpleNamespace(aio=Aio()))
+
+    with pytest.raises(ServiceFailure) as captured:
+        await adapter.refine("synthetic input", "model", "system", "{raw_text}")
+    assert captured.value.code == "provider_server_error"
+    assert captured.value.fallback_eligible is True
+    assert "synthetic private provider detail" not in str(captured.value)
+
+
+async def test_openrouter_adapter_classifies_rate_limit_status(tmp_path):
+    from bot.transcription.errors import ServiceFailure
+
+    def handler(request):
+        return httpx.Response(429, text="synthetic private provider detail")
+    client = httpx.AsyncClient(
+        base_url="https://openrouter.test/api/v1", transport=httpx.MockTransport(handler)
+    )
+    adapter = OpenRouterAdapter("synthetic", client)
+
+    with pytest.raises(ServiceFailure) as captured:
+        await adapter.refine("synthetic input", "model", "system", "{raw_text}")
+    assert captured.value.code == "provider_rate_limited"
+    assert captured.value.fallback_eligible is True
+    assert "synthetic private provider detail" not in str(captured.value)
+    await client.aclose()
+
+
 async def test_openrouter_sends_selected_model_and_catalog_role():
     requests=[]
     def handler(request):

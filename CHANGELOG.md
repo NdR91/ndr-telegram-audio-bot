@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- **Authenticated administrator password change**: The Access page can change
+  the web password after current-password confirmation. Password and session
+  signer rotate atomically; the current session continues and previous sessions
+  are invalidated. Recovery uses the same atomic rotation.
+
+- **Profile catalog and verified fallback**: Added saved profile cards with
+  revisioned create/edit/rename/duplicate/delete, main and optional fallback
+  roles, bundled-sample or upload tests, explicit confirmation for an
+  unverified main, and role restore/clear actions. A single fallback attempt is
+  allowed only for typed timeout, network, 429, or 5xx failures and only when
+  its current revision and credential have a valid test receipt. Empty or
+  invalid output does not invoke fallback. Fallback use is recorded as
+  normalized metadata and can produce a rate-limited, content-free owner
+  notice. Additional provider billing may occur; the app does not aggregate
+  cross-provider charges.
+
+- **Profile persistence and single-instance runtime guard**: Migrates existing
+  V2 active/draft/previous references into the profile schema transactionally,
+  retains a previous-main restore point, and holds an OS lock while the live
+  runtime uses its database. Concurrent application processes cannot use the
+  same V2 database.
+
+- The audio configuration test reports upload progress and displays a
+  session-only trace of conversion, submitted format, and provider stages,
+  including sanitized conversion failures. Audio and transcript content are
+  excluded from the trace.
+
 ### Changed
 
 - Replaced the long native model menu with a searchable catalog dialog with
@@ -37,9 +66,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented audio-capable `generateContent` models. Existing active settings
   remain unchanged until a successful test and explicit activation.
 
-- Web administrator setup and recovery accept any nonempty password without
-  length or special-character requirements. Owner setup ignores responses from
-  earlier invitations after a new invitation is created.
+- Web administrator setup and recovery accept nonempty passwords up to 72
+  UTF-8 bytes, without a minimum length or special-character rules. Owner setup
+  ignores responses from earlier invitations after a new invitation is created.
 
 ### Added
 

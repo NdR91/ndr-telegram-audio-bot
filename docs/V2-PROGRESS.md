@@ -18,6 +18,13 @@ Ultimo aggiornamento: 29 ottobre 2026, implementazione S3–S6 e verifica offlin
 | S6 | Migrazione, diagnostica e rimozione dei percorsi superati | S5 | Implementata e verificata offline | Fixture sintetiche; `docs/V2-S6-RETIREMENT.md` |
 | S7 | Verifica finale, rifinitura UI, documentazione e consegna | S6 | In corso; prove operative pendenti | `docs/V2-VALIDATION.md`; 159 test passati, browser sintetico e build Docker riuscita |
 
+## Evoluzione multi-profilo implementata offline
+
+Il 29 ottobre 2026 l'utente ha approvato l'evoluzione multi-profilo descritta in
+[`2026-10-29-profile-catalog-and-fallback-amendment.md`](superpowers/specs/2026-10-29-profile-catalog-and-fallback-amendment.md): catalogo iniziale di card e CRUD profili, principale attivabile anche senza prova (marcato non verificato), campione audio breve incluso e fallback configurabile con notifica Telegram sicura. Le funzionalità sono implementate e verificate offline con fixture sintetiche; verifica browser e gate operativi restano pendenti.
+
+L’utente ha confermato fallback soltanto per timeout, rete, 429 e 5xx tipizzati, con prova valida del fallback; output vuoto/non valido non attiva fallback. L’indice e i piani storici sono stati riconciliati; la migrazione e la sequenza di implementazione sono descritte nei piani [persistenza](superpowers/plans/2026-10-29-profile-persistence-plan.md) e [catalogo](superpowers/plans/2026-10-29-profile-catalog-implementation.md). L’implementazione usa lo schema V5 e una sola istanza runtime per database. Il riepilogo LLM dei log resta opzionale e fuori MVP. I gate operativi S7 già pendenti rimangono separati e non sono assolti da questa specifica.
+
 ## Evidenze di partenza
 
 - Specifica: `docs/superpowers/specs/2026-10-25-telegram-audio-bot-v2-design.md`.
@@ -112,3 +119,28 @@ Task: ricerca basata su cataloghi OpenRouter e Hugging Face; dialogo ricercabile
 Verifiche: suite `tests` con `dotenv.load_dotenv` disattivato prima della raccolta: 170 passati, un warning passlib/crypt. Chromium su template effettivi e 40 modelli sintetici, desktop 1440×900 e mobile 390×844: ricerca, selezione, Escape, focus e overflow; nessuna API reale chiamata.
 Problemi aperti: le prove operative Telegram/provider e i gate di rilascio di `docs/V2-VALIDATION.md` restano da svolgere.
 Prossima azione precisa: verificare nel deployment con dati reali soltanto secondo protocollo operativo autorizzato.
+
+
+Sessione / data: Amendment profili — pianificazione, 29 ottobre 2026
+Stato: pianificazione in corso; nessuna funzionalità applicativa implementata.
+Branch / worktree: `codex/v2-product-design` / `/home/ndr/config/telegram-audio-bot`; modifiche preesistenti preservate.
+Task completati: decisioni fallback registrate nella specifica; indice e piani S1/S4/S5/S6/S7 riconciliati; piani separati per persistenza/migrazione e implementazione.
+Verifiche e limiti: documentazione verificata localmente; nessun test applicativo o migrazione operativa eseguiti. Gate S7 reali ancora pendenti.
+Prossima azione precisa: verificare e completare i contratti del piano di persistenza e l'integrazione dei piani, poi avviare la prima sessione implementativa con fixture sintetiche.
+
+
+Sessione / data: Amendment profili — implementazione, 29 ottobre 2026
+Stato: implementata e verificata offline; verifica browser del nuovo catalogo e prove operative S7 pendenti.
+Branch / worktree: `codex/v2-product-design` / `/home/ndr/config/telegram-audio-bot`; modifiche preesistenti preservate.
+Task: migrazione transazionale V2 a schema V5; catalogo CRUD, revisioni e ruoli; prova su upload o campione incluso; fallback tipizzato e notifiche/diagnostica; protezione runtime singola istanza e cleanup FFmpeg. Nessun commit: `.git` è in sola lettura nell'ambiente.
+Verifiche: suite offline completa con `dotenv.load_dotenv` disattivato: 254 test passati e un warning passlib/crypt (bootstrap temporaneo su file per supportare multiprocessing). Revisioni indipendenti dei casi lock e cancellazione FFmpeg. Nessuna API reale, migrazione operativa o deploy eseguiti.
+Problemi aperti: verifica browser desktop/mobile del catalogo e gate operativi `V2-VALIDATION.md`; non dichiarare la release pronta.
+Prossima azione precisa: completare le prove browser e operatore previste dal protocollo, registrando evidenze senza dati sensibili.
+
+Sessione / data: cambio password amministratore — 29 ottobre 2026
+Stato: implementato e verificato offline; verifica browser visiva pendente.
+Branch / worktree: `codex/v2-product-design` / `/home/ndr/config/telegram-audio-bot`; modifiche preesistenti preservate, nessun commit per evitare di includere lavoro precedente non committato negli stessi file.
+Task: form in Accessi; verifica password attuale, CSRF e limite tentativi; aggiornamento atomico password e firmatario con invalidazione delle altre sessioni; recovery coerente e messaggi UI.
+Verifiche: 43 test mirati Python passati con `dotenv.load_dotenv` disattivato, un warning passlib/crypt; tre test Node passati; `git diff --check` pulito. Suite completa non ripetuta: 254 test già verificati nella sessione precedente. Review indipendente su atomicità, sessioni e concorrenza; nessun dato operativo letto.
+Problemi aperti: browser non disponibile per verifica visiva; detector Impeccable segnala possibile contrasto basso generico nelle schermate setup/recovery senza identificare selettori. I gate operativi S7 restano pendenti.
+Prossima azione precisa: verificare Accessi, setup e recovery in browser su desktop/mobile e completare i gate operativi secondo `docs/V2-VALIDATION.md`.

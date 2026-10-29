@@ -10,13 +10,22 @@ una release pronta: il controllo browser ha usato API simulate e le prove reali
 previste sono affidate all'operatore. Vedi `V2-PROGRESS.md` e
 `V2-VALIDATION.md` per evidenze e limiti.
 
+Il 29 ottobre 2026 l'utente ha inoltre approvato un'evoluzione verso catalogo
+multi-profilo, attivazione principale anche senza prova e fallback configurabile.
+La specifica autonoma è
+`superpowers/specs/2026-10-29-profile-catalog-and-fallback-amendment.md`.
+Per questo ambito prevale sulle decisioni contrarie della specifica e dei piani
+del 25 ottobre; la policy runtime del fallback è stata confermata dall’utente.
+Catalogo, migrazione, prove, fallback e diagnostica sono implementati e verificati offline; restano i gate browser e operativi di `V2-VALIDATION.md`.
+
 ## Leggere in quest'ordine
 
 1. `AGENTS.md`, incluse eventuali istruzioni più specifiche nelle cartelle toccate.
 2. [Specifica approvata](superpowers/specs/2026-10-25-telegram-audio-bot-v2-design.md).
-3. [Indice, contratti e vincoli dei piani](superpowers/plans/2026-10-25-v2-index.md).
-4. [Registro di avanzamento](V2-PROGRESS.md): individua la prima sessione incompleta.
-5. Il solo piano di quella sessione; leggi quelli precedenti se un'interfaccia non è chiara.
+3. [Amendment profili e fallback](superpowers/specs/2026-10-29-profile-catalog-and-fallback-amendment.md), se si lavora su profili, test o fallback.
+4. [Indice, contratti e vincoli dei piani](superpowers/plans/2026-10-25-v2-index.md), aggiornandolo per l'ambito dell'amendment prima di implementare.
+5. [Registro di avanzamento](V2-PROGRESS.md): individua la prima sessione incompleta e le amendment ancora da pianificare.
+6. Il solo piano della sessione scelta; leggi quelli precedenti se un'interfaccia non è chiara.
 
 Non serve riaprire l'intervista sul prodotto o riproporre i layout.
 La specifica è il riferimento per lo scope; i contratti del piano guidano il codice.
@@ -35,6 +44,7 @@ del prodotto richiede una decisione dell'utente.
 - Python 3.10+, PTB, FastAPI/Jinja2, SQLite, FFmpeg e Docker non-root.
 - Migrazione verso un database distinto; nessuna migrazione operativa in questa chat.
 - Nessuna SPA, composizione di pipeline, fallback tra servizi o archivio dei vocali.
+- **Superato per l'evoluzione approvata il 29 ottobre:** configurazione singola, divieto di profili/fallback e prova obbligatoria per l'attivazione. Applicare i requisiti dell'amendment; non estendere il fallback oltre le decisioni lì confermate.
 
 ## Repository e lavori già prodotti
 
@@ -103,11 +113,13 @@ e test ancora da eseguire. Non marcarla completata per comodità.
 ## Messaggio da incollare nella nuova chat
 
 ```text
-Riprendiamo la V2 di telegram-audio-bot. Leggi AGENTS.md e docs/V2-HANDOFF.md,
-poi specifica approvata, indice dei piani e docs/V2-PROGRESS.md.
-Confermo il piano e scelgo l'esecuzione nativa, in chat successive.
-Esegui soltanto la prima sessione incompleta, con verifiche pertinenti.
-Non riaprire le decisioni già approvate e non accedere a segreti o dati reali.
-Alla fine aggiorna piano e registro, committa il lavoro pertinente e fermati
-con le istruzioni per la sessione seguente.
+Riprendiamo telegram-audio-bot. Leggi AGENTS.md, docs/V2-HANDOFF.md,
+la specifica V2 del 25 ottobre, l'amendment
+docs/superpowers/specs/2026-10-29-profile-catalog-and-fallback-amendment.md,
+l'indice dei piani e docs/V2-PROGRESS.md. S1–S6 sono implementate; S7 ha gate
+operativi pendenti. L'amendment è implementata e verificata offline; riprendi dai gate browser e operativi documentati in `docs/V2-VALIDATION.md`. La direzione multi-profilo,
+catalogo CRUD, principale attivabile senza prova e campione audio incluso sono
+approvati: non riaprire queste scelte. Esegui solo il lavoro concordato per
+questa sessione; usa dati sintetici e non accedere a segreti o dati reali.
+Aggiorna evidenze e registro e fermati al confine stabilito.
 ```

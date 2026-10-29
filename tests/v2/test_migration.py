@@ -7,6 +7,7 @@ from bot.access import AccessService
 from bot.database.secret_store import SecretStore
 from bot.database.v2_repository import V2Repository
 from bot.migrate_v1 import migrate_v1
+from bot.transcription.profiles import ProfileService
 from tests.v2.legacy_fixtures import create_legacy_database
 
 
@@ -65,15 +66,23 @@ def test_explicit_compatible_profile_imports_untested_draft(tmp_path):
     try:
         draft = __import__("bot.transcription.configuration", fromlist=["ConfigurationService"])
         values = draft.ConfigurationService(target, lambda: None).draft()
-        assert values is not None
-        assert values.number == 1
-        assert values.values.service == "openai"
-        assert values.values.mode == "two_stage"
-        assert values.values.audio_model == "whisper-1"
-        assert values.values.text_model == "gpt-4o-mini"
+        assert values is None
+        profiles = ProfileService(target).list_profiles()
+        assert len(profiles) == 1
+        assert profiles[0].name == "Configurazione importata V1"
+        assert profiles[0].current_revision is not None
+        assert profiles[0].verification_state == "not_verified"
+        profile_values = ProfileService(target).get_revision(
+            profiles[0].profile_id, profiles[0].current_revision
+        ).values
+        assert profile_values.service == "openai"
+        assert profile_values.mode == "two_stage"
+        assert profile_values.audio_model == "whisper-1"
+        assert profile_values.text_model == "gpt-4o-mini"
         with target.read() as connection:
             assert connection.execute("SELECT COUNT(*) FROM test_receipts").fetchone()[0] == 0
             assert connection.execute("SELECT COUNT(*) FROM config_references WHERE reference_type='active'").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM config_references").fetchone()[0] == 0
         assert report.needs_reconfiguration is False
         assert report.imported["credentials"] == 2
     finally:

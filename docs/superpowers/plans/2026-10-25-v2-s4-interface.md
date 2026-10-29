@@ -60,3 +60,22 @@ Il setup rimanda agli stessi campi e API di configurazione dopo associazione.
 
 - [x] Aggiornare registro con evidenze API e limite browser. Il setup fino all'attivazione è coperto da test di servizio; il percorso audio Telegram arriva in S5.
 - [x] Indicare S5 come prossimo passo.
+
+## Estensione amendment 29 ottobre — lavoro futuro, storico S4 invariato
+
+S4.1/S4.2 e le evidenze di UI e API restano riferite alla configurazione singola realizzata. L'amendment richiede un nuovo catalogo; le checkbox aggiunte qui sono aperte e non trasformano la verifica browser sintetica esistente in verifica del nuovo catalogo.
+
+### Task S4.3: catalogo profili, prova e assegnazione ruoli
+
+**Dipendenze:** S1.3 (contratti/repository multi-profilo) e S6.4 (migrazione SQLite V2); integrare la revisione di pagina solo dopo che i nuovi servizi sono stabili.
+
+**Files:** estendere template, route e JavaScript V2 di trascrizione; aggiungere test API/template e aggiornare la direzione UI effettivamente costruita. Conservare il percorso corrente fino alla migrazione compatibile.
+
+**Interfaces:** catalogo amministrativo iniziale con card per nome, provider, modalità, modelli, ruolo, stato di verifica e ultima prova. Azioni CRUD con conferme e conflitti espliciti. La prova accetta upload o campione incluso e genera ricevuta solo per il completamento valido della revisione e credenziale esatte. “Attiva senza prova” richiede conferma esplicita, non crea ricevuta e mostra **Non verificato**. Modifiche alla configurazione invalidano la verifica della revisione nuova.
+
+- [x] Aggiungere scenari sintetici per crea, rinomina, modifica, duplica, cancella, conflitti e divieto di eliminare principale/fallback assegnati; non duplicare segreti, ricevute o stato di verifica.
+- [x] Implementare selezione atomica del principale e fallback opzionale, mostrando con chiarezza i ruoli e lo stato non verificato; nessun cambio implicito di ruolo alla creazione.
+- [x] Integrare prova di upload e prova del campione incluso con lo stesso runner e adapter effettivi, senza inviare al provider il testo atteso. Scegliere un campione piccolo con provenienza/licenza documentata e checksum; garantire cleanup temporaneo.
+- [x] Verificare che upload e campione non persistano audio o testo oltre ai limiti V2 e che la ricevuta sia valida solo per profilo/revisione/credenziale/validator corrispondenti.
+- [ ] Verificare tastiera, focus, messaggi di errore/conferma e layout responsive con dati sintetici; distinguere test automatici, verifica browser reale e gate S7 già pendenti.
+- [ ] Aggiornare il registro come nuova attività amendment completata solo dopo migrazione e verifiche pertinenti; lasciare intatto lo stato storico S4.1/S4.2.

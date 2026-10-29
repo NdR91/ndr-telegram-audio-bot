@@ -33,6 +33,11 @@ def _events(request: Request) -> list[dict]:
             "models": event.models,
             "duration_ms": event.duration_ms,
             "error_code": event.error_code,
+            "primary_profile_id": event.primary_profile_id,
+            "fallback_profile_id": event.fallback_profile_id,
+            "failure_stage": event.failure_stage,
+            "failure_category": event.failure_category,
+            "outcome": event.outcome,
         })
     return result
 

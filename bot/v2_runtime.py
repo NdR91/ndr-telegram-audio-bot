@@ -13,6 +13,7 @@ from bot.transcription.models import RuntimeLimits
 from bot.ui.delivery import TelegramDeliveryAdapter
 
 from bot.database.v2_repository import V2Repository
+from bot.database.runtime_lock import RuntimeDatabaseLock
 from bot.handlers import v2_admin
 from bot.handlers.pairing import start_or_pair, whoami
 
@@ -71,14 +72,18 @@ class TelegramIdentity:
 
 class RuntimeManager:
     def __init__(self, repo: V2Repository, application_factory: Callable[[str], Application] | None = None,
-                 shutdown_seconds: int = 30):
+                 shutdown_seconds: int = 30,
+                 runtime_database_lock: RuntimeDatabaseLock | None = None):
         self.repo = repo
+        self._runtime_database_lock = runtime_database_lock or RuntimeDatabaseLock(repo.path)
         self.factory = application_factory or self._build_application
         self.shutdown_seconds = shutdown_seconds
         self._app: Application | None = None
         self._lock = asyncio.Lock()
         self._connect_lock = asyncio.Lock()
         self._started = False
+        self._unsafe_shutdown_tasks: set[asyncio.Task] = set()
+        self._deferred_lock_release: asyncio.Task | None = None
         self._lifecycle_generation = 0
         self._shutdown_deadline = 0.0
 
@@ -125,6 +130,7 @@ class RuntimeManager:
         async with self._lock:
             if self._started:
                 return
+            self._runtime_database_lock.acquire()
             version = self.repo.get_setup_state("telegram_credential_version")
             try:
                 token = self.repo.read_credential("telegram", int(version)) if version else None
@@ -134,7 +140,10 @@ class RuntimeManager:
                 return
             if token is None:
                 return
-            app = self.factory(token)
+            try:
+                app = self.factory(token)
+            except BaseException:
+                raise
             initialized = started = False
             try:
                 await app.initialize()
@@ -215,8 +224,7 @@ class RuntimeManager:
         services = getattr(self, "services", None)
         if services is None:
             return
-        active = services.configuration.active()
-        limits = active.values.limits if active is not None else RuntimeLimits()
+        limits = self._configured_audio_limits()
         app.bot_data["rate_limiter"] = RateLimiter(
             max_per_user=limits.max_per_user,
             cooldown=limits.cooldown_seconds,
@@ -233,15 +241,51 @@ class RuntimeManager:
             handle_audio,
         ))
 
-    async def stop_async(self) -> None:
+    def _configured_audio_limits(self) -> RuntimeLimits:
+        services = getattr(self, "services", None)
+        profiles = getattr(services, "profiles", None) if services is not None else None
+        primary = profiles.current_primary() if profiles is not None else None
+        return primary.configuration.values.limits if primary is not None else RuntimeLimits()
+
+    async def stop_async(self, *, release_runtime_lock: bool = False) -> None:
+        safe_to_release = False
+        try:
+            safe_to_release = await self._stop_async()
+        finally:
+            if release_runtime_lock:
+                if safe_to_release and not self._unsafe_shutdown_tasks:
+                    self._runtime_database_lock.release()
+                else:
+                    self._defer_lock_release_until_idle()
+
+    def _defer_lock_release_until_idle(self) -> None:
+        if self._deferred_lock_release is not None and not self._deferred_lock_release.done():
+            return
+
+        async def wait_for_idle_and_release() -> None:
+            # Startup owns the lifecycle lock until it finishes initialization
+            # and cleans up a generation invalidated by this shutdown request.
+            async with self._lock:
+                pass
+            while self._unsafe_shutdown_tasks:
+                await asyncio.gather(*tuple(self._unsafe_shutdown_tasks), return_exceptions=True)
+                self._unsafe_shutdown_tasks = {
+                    task for task in self._unsafe_shutdown_tasks if not task.done()
+                }
+            self._runtime_database_lock.release()
+
+        self._deferred_lock_release = asyncio.create_task(
+            wait_for_idle_and_release(), name="v2-runtime-lock-release"
+        )
+
+    async def _stop_async(self) -> bool:
         loop = asyncio.get_running_loop()
         # Bound lock acquisition too, so a concurrent lifecycle operation
         # cannot make shutdown wait beyond the configured total budget.
         services = getattr(self, "services", None)
-        active = services.configuration.active() if services is not None else None
         initial_budget = max(
             0.0,
-            float(active.values.limits.shutdown_seconds if active is not None else self.shutdown_seconds),
+            float(self._configured_audio_limits().shutdown_seconds if services is not None else self.shutdown_seconds),
         )
         deadline = loop.time() + initial_budget
         self._lifecycle_generation += 1
@@ -250,12 +294,12 @@ class RuntimeManager:
             await asyncio.wait_for(self._lock.acquire(), timeout=max(0.0, deadline - loop.time()))
         except asyncio.TimeoutError:
             logger.warning("Telegram runtime shutdown could not acquire its lifecycle lock before deadline")
-            return
+            return False
         try:
             app, self._app = self._app, None
             if app is None:
                 self._started = False
-                return
+                return True
             try:
                 limiter = app.bot_data.get("rate_limiter")
                 shutdown_seconds = initial_budget
@@ -293,6 +337,7 @@ class RuntimeManager:
                         for task in still_pending:
                             task.add_done_callback(_consume_task_result)
                         if still_pending:
+                            self._unsafe_shutdown_tasks.update(still_pending)
                             logger.warning(
                                 "%s Telegram audio task(s) ignored cancellation; their cleanup is best-effort",
                                 len(still_pending),
@@ -306,6 +351,7 @@ class RuntimeManager:
                 self._started = False
         finally:
             self._lock.release()
+        return not self._unsafe_shutdown_tasks
 
     @property
     def is_running(self) -> bool:

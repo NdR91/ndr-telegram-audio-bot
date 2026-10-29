@@ -41,7 +41,7 @@ class _Runner:
         self.text = text
         self.snapshots = []
 
-    async def run(self, snapshot, audio):
+    async def run(self, snapshot, audio, *, allow_partial_refinement=True):
         self.snapshots.append((snapshot, audio))
         return ProcessingResult(self.text, False, (snapshot.values.audio_model,), 12)
 
@@ -166,29 +166,32 @@ async def test_empty_install_to_first_voice(tmp_path, monkeypatch):
             "service": "openai", "credential": "synthetic-provider-key",
         }, headers=headers)
         assert credential.status_code == 200
-        draft_response = await client.put("/api/transcription/draft", json={
-            "service": "openai", "mode": "multimodal",
-            "audio_model": "synthetic-multimodal", "text_model": None,
-            "credential_version": 1, "system_prompt": "Faithful",
-            "refine_template": "{raw_text}", "limits": {"max_file_size_mb": 1},
-            "expected_revision": None,
+        profile_response = await client.post("/api/profiles", json={
+            "name": "Primary",
+            "values": {"service": "openai", "mode": "multimodal",
+                "audio_model": "synthetic-multimodal", "text_model": None,
+                "credential_version": 1, "system_prompt": "Faithful",
+                "refine_template": "{raw_text}", "limits": {"max_file_size_mb": 1}},
         }, headers=headers)
-        assert draft_response.status_code == 200
-        revision = draft_response.json()["draft"]["revision"]
+        assert profile_response.status_code == 201
+        profile = profile_response.json()["profile"]
+        revision = profile["revision"]
         proof = await client.post(
-            "/api/transcription/test", data={"revision": str(revision)},
-            files={"audio": ("synthetic.ogg", b"synthetic audio", "audio/ogg")},
+            f"/api/profiles/{profile['id']}/test",
+            data={"revision": str(revision), "source": "sample"},
             headers=headers,
         )
         assert proof.status_code == 200
         assert proof.json()["status"] == "succeeded"
         activated = await client.post(
-            "/api/transcription/activate", json={"expected_revision": revision},
+            f"/api/profiles/{profile['id']}/role",
+            json={"role": "main", "expected_generation": 0, "confirm_unverified": False},
             headers=headers,
         )
         assert activated.status_code == 200
 
     services.runner = runner
+    services.fallback_processor._runner = runner
     services.settings = settings
     update = _message(tmp_path)
     delivery = _Delivery()

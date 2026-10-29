@@ -161,7 +161,7 @@
   .v2-config-checkpoints { gap: .2rem; }
   .v2-config-checkpoints li { gap: .3rem; }
   .v2-config-checkpoints li:not(:last-child)::after { width: .35rem; }
-  .v2-config-checkpoints b { font-size: .68rem; white-space: normal; }
+  .v2-config-checkpoints b { font-size: .72rem; white-space: normal; }
 }
 
 @media (prefers-reduced-motion: reduce) {

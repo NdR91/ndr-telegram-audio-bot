@@ -77,3 +77,32 @@ AccessService e runner. L'unico lettore dello schema V1 è `migrate_v1.py`.
 
 - [ ] Registrare cosa è stato rimosso, migrazioni verificate su fixture e limiti del rollback. Nessuna migrazione reale effettuata.
 - [ ] Aggiornare registro, indicare S7 e fermarsi.
+
+## Estensione amendment 29 ottobre — lavoro futuro, storico S6 invariato
+
+S6.1 importa copie V1 e non migra il vecchio schema di configurazione V2; non confondere le due operazioni. S6.2 registra eventi V2 preesistenti senza profili. I task seguenti sono nuovi e aperti, non alterano i risultati già registrati.
+
+### Task S6.4: migrazione transazionale del database V2 ai profili
+
+**Dipendenza:** S1.3 (schema e repository multi-profilo); precede l'attivazione operativa del catalogo S4.3.
+
+**Files:** schema versionato e repository V2, migratore interno a `v2_schema.py` o modulo dedicato, test di migrazione sintetici; aggiornare note di contratto e rollback nell'indice.
+
+**Contratto:** migrare la configurazione V2 singola in un profilo predefinito assegnato al ruolo principale e lasciare il fallback vuoto. Conservare configurazione attiva, bozza, precedente, riferimenti e versioni delle credenziali, ricevute ancora compatibili e garanzie di lease/pruning. Migrazione atomica, idempotente e con rollback; nessuna migrazione su DB operativi durante sviluppo.
+
+- [ ] Definire versione/schema di destinazione, trasformazione di ciascuno stato legacy e comportamento in caso di dati ambigui o parziali prima di implementare.
+- [ ] Testare su DB temporanei nuovi, schema V2 corrente e casi di rollback; verificare ripetizione idempotente, nessuna perdita di configurazione e nessun segreto duplicato o esposto.
+- [ ] Verificare che attivo/precedente/bozza diventino revisioni del profilo predefinito secondo una mappatura documentata e che solo una ricevuta esatta mantenga lo stato verificato. Fallback inizialmente assente.
+- [ ] Aggiornare istruzioni di backup/rollback e prove offline; non accedere a DB o chiavi reali.
+
+### Task S6.5: diagnostica per profilo e fallback
+
+**Dipendenze:** S1.3 e S6.4; il successo su fallback e le notifiche dipendono anche da S5.3.
+
+**Files:** `bot/diagnostics.py`, schema/repository V2 e viste API/UI diagnostiche; estendere test sintetici esistenti.
+
+**Contratto:** eventi possono distinguere principale, fallback selezionato/usato, fase, categoria normalizzata e risultato, con identificativi/nome limitati secondo le regole di privacy. Non persistono contenuto audio/testo, segreti, prompt privati né eccezioni grezze. Le notifiche Telegram non sostituiscono la diagnostica e un loro errore non altera l'esito del lavoro.
+
+- [ ] Definire allowlist dei campi/categorie e retention, mantenendo limiti diagnostici V2; evitare di registrare nomi o dettagli non necessari.
+- [ ] Testare principale riuscito, successo via fallback, fallimento finale, errore invio notifica, deduplica/retention e assenza di contenuti sensibili usando mock.
+- [ ] Allineare vista diagnostica e testi di stato ai ruoli e alla policy fallback effettivamente approvata; aggiornare registro senza modificare la cronologia S6.2.

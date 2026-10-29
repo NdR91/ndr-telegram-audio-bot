@@ -3,7 +3,7 @@
 import base64
 from pathlib import Path
 
-from bot.transcription.errors import ServiceFailure
+from bot.transcription.errors import ServiceFailure, classify_provider_failure
 from bot.transcription.models import ModelChoice, ModelRole, StageResult
 from bot.transcription.prompts import render_refinement
 
@@ -55,7 +55,7 @@ class OpenAIAdapter:
             content = response.choices[0].message.content
             return StageResult(str(content or ""), model)
         except Exception as exc:
-            raise _failure("multimodal") from exc
+            raise _failure("multimodal", exc) from exc
 
     async def transcribe(self, audio: Path, model: str) -> StageResult:
         try:
@@ -64,7 +64,7 @@ class OpenAIAdapter:
             )
             return StageResult(str(response.text or ""), model)
         except Exception as exc:
-            raise _failure("transcription") from exc
+            raise _failure("transcription", exc) from exc
 
     async def refine(self, text: str, model: str, system: str, template: str) -> StageResult:
         try:
@@ -77,11 +77,13 @@ class OpenAIAdapter:
             )
             return StageResult(str(response.choices[0].message.content or ""), model)
         except Exception as exc:
-            raise _failure("refinement") from exc
+            raise _failure("refinement", exc) from exc
 
     async def aclose(self) -> None:
         await self._client.close()
 
 
-def _failure(stage: str) -> ServiceFailure:
+def _failure(stage: str, exc: Exception | None = None) -> ServiceFailure:
+    if exc is not None:
+        return classify_provider_failure(exc, stage)
     return ServiceFailure("provider_error", stage, "Il servizio AI non ha completato la richiesta.")

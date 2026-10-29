@@ -10,7 +10,8 @@ from urllib.parse import quote
 
 from bot.database.secret_store import SecretStore, SecretStoreError
 from bot.database.v2_repository import V2Repository
-from bot.transcription.models import RuntimeLimits
+from bot.transcription.models import ConfigInput, RuntimeLimits
+from bot.transcription.profiles import ProfileService
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,24 @@ def migrate_v1(source_db: Path, source_key: Path, target_db: Path,
         repository.initialize()
         if not repository.import_v1_payload(snapshot["payload"]):
             return MigrationReport({}, snapshot["needs_reconfiguration"], snapshot["warnings"])
+        legacy_revision = snapshot["payload"].get("revision")
+        if legacy_revision:
+            values = legacy_revision["values"]
+            ProfileService(repository).create(
+                "Configurazione importata V1",
+                ConfigInput(
+                    service=values["service"], mode=values["mode"],
+                    audio_model=values["audio_model"], text_model=values["text_model"],
+                    credential_version=1,
+                    system_prompt=values["system_prompt"],
+                    refine_template=values["refine_template"],
+                    limits=RuntimeLimits(**values["limits"]),
+                ),
+            )
+            # The old singleton draft is not a runtime source after import.
+            with repository.transaction() as connection:
+                connection.execute("DELETE FROM config_references")
+                connection.execute("DELETE FROM test_receipts")
     except Exception:
         repository.close()
         # Remove only a database created by this invocation; never erase a preexisting target.

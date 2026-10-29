@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from bot.deployment import DeploymentSettings
+from bot.database.runtime_lock import RuntimeDatabaseLocked
 from bot.diagnostics import DiagnosticEvent
 from bot.services import AppServices, build_services
 from bot.web.auth import _make_serialiser, decode_session, encode_session, hash_password, verify_password
@@ -31,6 +32,17 @@ logger = logging.getLogger(__name__)
 
 class _UploadTooLarge(OSError):
     """Abort multipart parsing before an unbounded request can be spooled."""
+
+
+def _password_input_error(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return "password_required"
+    try:
+        if len(value.encode("utf-8")) > 72:
+            return "password_too_long"
+    except UnicodeEncodeError:
+        return "password_invalid"
+    return None
 
 
 def create_app(settings: DeploymentSettings | None = None,
@@ -59,16 +71,21 @@ def create_app(settings: DeploymentSettings | None = None,
 
     @__import__("contextlib").asynccontextmanager
     async def lifespan(app):
+        services.runtime._asgi_lifespan_entered = True
         try:
-            await services.runtime.start_async()
-        except Exception:
-            # Keep setup and recovery reachable when a saved Telegram token
-            # cannot start polling; an authenticated operator can replace it.
-            logger.warning("Telegram polling could not start; web setup remains available")
-        yield
-        await services.runtime.stop_async()
-        await services.pool.aclose()
-        repo.close()
+            try:
+                await services.runtime.start_async()
+            except RuntimeDatabaseLocked:
+                raise
+            except Exception:
+                # Keep setup and recovery reachable when a saved Telegram token
+                # cannot start polling; an authenticated operator can replace it.
+                logger.warning("Telegram polling could not start; web setup remains available")
+            yield
+        finally:
+            await services.runtime.stop_async(release_runtime_lock=True)
+            await services.pool.aclose()
+            repo.close()
 
     app = FastAPI(title="Telegram Audio Bot V2", lifespan=lifespan)
     app.state.services = services
@@ -97,6 +114,12 @@ def create_app(settings: DeploymentSettings | None = None,
         return JSONResponse({"error": "rate_limited"}, status_code=429,
                             headers={"Retry-After": str(retry_after)}), address
 
+    def clear_auth_attempts_best_effort(endpoint: str, address: str) -> None:
+        try:
+            auth_attempts.clear(endpoint, address)
+        except Exception:
+            logger.warning("Could not clear web authentication attempt counter")
+
     def page(request, template, context=None, status=200):
         values = dict(context or {})
         values["csrf_token"] = (session(request) or {}).get("csrf_token", "")
@@ -122,13 +145,17 @@ def create_app(settings: DeploymentSettings | None = None,
         if repo.get_setup_state("web_admin_hash"):
             return JSONResponse({"error": "setup_complete"}, status_code=409)
         body = await request.json()
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "invalid_request"}, status_code=400)
         limited, address = rate_limited("setup", request)
         if limited:
             return limited
-        code = str(body.get("code", ""))
-        password = str(body.get("password", ""))
-        if not password:
-            return JSONResponse({"error": "password_required"}, status_code=422)
+        raw_code = body.get("code", "")
+        code = raw_code if isinstance(raw_code, str) else ""
+        password = body.get("password")
+        password_error = _password_input_error(password)
+        if password_error:
+            return JSONResponse({"error": password_error}, status_code=422)
         digest = hashlib.sha256(code.encode()).hexdigest()
         with repo.read() as connection:
             candidate_rows = dict(connection.execute(
@@ -179,26 +206,32 @@ def create_app(settings: DeploymentSettings | None = None,
     async def recovery_reset(request: Request):
         nonlocal serialiser
         body = await request.json()
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "invalid_request"}, status_code=400)
         limited, address = rate_limited("recovery", request)
         if limited:
             return limited
+        raw_code = body.get("code", "")
+        code = raw_code if isinstance(raw_code, str) else ""
+        password = body.get("password")
+        password_error = _password_input_error(password)
+        if password_error:
+            return JSONResponse({"error": password_error}, status_code=422)
+        replacement_secret = secrets.token_urlsafe(48)
         try:
-            success = reset_password(repo, str(body.get("code", "")), str(body.get("password", "")))
+            success = reset_password(
+                repo, code, password,
+                new_session_secret=replacement_secret,
+            )
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
+        except Exception:
+            return JSONResponse({"error": "password_update_unavailable"}, status_code=503)
         if not success:
             return JSONResponse({"error": "invalid_or_expired_code"}, status_code=401)
-        auth_attempts.clear("recovery", address)
-        new_secret = secrets.token_urlsafe(48)
-        try:
-            repo.put_credential_with_state("web_session", new_secret,
-                                           "web_session_credential_version")
-        except Exception:
-            # The password has been recovered; when the key store is
-            # unavailable, keep the current signer so the web shell works.
-            return {"ok": True, "sessions_invalidated": False}
-        serialiser = _make_serialiser(new_secret)
+        serialiser = _make_serialiser(replacement_secret)
         app.state.serialiser = serialiser
+        clear_auth_attempts_best_effort("recovery", address)
         return {"ok": True, "sessions_invalidated": True}
 
     @app.post("/api/login")
@@ -207,12 +240,71 @@ def create_app(settings: DeploymentSettings | None = None,
         limited, address = rate_limited("login", request)
         if limited:
             return limited
-        if not verify_password(str(body.get("password", "")), repo.get_setup_state("web_admin_hash") or ""):
+        password = body.get("password") if isinstance(body, dict) else None
+        if not isinstance(password, str) or not verify_password(password, repo.get_setup_state("web_admin_hash") or ""):
             return JSONResponse({"error": "invalid_credentials"}, status_code=401)
         auth_attempts.clear("login", address)
         current = {"admin": True, "csrf_token": secrets.token_urlsafe(32)}
         response = JSONResponse({"ok": True, "csrf_token": current["csrf_token"]})
         response.set_cookie("session", encode_session(serialiser, current), httponly=True,
+                            secure=settings.secure_cookie, samesite="strict", max_age=86400)
+        return response
+
+    @app.post("/api/password/change")
+    async def change_password(request: Request):
+        nonlocal serialiser
+        current = session(request)
+        if not current:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if not csrf_ok(current, request):
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        try:
+            body = await request.json()
+        except ValueError:
+            return JSONResponse({"error": "invalid_request"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "invalid_request"}, status_code=400)
+        current_password = body.get("current_password")
+        new_password = body.get("new_password")
+        confirmation = body.get("confirm_password")
+        if not isinstance(current_password, str) or not current_password:
+            return JSONResponse({"error": "current_password_required"}, status_code=422)
+        password_error = _password_input_error(new_password)
+        if password_error:
+            return JSONResponse({"error": password_error}, status_code=422)
+        if not isinstance(confirmation, str):
+            return JSONResponse({"error": "password_confirmation_mismatch"}, status_code=422)
+        if new_password != confirmation:
+            return JSONResponse({"error": "password_confirmation_mismatch"}, status_code=422)
+
+        limited, address = rate_limited("password_change", request)
+        if limited:
+            return limited
+        previous_hash = repo.get_setup_state("web_admin_hash") or ""
+        try:
+            current_matches = verify_password(current_password, previous_hash)
+        except Exception:
+            current_matches = False
+        if not current_matches:
+            return JSONResponse({"error": "invalid_current_password"}, status_code=401)
+        try:
+            replacement_hash = hash_password(new_password)
+            replacement_secret = secrets.token_urlsafe(48)
+            changed = repo.rotate_web_admin_password(
+                expected_password_hash=previous_hash,
+                new_password_hash=replacement_hash,
+                new_session_secret=replacement_secret,
+            )
+        except Exception:
+            return JSONResponse({"error": "password_update_unavailable"}, status_code=503)
+        if not changed:
+            return JSONResponse({"error": "session_changed"}, status_code=409)
+        serialiser = _make_serialiser(replacement_secret)
+        app.state.serialiser = serialiser
+        clear_auth_attempts_best_effort("password_change", address)
+        renewed = {"admin": True, "csrf_token": secrets.token_urlsafe(32)}
+        response = JSONResponse({"ok": True, "csrf_token": renewed["csrf_token"]})
+        response.set_cookie("session", encode_session(serialiser, renewed), httponly=True,
                             secure=settings.secure_cookie, samesite="strict", max_age=86400)
         return response
 
@@ -423,12 +515,380 @@ def create_app(settings: DeploymentSettings | None = None,
 
     def test_payload(view):
         result = view.result
-        return {"id": view.id, "revision": view.revision, "status": view.status,
+        return {"id": view.id, "profile_id": getattr(view, "profile_id", None),
+                "revision": view.revision, "status": view.status,
                 "safe_error": view.safe_error,
+                "diagnostics": list(view.diagnostics),
                 "result": ({"text": result.text, "partial": result.partial,
                             "models": list(result.models), "duration_ms": result.duration_ms,
-                            "cost": str(result.cost) if result.cost is not None else None}
+                            "cost": str(result.cost) if result.cost is not None else None,
+                            "diagnostics": list(result.diagnostics)}
                            if result else None)}
+
+    def profile_values(values):
+        return {"service": values.service, "mode": values.mode,
+                "audio_model": values.audio_model, "text_model": values.text_model,
+                "credential_version": values.credential_version,
+                "system_prompt": values.system_prompt,
+                "refine_template": values.refine_template,
+                "limits": values.limits.__dict__}
+
+    def role_values(entry):
+        revision = (services.profiles.get_revision(entry.profile_id, entry.role_revision)
+                    if entry.role_revision is not None else None)
+        if revision is None:
+            return None
+        values = revision.values
+        return {"service": values.service, "mode": values.mode,
+                "audio_model": values.audio_model, "text_model": values.text_model}
+
+    def profile_state(entry, *, detail=True):
+        revision_number = entry.current_revision or entry.role_revision
+        revision = (services.profiles.get_revision(entry.profile_id, revision_number)
+                    if revision_number is not None else None)
+        role = "main" if entry.role == "primary" else entry.role
+        verification = {"not_verified": "unverified", "retest": "retest_required"}.get(
+            entry.verification_state, entry.verification_state
+        )
+        last_test = ({"success": entry.last_test_success, "finished_at": entry.last_tested_at}
+                     if entry.last_tested_at else None)
+        common = {"id": entry.profile_id, "name": entry.name,
+                  "revision": revision_number, "generation": entry.generation,
+                  "role": role, "verification": verification, "last_test": last_test}
+        assigned_values = role_values(entry)
+        if revision is None:
+            return common | {"role_revision": entry.role_revision,
+                             "role_values": assigned_values}
+        values = profile_values(revision.values)
+        if detail:
+            return {**common, "role_revision": entry.role_revision,
+                    "role_values": assigned_values, "values": values}
+        role_verification = {"not_verified": "unverified", "retest": "retest_required"}.get(
+            entry.role_verification_state, entry.role_verification_state
+        )
+        role_last_test = ({"success": entry.role_last_test_success,
+                           "finished_at": entry.role_last_tested_at}
+                          if entry.role_last_tested_at else None)
+        catalog = {key: common[key] for key in ("id", "name", "revision", "generation", "role",
+                                                "verification", "last_test")} | {
+            "role_revision": entry.role_revision,
+            "role_values": assigned_values,
+            "role_verification": role_verification,
+            "role_last_test": role_last_test,
+        }
+        return catalog | {key: values[key] for key in ("service", "mode", "audio_model", "text_model")}
+
+    def profile_error(exc):
+        if isinstance(exc, RevisionConflict):
+            return JSONResponse({"error": str(exc)}, status_code=409)
+        if isinstance(exc, ConfigurationInvalid):
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        return JSONResponse({"error": "Richiesta non valida."}, status_code=422)
+
+    def profile_input(body):
+        values = body["values"]
+        return ConfigInput(
+            service=values["service"], mode=values["mode"],
+            audio_model=str(values.get("audio_model", "")),
+            text_model=values.get("text_model"),
+            credential_version=int(values["credential_version"]),
+            system_prompt=str(values.get("system_prompt", "")),
+            refine_template=str(values.get("refine_template", "")),
+            limits=RuntimeLimits(**values.get("limits", {})),
+        )
+
+    @app.get("/api/profiles")
+    async def list_profiles(request: Request):
+        _, error = admin_or_error(request)
+        if error:
+            return error
+        entries = services.profiles.list_profiles()
+        sample = services.transcription_tests.sample_info()
+        sample_digest = hashlib.sha256(sample.path.read_bytes()).hexdigest() if sample.path.is_file() else None
+        safe_sample = ({"expected_text": sample.expected_text,
+                        "duration_seconds": sample.duration_seconds, "sha256": sample.sha256}
+                       if sample_digest == sample.sha256 else None)
+        return {"profiles": [profile_state(item, detail=False) for item in entries],
+                "roles_generation": services.profiles.roles_generation(), "sample": safe_sample}
+
+    @app.get("/api/profiles/{profile_id}")
+    async def get_profile(profile_id: int, request: Request):
+        _, error = admin_or_error(request)
+        if error:
+            return error
+        try:
+            entry = next(item for item in services.profiles.list_profiles()
+                         if item.profile_id == profile_id)
+            return {"profile": profile_state(entry)}
+        except StopIteration:
+            return JSONResponse({"error": "Profilo non trovato."}, status_code=404)
+        except ConfigurationInvalid as exc:
+            return profile_error(exc)
+
+    @app.post("/api/profiles")
+    async def create_profile(request: Request):
+        current, error = admin_or_error(request)
+        if error:
+            return error
+        if not csrf_ok(current, request):
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        try:
+            body = await request.json()
+            revision = services.profiles.create(str(body["name"]), profile_input(body))
+            entry = next(item for item in services.profiles.list_profiles()
+                         if item.profile_id == revision.profile_id)
+            return JSONResponse({"profile": profile_state(entry)}, status_code=201)
+        except (ValueError, KeyError, TypeError, ConfigurationInvalid) as exc:
+            return profile_error(exc) if isinstance(exc, ConfigurationInvalid) else JSONResponse(
+                {"error": "Profilo non valido."}, status_code=422)
+
+    @app.put("/api/profiles/{profile_id}")
+    async def update_profile(profile_id: int, request: Request):
+        current, error = admin_or_error(request)
+        if error:
+            return error
+        if not csrf_ok(current, request):
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        try:
+            body = await request.json()
+            revision = services.profiles.save_revision(
+                profile_id, body.get("expected_revision"),
+                expected_generation=int(body["expected_generation"]),
+                name=str(body["name"]), values=profile_input(body),
+            )
+            entry = next(item for item in services.profiles.list_profiles()
+                         if item.profile_id == profile_id)
+            return {"profile": profile_state(entry)}
+        except (ValueError, KeyError, TypeError, ConfigurationInvalid, RevisionConflict, TestRequired) as exc:
+            if isinstance(exc, (ConfigurationInvalid, RevisionConflict)):
+                return profile_error(exc)
+            return JSONResponse({"error": "Profilo non valido."}, status_code=422)
+
+    @app.post("/api/profiles/{profile_id}/duplicate")
+    async def duplicate_profile(profile_id: int, request: Request):
+        current, error = admin_or_error(request)
+        if error:
+            return error
+        if not csrf_ok(current, request):
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        try:
+            body = await request.json()
+            revision = services.profiles.duplicate(
+                profile_id, str(body["name"]),
+                expected_generation=int(body["expected_generation"]),
+            )
+            entry = next(item for item in services.profiles.list_profiles()
+                         if item.profile_id == revision.profile_id)
+            return JSONResponse({"profile": profile_state(entry)}, status_code=201)
+        except (ValueError, KeyError, TypeError, ConfigurationInvalid, RevisionConflict) as exc:
+            if isinstance(exc, (ConfigurationInvalid, RevisionConflict)):
+                return profile_error(exc)
+            return JSONResponse({"error": "Profilo non valido."}, status_code=422)
+
+    @app.delete("/api/profiles/{profile_id}")
+    async def delete_profile(profile_id: int, request: Request):
+        current, error = admin_or_error(request)
+        if error:
+            return error
+        if not csrf_ok(current, request):
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        try:
+            body = await request.json()
+            services.profiles.delete(profile_id, expected_generation=int(body["expected_generation"]))
+            return {"deleted": True, "id": profile_id}
+        except (ValueError, KeyError, TypeError, ConfigurationInvalid, RevisionConflict) as exc:
+            if isinstance(exc, (ConfigurationInvalid, RevisionConflict)):
+                return JSONResponse({"error": str(exc)}, status_code=409)
+            return JSONResponse({"error": "Richiesta non valida."}, status_code=422)
+
+    @app.post("/api/profiles/{profile_id}/role")
+    async def assign_profile_role(profile_id: int, request: Request):
+        current, error = admin_or_error(request)
+        if error:
+            return error
+        if not csrf_ok(current, request):
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        try:
+            body = await request.json()
+            role = {"main": "primary", "fallback": "fallback"}.get(body.get("role"))
+            if role is None:
+                raise ValueError("Role is invalid")
+            confirm_unverified = body.get("confirm_unverified")
+            if not isinstance(confirm_unverified, bool):
+                return JSONResponse({"error": "La conferma deve essere booleana."}, status_code=422)
+            if role == "primary":
+                prereq = services.readiness()
+                if not (prereq.web_admin and prereq.telegram_valid and prereq.owner):
+                    return JSONResponse({"error": "Completa prima la configurazione web e Telegram."}, status_code=409)
+                draft = services.profiles.get_draft(profile_id)
+                revision = draft.revision
+                if revision is None:
+                    return JSONResponse({"error": "Il profilo non ha una revisione salvata."}, status_code=422)
+            else:
+                draft = services.profiles.get_draft(profile_id)
+                revision = draft.revision
+                if revision is None:
+                    return JSONResponse({"error": "Il profilo non ha una revisione salvata."}, status_code=422)
+            services.profiles.assign_role(
+                role, profile_id, revision,
+                expected_generation=int(body["expected_generation"]),
+                require_valid_receipt=(role == "primary" and not confirm_unverified),
+            )
+            entry = next(item for item in services.profiles.list_profiles()
+                         if item.profile_id == profile_id)
+            return {"profile": profile_state(entry),
+                    "roles_generation": services.profiles.roles_generation()}
+        except StopIteration:
+            return JSONResponse({"error": "Profilo non trovato."}, status_code=404)
+        except (ValueError, KeyError, TypeError, ConfigurationInvalid, RevisionConflict, TestRequired) as exc:
+            if isinstance(exc, TestRequired):
+                return JSONResponse({"error": str(exc)}, status_code=409)
+            if isinstance(exc, (ConfigurationInvalid, RevisionConflict)):
+                return profile_error(exc)
+            return JSONResponse({"error": "Richiesta non valida."}, status_code=422)
+
+    @app.post("/api/profiles/roles/fallback/clear")
+    async def clear_fallback_role(request: Request):
+        current, error = admin_or_error(request)
+        if error:
+            return error
+        if not csrf_ok(current, request):
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        try:
+            body = await request.json()
+            services.profiles.assign_role(
+                "fallback", None, None,
+                expected_generation=int(body["expected_generation"]),
+            )
+            return {"roles_generation": services.profiles.roles_generation()}
+        except (ValueError, KeyError, TypeError) as exc:
+            return JSONResponse({"error": "Richiesta non valida."}, status_code=422)
+        except (ConfigurationInvalid, RevisionConflict) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=409)
+
+    @app.post("/api/profiles/roles/primary/restore")
+    async def restore_primary_role(request: Request):
+        current, error = admin_or_error(request)
+        if error:
+            return error
+        if not csrf_ok(current, request):
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        prereq = services.readiness()
+        if not (prereq.web_admin and prereq.telegram_valid and prereq.owner):
+            return JSONResponse({"error": "Completa prima la configurazione web e Telegram."}, status_code=409)
+        try:
+            body = await request.json()
+            previous = services.profiles.restore_previous_primary(
+                expected_generation=int(body["expected_generation"]),
+            )
+            return {"restored": previous is not None,
+                    "roles_generation": services.profiles.roles_generation()}
+        except (ValueError, KeyError, TypeError) as exc:
+            return JSONResponse({"error": "Richiesta non valida."}, status_code=422)
+        except (ConfigurationInvalid, RevisionConflict) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=409)
+
+    @app.post("/api/profiles/{profile_id}/test")
+    async def test_profile(profile_id: int, request: Request):
+        current, error = admin_or_error(request)
+        if error:
+            return error
+        if not csrf_ok(current, request):
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        request_limit = 20 * 1024 * 1024 + 256 * 1024
+        try:
+            if int(request.headers.get("content-length", "0")) > request_limit:
+                return JSONResponse({"error": "Richiesta audio oltre il limite consentito."}, status_code=413)
+        except ValueError:
+            return JSONResponse({"error": "Richiesta non valida."}, status_code=422)
+        original_receive = request._receive
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await original_receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > request_limit:
+                    raise _UploadTooLarge("Multipart request exceeded the global upload limit")
+            return message
+
+        request._receive = limited_receive
+        try:
+            form = await request.form(max_files=1, max_fields=5)
+        except _UploadTooLarge:
+            return JSONResponse({"error": "Richiesta audio oltre il limite consentito."}, status_code=413)
+        except Exception:
+            return JSONResponse({"error": "Richiesta multipart non valida."}, status_code=422)
+        finally:
+            request._receive = original_receive
+        path = None
+        try:
+            try:
+                revision_number = int(form.get("revision", ""))
+                source = form.get("source")
+            except (ValueError, TypeError):
+                return JSONResponse({"error": "Revisione non valida."}, status_code=422)
+            try:
+                draft = services.profiles.get_draft(profile_id)
+            except ConfigurationInvalid:
+                return JSONResponse({"error": "Profilo o revisione non trovato."}, status_code=404)
+            if draft.revision != revision_number:
+                return JSONResponse({"error": "Il profilo è cambiato. Ricaricalo prima della prova."}, status_code=409)
+            try:
+                revision = services.profiles.get_revision(profile_id, revision_number)
+            except ConfigurationInvalid:
+                return JSONResponse({"error": "Profilo o revisione non trovato."}, status_code=404)
+            if source == "sample":
+                try:
+                    view = await services.transcription_tests.run_profile_bundled_sample(
+                        profile_id, revision_number, settings.data_dir / "tmp"
+                    )
+                except RuntimeError:
+                    return JSONResponse({"error": "È già in corso una prova."}, status_code=409)
+                except RevisionConflict as exc:
+                    return JSONResponse({"error": str(exc)}, status_code=409)
+                except ConfigurationInvalid as exc:
+                    return JSONResponse({"error": str(exc)}, status_code=422)
+                return test_payload(view)
+            if source != "upload":
+                return JSONResponse({"error": "Sorgente di prova non valida."}, status_code=422)
+            audio = form.get("file")
+            if not audio or not hasattr(audio, "read") or not hasattr(audio, "filename"):
+                return JSONResponse({"error": "Seleziona un file audio."}, status_code=422)
+            maximum = min(revision.values.limits.max_file_size_mb, 20) * 1024 * 1024
+            try:
+                declared_size = int(request.headers.get("content-length", "0"))
+            except ValueError:
+                declared_size = maximum + 1
+            if declared_size > maximum + 256 * 1024:
+                return JSONResponse({"error": "File audio oltre il limite configurato."}, status_code=413)
+            suffix = Path(audio.filename or "").suffix.lower()
+            if suffix not in {".mp3", ".wav", ".m4a", ".ogg", ".oga", ".webm", ".mp4", ".flac"}:
+                return JSONResponse({"error": "Formato audio non supportato."}, status_code=422)
+            temp_dir = (settings.data_dir / "tmp").resolve()
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            path = temp_dir / f"web-profile-test-{secrets.token_hex(16)}{suffix}"
+            total = 0
+            with path.open("xb") as output:
+                while chunk := await audio.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > maximum:
+                        return JSONResponse({"error": "File audio oltre il limite configurato."}, status_code=413)
+                    output.write(chunk)
+            if total == 0:
+                return JSONResponse({"error": "Il file è vuoto."}, status_code=422)
+            try:
+                view = await services.transcription_tests.run_profile(profile_id, revision_number, path)
+            except RuntimeError:
+                return JSONResponse({"error": "È già in corso una prova."}, status_code=409)
+            except RevisionConflict as exc:
+                return JSONResponse({"error": str(exc)}, status_code=409)
+            return test_payload(view)
+        finally:
+            if path is not None:
+                path.unlink(missing_ok=True)
+            await form.close()
 
     def credential_status():
         result = {}
@@ -447,30 +907,18 @@ def create_app(settings: DeploymentSettings | None = None,
     @app.get("/api/transcription/draft")
     async def get_transcription_draft(request: Request):
         _, error = admin_or_error(request)
-        if error: return error
-        return {"draft": revision_payload(services.configuration.draft()),
-                "active": revision_payload(services.configuration.active()),
-                "credentials": credential_status()}
+        if error:
+            return error
+        return JSONResponse({"error": "Usa il catalogo dei profili."}, status_code=410)
 
     @app.put("/api/transcription/draft")
     async def put_transcription_draft(request: Request):
         current, error = admin_or_error(request)
-        if error: return error
-        if not csrf_ok(current, request): return JSONResponse({"error": "csrf"}, status_code=403)
-        try:
-            body = await request.json()
-            limits = RuntimeLimits(**body.get("limits", {}))
-            values = ConfigInput(service=body["service"], mode=body["mode"],
-                audio_model=str(body.get("audio_model", "")), text_model=body.get("text_model"),
-                credential_version=int(body["credential_version"]),
-                system_prompt=str(body.get("system_prompt", "")),
-                refine_template=str(body.get("refine_template", "")), limits=limits)
-            revision = services.configuration.save_draft(body.get("expected_revision"), values, preserve_credential=True)
-            return {"draft": revision_payload(revision)}
-        except RevisionConflict as exc:
-            return JSONResponse({"error": str(exc)}, status_code=409)
-        except (ValueError, KeyError, TypeError, ConfigurationInvalid) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=422)
+        if error:
+            return error
+        if not csrf_ok(current, request):
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        return JSONResponse({"error": "Usa il catalogo dei profili."}, status_code=410)
 
     @app.post("/api/transcription/credentials")
     async def put_transcription_credential(request: Request):
@@ -533,6 +981,7 @@ def create_app(settings: DeploymentSettings | None = None,
         current, error = admin_or_error(request)
         if error: return error
         if not csrf_ok(current, request): return JSONResponse({"error": "csrf"}, status_code=403)
+        return JSONResponse({"error": "Usa il test legato a un profilo."}, status_code=410)
         draft = services.configuration.draft()
         if draft is None: return JSONResponse({"error": "Salva prima una bozza."}, status_code=409)
         maximum = min(draft.values.limits.max_file_size_mb, 20) * 1024 * 1024
@@ -623,31 +1072,20 @@ def create_app(settings: DeploymentSettings | None = None,
         current, error = admin_or_error(request)
         if error: return error
         if not csrf_ok(current, request): return JSONResponse({"error": "csrf"}, status_code=403)
-        try:
-            body = await request.json()
-            return {"active": revision_payload(services.configuration.activate(int(body["expected_revision"]))) }
-        except RevisionConflict as exc: return JSONResponse({"error": str(exc)}, status_code=409)
-        except TestRequired as exc: return JSONResponse({"error": str(exc)}, status_code=409)
-        except (ValueError, KeyError, PrerequisiteMissing) as exc: return JSONResponse({"error": str(exc)}, status_code=422)
+        return JSONResponse({"error": "Assegna un profilo dal catalogo."}, status_code=410)
 
     @app.post("/api/transcription/restore")
     async def restore_transcription(request: Request):
         current, error = admin_or_error(request)
         if error: return error
         if not csrf_ok(current, request): return JSONResponse({"error": "csrf"}, status_code=403)
-        try:
-            revision = services.configuration.restore_previous()
-            return {"active": revision_payload(revision)}
-        except PrerequisiteMissing as exc:
-            return JSONResponse({"error": str(exc)}, status_code=422)
+        return JSONResponse({"error": "Assegna un profilo dal catalogo."}, status_code=410)
 
     @app.get("/admin/transcription", response_class=HTMLResponse)
     async def transcription_page(request: Request):
         if not session(request): return RedirectResponse("/login", status_code=303)
-        draft = services.configuration.draft()
-        active = services.configuration.active()
-        return page(request, "transcription.html", {"draft": revision_payload(draft),
-                    "active": revision_payload(active), "credentials": credential_status(),
+        return page(request, "transcription.html", {"draft": None,
+                    "active": None, "credentials": credential_status(),
                     "csrf_token": session(request)["csrf_token"]})
 
     @app.get("/admin/dashboard", response_class=HTMLResponse)

@@ -62,3 +62,20 @@ attiva/precedente solo con prerequisiti validi e una precedente disponibile.
 
 - [x] Aggiornare registro con commit, comandi ed esiti. S1 completa solo quando riapertura, conflitti e attivazione sono verificati.
 - [x] Indicare come prossima sessione S2; fermarsi senza iniziare gli adapter.
+
+## Estensione amendment 29 ottobre — lavoro futuro, storico S1 invariato
+
+S1.1 e S1.2 restano completate secondo i contratti originari. Le checkbox e le evidenze precedenti non includono profili; questa attività aggiuntiva è aperta e va eseguita senza riscrivere lo storico.
+
+### Task S1.3: contratti e repository multi-profilo
+
+**Files:** estendere `bot/transcription/models.py`, `configuration.py`, `bot/database/v2_schema.py` e `v2_repository.py`; aggiungere test di repository/configurazione V2 su SQLite temporaneo. Aggiornare i contratti comuni nell'indice e i consumatori in S4/S5/S6.
+
+**Interfaces:** definire `ProfileId`, `Profile`, `ProfileRevision` immutabile e snapshot di ruolo; ogni revisione contiene una configurazione completa, ID/versione credenziale e timestamp. Persistenza esplicita di al massimo un ruolo principale e uno fallback, distinti e referenziati a revisioni valide. Definire API per creare, rinominare, salvare revisioni, duplicare, cancellare e assegnare/rimuovere ruoli con controllo revisione attesa e transazioni atomiche. Le ricevute restano legate a profilo, revisione, credenziale e validator; lo stato verificato deriva da una ricevuta valida. Nessuna serializzazione o duplicazione dei segreti.
+
+- [x] Definire i vincoli SQLite, retention e lease: revisioni/credenziali usate da profili salvati o richieste in corso non vengono eliminate; un profilo non occupa entrambi i ruoli.
+- [x] Scrivere test per creazione e revisioni immutabili, conflitti concorrenti, assegnazione atomica dei ruoli, duplicazione senza copia di segreti/ricevute, eliminazione impedita per profili assegnati e retention durante richieste in corso.
+- [x] Scrivere test che l'attivazione manuale senza prova non crea ricevuta e che stato assegnato e stato verificato restano distinti; il profilo non verificato non è per questo automaticamente eleggibile al fallback.
+- [x] Eseguire i test mirati con il bootstrap sicuro dell'indice su database temporanei e credenziali sintetiche.
+- [ ] Integrare i nuovi contratti senza cambiare le API storiche prima di aver aggiornato S4, S5 e S6; documentare in indice ogni firma condivisa che cambia.
+- [ ] Aggiornare registro e checkbox solo dopo avere completato e verificato questa attività; non modificare le evidenze storiche S1.1/S1.2.

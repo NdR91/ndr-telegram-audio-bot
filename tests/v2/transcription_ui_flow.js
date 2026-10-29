@@ -6,6 +6,7 @@ const vm = require("node:vm");
 
 const page = process.argv[2];
 const helperPath = process.argv[3];
+const catalogPath = process.argv[4];
 const html = fs.readFileSync(page, "utf8");
 const helper = require(helperPath);
 const initialDraft = {
@@ -26,14 +27,14 @@ function element(id, defaults = {}) {
   const item = {
     id, value: "", disabled: false, hidden: false, checked: false,
     textContent: "", files: [], elements: [], listeners: {}, options: [], children: [], attributes: {}, className: "",
-    addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); },
+    addEventListener(name, callback, options = false) { (this.listeners[name] ||= []).push({ callback, capture: options === true || options?.capture === true }); },
     replaceChildren(...children) { this.options = children; this.children = children; },
     append(...children) { this.children.push(...children); },
     add(option) { this.options.push(option); },
     setAttribute(name, value) { this.attributes[name] = value; },
     focus() { this.focused = true; },
     showModal() { this.open = true; },
-    close() { this.open = false; for (const callback of this.listeners.close || []) callback(); },
+    close() { this.open = false; for (const listener of this.listeners.close || []) listener.callback(); },
     classList: { add(value) { this.owner.className += ` ${value}`; } },
     ...defaults,
   };
@@ -47,12 +48,16 @@ const ids = [
   "refine-template", "max-file-size", "max-user", "max-global", "cooldown",
   "transcribe-timeout", "refine-timeout", "queue-enabled", "draft-state", "save-status",
   "save-credential", "credential-state", "load-models", "load-text-models", "audio-file",
-  "run-test", "test-status", "test-result", "result-text", "result-meta", "activate",
+  "run-test", "test-status", "test-result", "test-diagnostics", "test-steps", "result-text", "result-meta", "activate",
   "restore", "active-summary", "max-label", "audio-model-current", "text-model-current",
   "audio-model-description", "text-model-description", "model-picker", "model-picker-title",
   "model-picker-role", "model-picker-search", "model-provider-filter", "model-provider-filter-wrap",
   "model-price-controls", "model-sort", "model-free-prompt", "model-free-completion",
   "model-context-filter", "model-picker-status", "model-picker-results", "model-picker-more",
+  "profile-list", "profile-status", "profile-name", "profile-confirmation", "profile-delete-confirmation",
+  "profile-confirmation-title", "profile-confirmation-copy", "profile-unverified-wrap", "profile-unverified",
+  "profile-confirm-action", "profile-delete-copy", "profile-delete-action", "sample-description",
+  "create-profile", "profile-editor", "test-result", "test-diagnostics", "test-steps",
 ];
 ids.forEach((id) => element(id));
 element("save-draft");
@@ -62,6 +67,7 @@ const radioModes = [
 const buttons = ["save-draft", "save-credential", "rename-credential", "load-models", "load-text-models", "run-test", "activate", "restore"]
   .map((id) => elements.get(id));
 const form = elements.get("draft-form");
+elements.set('profile-editor', elements.get('profile-editor'));
 form.elements = [elements.get("service"), elements.get("credential"), elements.get("credential-version"),
   elements.get("audio-model-id"), elements.get("text-model-id"), elements.get("system-prompt"),
   elements.get("refine-template"), elements.get("max-file-size"), elements.get("max-user"),
@@ -69,27 +75,50 @@ form.elements = [elements.get("service"), elements.get("credential"), elements.g
   elements.get("refine-timeout"), elements.get("queue-enabled")];
 const document = {
   querySelector(selector) {
+    if (selector === '.v2-columns') return elements.get('profile-editor');
     if (selector === 'input[name="mode"]:checked') return radioModes.find((radio) => radio.checked);
+    if (selector === 'input[name="test-source"]:checked') return testSources.find(radio => radio.checked);
     const radioMatch = selector.match(/^input\[name="mode"\]\[value="(.+)"\]$/);
     if (radioMatch) return radioModes.find((radio) => radio.value === radioMatch[1]);
     return elements.get(selector.replace(/^#/, ""));
   },
   querySelectorAll(selector) {
     if (selector === ".v2-main button") return buttons;
+    if (selector === 'input[name="test-source"]') return testSources;
     return [];
   },
   createElement(tag) { return element(`created-${tag}-${Math.random()}`); },
 };
+const testSources = [
+  { ...element('test-source-sample'), value: 'sample', checked: true },
+  { ...element('test-source-upload'), value: 'upload', checked: false },
+];
 class FakeOption {
   constructor(label, value) { this.textContent = label; this.value = value; }
 }
 let draft = initialDraft;
 let activationAttempts = 0;
+const profile = { id: 1, name: 'Runtime profile', revision: 1, generation: 1,
+  role: null, verification: 'verified', service: 'openai', mode: 'multimodal',
+  audio_model: 'audio-v1', text_model: null };
 const requests = [];
 let nextRevision = initialDraft.revision;
 let deferredCatalogResponse = null;
 const fetch = async (url, options = {}) => {
   requests.push(url);
+  if (url === '/api/profiles') return { ok: true, json: async () => ({ profiles: [profile], roles_generation: 0, sample: { duration_seconds: 1.8, sha256: 'synthetic-hash' } }) };
+  if (url === '/api/profiles/1') return { ok: true, json: async () => ({ profile: { ...profile, values: {
+    service: 'openai', mode: 'multimodal', audio_model: 'audio-v1', text_model: null,
+    credential_version: 1, system_prompt: 'faithful', refine_template: '{raw_text}',
+    limits: initialDraft.limits,
+  } } }) };
+  if (url === '/api/profiles/1/test') return { ok: true, json: async () => ({
+    status: 'succeeded', revision: 1, result: null,
+  }) };
+  if (url === '/api/transcription/credentials') return { ok: true, json: async () => ({
+    credential_version: 3,
+    keys: [{ version: 1, label: 'Personale' }, { version: 2, label: 'Lavoro' }, { version: 3, label: 'Nuova' }],
+  }) };
   if (url === '/api/transcription/credentials/openai/1/label') {
     return { ok: true, json: async () => ({ keys: [{version: 1, label: 'Rinominata'}, {version: 2, label: 'Lavoro'}] }) };
   }
@@ -123,27 +152,86 @@ const fetch = async (url, options = {}) => {
   }
   throw new Error(`Unexpected request: ${url}`);
 };
+class FakeXMLHttpRequest {
+  constructor() { this.listeners = {}; this.upload = { addEventListener() {} }; }
+  open(method, url) { this.method = method; this.url = url; }
+  setRequestHeader() {}
+  addEventListener(name, callback) { this.listeners[name] = callback; }
+  send() {
+    Promise.resolve().then(async () => {
+      const response = await fetch(this.url, { method: this.method });
+      this.status = response.ok ? 200 : 400;
+      this.responseText = JSON.stringify(await response.json());
+      this.listeners.load?.();
+    }).catch(() => this.listeners.error?.());
+  }
+}
 const window = { v2Page: {
   csrf: "synthetic-csrf", draft: initialDraft, active: null,
   credentials: { openai: { configured: true, credential_version: 2, keys: [
     { version: 1, label: 'Personale' }, { version: 2, label: 'Lavoro' },
   ] } },
-}, V2TranscriptionState: helper };
+}, V2TranscriptionState: helper, prompt: () => null };
 const context = {
-  window, document, fetch, FormData, Option: FakeOption, URLSearchParams, console,
+  window, document, fetch, FormData, XMLHttpRequest: FakeXMLHttpRequest, Option: FakeOption, URLSearchParams, console,
   setTimeout, clearTimeout,
 };
 vm.runInNewContext(fs.readFileSync(`${__dirname}/../../bot/web/static/transcription.js`, "utf8"), context);
+if (catalogPath) vm.runInNewContext(fs.readFileSync(catalogPath, "utf8"), context);
 
 async function click(id) {
   const target = elements.get(id);
-  for (const callback of target.listeners.click || []) await callback({ preventDefault() {}, currentTarget: target });
+  const listeners = [...(target.listeners.click || [])].sort((a, b) => Number(b.capture) - Number(a.capture));
+  const event = { preventDefault() {}, stopImmediatePropagation() { this.stopped = true; }, currentTarget: target };
+  for (const listener of listeners) { await listener.callback(event); if (event.stopped) break; }
 }
 async function fire(target, name, event = {}) {
-  for (const callback of target.listeners[name] || []) await callback({ preventDefault() {}, ...event });
+  const listeners = [...(target.listeners[name] || [])].sort((a, b) => Number(b.capture) - Number(a.capture));
+  const payload = { preventDefault() {}, stopImmediatePropagation() { this.stopped = true; }, ...event };
+  for (const listener of listeners) {
+    await listener.callback(payload);
+    if (payload.stopped) break;
+  }
 }
+const runTest = elements.get('run-test');
+const activate = elements.get('activate');
+const file = elements.get('audio-file');
 
 (async () => {
+  if (catalogPath) {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(elements.get('profile-list').children.length, 1, 'catalog script loads alongside the existing workbench');
+    file.files = [new Blob(['synthetic audio'], { type: 'audio/wav' })];
+    await fire(file, 'change');
+    assert.equal(runTest.disabled, true, 'legacy draft state cannot enable the profile test before profile selection');
+    await click('run-test');
+    await click('activate');
+    await fire(form, 'submit');
+    assert.equal(requests.some(url => ['/api/transcription/test', '/api/transcription/activate', '/api/transcription/draft'].includes(url)), false,
+      'profile mode suppresses all legacy submit, test and activation requests');
+    const profileCard = elements.get('profile-list').children[0];
+    const edit = profileCard.children[1].children.find(button => button.textContent === 'Modifica');
+    await edit.listeners.click[0].callback();
+    await new Promise(resolve => setImmediate(resolve));
+    window.V2ProfileCatalog.updateActions();
+    assert.equal(runTest.disabled, false, 'opening a saved profile enables its default sample test');
+    await click('run-test');
+    assert.ok(requests.includes('/api/profiles/1/test'), 'sample test uses the revision-bound profile route');
+    elements.get('audio-model-id').value = 'unsaved-model';
+    await fire(form, 'input', { target: elements.get('audio-model-id') });
+    assert.equal(activate.disabled, true, 'dirty profile edits keep role activation visibly disabled');
+    await click('activate');
+    assert.equal(requests.some(url => url.endsWith('/role')), false, 'dirty profile cannot be assigned');
+    elements.get('credential').value = 'synthetic-provider-key';
+    await click('save-credential');
+    assert.equal(window.v2Page.credentials.openai.credential_version, 3, 'credential updates remain visible to the profile editor without reload');
+    const refreshedCard = elements.get('profile-list').children[0];
+    await refreshedCard.children[1].children.find(button => button.textContent === 'Modifica').listeners.click[0].callback();
+    assert.ok(elements.get('credential-version').options.some(option => option.textContent === 'Nuova'), 'profile editor reads the updated shared key catalog');
+    await click('load-models');
+    assert.equal(elements.get('model-picker').open, true, 'model catalog remains available in profile mode');
+    return;
+  }
   assert.ok(form.listeners.submit, "draft submit handler is wired");
   assert.equal(elements.get('credential-version').value, '1', 'an existing draft keeps its selected key');
   assert.equal(elements.get('audio-model-current').textContent, 'audio-v1', 'existing model ID is shown as the current selection');
@@ -155,9 +243,6 @@ async function fire(target, name, event = {}) {
   elements.get('credential-version').value = '1';
   assert.deepEqual(elements.get('credential-version').options.map(option => option.textContent),
     ['Scegli una chiave', 'Personale', 'Lavoro']);
-  const runTest = elements.get("run-test");
-  const activate = elements.get("activate");
-  const file = elements.get("audio-file");
   file.files = [new Blob(["synthetic audio"], { type: "audio/wav" })];
   await fire(file, "change");
   assert.equal(runTest.disabled, false, "saved draft and selected file enable the test");
@@ -234,7 +319,7 @@ async function fire(target, name, event = {}) {
   elements.get('service').value = 'openrouter';
   await fire(elements.get('service'), 'change');
   const openButton = elements.get('load-models');
-  const staleRequest = openButton.listeners.click[0]({ currentTarget: openButton });
+  const staleRequest = openButton.listeners.click[0].callback({ currentTarget: openButton });
   assert.equal(elements.get('model-picker').open, true, 'first catalog request opens its dialog');
   elements.get('model-picker').close();
   elements.get('service').value = 'gemini';

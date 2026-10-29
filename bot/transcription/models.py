@@ -72,6 +72,7 @@ class ProcessingResult:
     models: tuple[str, ...]
     duration_ms: int
     cost: Decimal | None = None
+    diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

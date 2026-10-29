@@ -27,13 +27,15 @@ No Cursor rules or Copilot instructions are currently present in:
 - Python Telegram bot that downloads audio, converts it with FFmpeg,
   transcribes it through an LLM provider, refines the transcript, and returns
   the result to Telegram.
-- Providers: OpenAI, Gemini, and OpenRouter, selected by an active V2
-  configuration revision.
+- Providers: OpenAI, Gemini, and OpenRouter, selected by a saved profile. One
+  main profile and an optional tested fallback are global to the installation.
 - Entry point: `bot/main.py`.
 - Runtime configuration is stored in the unified SQLite database.
 - V2 does not read `authorized.json`; legacy authorization data can enter only
   through the explicit migration command on operator-created copies.
 - Runtime access-control changes are persisted in the V2 SQLite database.
+- The live application holds a cross-process lock for its configured SQLite
+  database; do not run two application processes against the same database.
 
 ## Build, run, and operations
 
@@ -131,6 +133,10 @@ style:
 ### Error handling and cleanup
 
 - Use `ServiceFailure` from `bot.transcription.errors` for safe pipeline errors.
+- Fallback is one-shot and only eligible for typed provider timeout, network,
+  HTTP 429, or HTTP 5xx failures. Empty/invalid output and other errors do not
+  invoke it. The fallback profile must have a valid current revision/credential
+  test receipt. A fallback attempt can incur a separate provider charge.
 - Keep user-facing messages separate from provider exception bodies.
 - Log technical failures without logging transcript contents by default.
 - Always clean up temporary local files in `finally`.
@@ -189,11 +195,19 @@ When behavior changes:
 - `bot/database/v2_schema.py`, `v2_repository.py`: isolated V2 SQLite schema,
   migrations, transactional persistence, and import marker. The V1 schema is
   read only inside `bot/migrate_v1.py`.
+- `bot/database/runtime_lock.py`: cross-process single-instance lock held for
+  the live V2 runtime using a database path.
 - `bot/transcription/`: immutable contracts/configuration, provider adapters/catalog,
   credential-scoped pool, resilience, FFmpeg conversion, and two fixed audio paths.
+- `bot/transcription/profiles.py`, `fallback.py`: revisioned profile catalog,
+  role snapshots/leases, typed one-shot fallback, and content-free owner notice.
 - `bot/transcription/testing.py`: explicit revision-bound configuration tests
-  through the shared runner; transcript output is memory-only and short-lived.
-- `bot/web/v2_app.py`, `bot/web/templates/v2_transcription.html`, `bot/web/static/transcription.js`: authenticated V2 configuration, upload test, activation, and restore UI.
+  through the shared runner, bundled synthetic sample and upload; transcript
+  output is memory-only and short-lived.
+- `bot/web/v2_app.py`, `bot/web/templates/v2_transcription.html`,
+  `bot/web/static/profile_catalog.js`, and `transcription.js`: authenticated
+  profile CRUD/roles, revision-bound sample/upload test, model picker, and
+  existing credential tools.
 - `bot/web/templates/v2_access.html`, `bot/web/static/access.js`: authenticated V2 access management, guided pairing confirmation, advanced IDs and separate group membership/receipt status.
 - `bot/web/templates/diagnostics.html`: overview and bounded diagnostic history.
 - `bot/rate_limiter.py`: concurrency admission and queueing.

@@ -1,9 +1,11 @@
 """Configuration proofs and transient test results remain revision-bound."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from types import SimpleNamespace
 
 from bot.transcription.configuration import ConfigurationService
@@ -144,6 +146,179 @@ def test_result_expires_from_memory(repo, config_values, ready_prerequisites, tm
     view = asyncio.run(service.run(revision.number, tmp_path / "audio.wav"))
     now[0] = 600
     assert service.result(view.id) is None
+
+
+def test_bundled_sample_metadata_matches_packaged_audio():
+    from hashlib import sha256
+    import wave
+
+    sample = ConfigurationTestService.sample_info()
+    assert sample.expected_text == "The blue bird sings at sunrise."
+    assert 1 <= sample.duration_seconds <= 4
+    assert sample.path.is_file()
+    assert sha256(sample.path.read_bytes()).hexdigest() == sample.sha256
+    with wave.open(str(sample.path), "rb") as audio:
+        assert audio.getnchannels() == 1
+        assert audio.getframerate() == 16000
+        assert abs(audio.getnframes() / audio.getframerate() - sample.duration_seconds) < 0.001
+
+
+def test_bundled_sample_runs_from_temporary_copy_and_cleans_after_success(
+    repo, config_values, ready_prerequisites, tmp_path
+):
+    from hashlib import sha256
+
+    repo.put_credential("openai", "synthetic-key")
+    configuration = ConfigurationService(repo, lambda: ready_prerequisites)
+    revision = configuration.save_draft(None, config_values)
+    temporary_dir = tmp_path / "sample-work"
+    seen = []
+
+    class Runner:
+        async def run(self, snapshot, audio):
+            assert audio.exists()
+            seen.append((snapshot, audio, sha256(audio.read_bytes()).hexdigest()))
+            return ProcessingResult("Synthetic transcript", False, ("model",), 1)
+
+    service = ConfigurationTestService(configuration, Runner())
+    view = asyncio.run(service.run_bundled_sample(revision.number, temporary_dir))
+    packaged = service.sample_info()
+
+    assert view.status == "succeeded"
+    assert seen[0][0] == revision
+    assert seen[0][1] != packaged.path
+    assert seen[0][2] == packaged.sha256
+    assert list(temporary_dir.iterdir()) == []
+
+
+def test_bundled_sample_cleans_temporary_copy_after_runner_failure(
+    repo, config_values, ready_prerequisites, tmp_path
+):
+    repo.put_credential("openai", "synthetic-key")
+    configuration = ConfigurationService(repo, lambda: ready_prerequisites)
+    revision = configuration.save_draft(None, config_values)
+    temporary_dir = tmp_path / "sample-work"
+
+    class Runner:
+        async def run(self, snapshot, audio):
+            assert audio.exists()
+            raise RuntimeError("synthetic failure")
+
+    view = asyncio.run(ConfigurationTestService(configuration, Runner()).run_bundled_sample(
+        revision.number, temporary_dir
+    ))
+    assert view.status == "failed"
+    assert list(temporary_dir.iterdir()) == []
+
+
+def test_bundled_sample_cleans_temporary_copy_after_cancellation(
+    repo, config_values, ready_prerequisites, tmp_path
+):
+    repo.put_credential("openai", "synthetic-key")
+    configuration = ConfigurationService(repo, lambda: ready_prerequisites)
+    revision = configuration.save_draft(None, config_values)
+    temporary_dir = tmp_path / "sample-work"
+    started = asyncio.Event()
+
+    class Runner:
+        async def run(self, snapshot, audio):
+            assert audio.exists()
+            started.set()
+            await asyncio.Event().wait()
+
+    async def run_and_cancel():
+        task = asyncio.create_task(ConfigurationTestService(configuration, Runner()).run_bundled_sample(
+            revision.number, temporary_dir
+        ))
+        await started.wait()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            return
+        raise AssertionError("sample test should propagate cancellation")
+
+    asyncio.run(run_and_cancel())
+    assert list(temporary_dir.iterdir()) == []
+
+
+def test_bundled_sample_expected_text_is_not_written_to_database(
+    repo, config_values, ready_prerequisites, tmp_path
+):
+    sample = ConfigurationTestService.sample_info()
+    repo.put_credential("openai", "synthetic-key")
+    configuration = ConfigurationService(repo, lambda: ready_prerequisites)
+    revision = configuration.save_draft(None, config_values)
+
+    class Runner:
+        async def run(self, snapshot, audio):
+            return ProcessingResult("Synthetic transcript", False, ("model",), 1)
+
+    service = ConfigurationTestService(configuration, Runner())
+    view = asyncio.run(service.run_bundled_sample(revision.number, tmp_path))
+    with repo.read() as connection:
+        rows = connection.execute("SELECT * FROM test_receipts").fetchall()
+        stored = repr([tuple(row) for row in rows])
+    assert view.status == "succeeded"
+    assert sample.expected_text not in stored
+    assert sample.expected_text not in repr(view)
     with repo.read() as connection:
         row = connection.execute("SELECT COUNT(*) FROM test_receipts").fetchone()
     assert row[0] == 1
+
+
+def test_bundled_sample_uses_real_runner_and_openai_adapter_with_mock_client(
+    repo, config_values, ready_prerequisites, tmp_path
+):
+    from bot.transcription.adapters.openai import OpenAIAdapter
+    from bot.transcription.runner import TranscriptionRunner
+
+    repo.put_credential("openai", "synthetic-key")
+    configuration = ConfigurationService(repo, lambda: ready_prerequisites)
+    revision = configuration.save_draft(None, config_values)
+    uploads = []
+    refinement_requests = []
+
+    class MockClient:
+        class Audio:
+            class Transcriptions:
+                async def create(self, **kwargs):
+                    uploads.append(kwargs["file"])
+                    return SimpleNamespace(text="synthetic recognized words")
+            transcriptions = Transcriptions()
+        audio = Audio()
+
+        class Chat:
+            class Completions:
+                async def create(self, **kwargs):
+                    refinement_requests.append(kwargs)
+                    return SimpleNamespace(choices=[SimpleNamespace(
+                        message=SimpleNamespace(content="synthetic refined words")
+                    )])
+            completions = Completions()
+        chat = Chat()
+
+    class Mp3Adapter(OpenAIAdapter):
+        def accepted_formats(self, model, role):
+            return frozenset({"mp3"})
+
+    adapter = Mp3Adapter("synthetic-key", MockClient())
+
+    class Pool:
+        @asynccontextmanager
+        async def lease(self, snapshot):
+            yield adapter
+
+    runner = TranscriptionRunner(Pool(), tmp_path / "runner-work")
+    service = ConfigurationTestService(configuration, runner)
+    sample = service.sample_info()
+    view = asyncio.run(service.run_bundled_sample(revision.number, tmp_path / "sample-work"))
+
+    assert view.status == "succeeded", f"sample test failed in {view.diagnostics!r}: {view.safe_error}"
+    assert view.result.text == "synthetic refined words"
+    assert uploads and uploads[0][0].endswith(".mp3")
+    assert uploads[0][1].startswith(b"ID3")
+    assert "synthetic recognized words" in refinement_requests[0]["messages"][1]["content"]
+    assert sample.expected_text not in repr((uploads, refinement_requests))
+    assert list((tmp_path / "runner-work").iterdir()) == []
+    assert list((tmp_path / "sample-work").iterdir()) == []

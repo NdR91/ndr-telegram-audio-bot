@@ -1,11 +1,10 @@
 (() => {
-  const csrf = window.v2AccessPage.csrf;
   const status = document.getElementById("access-status");
   const listStatus = document.getElementById("access-list-status");
   const response = async (url, options = {}) => {
     const result = await fetch(url, { credentials: "same-origin", ...options,
       headers: { ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...(options.method && options.method !== "GET" ? { "X-CSRF-Token": csrf } : {}),
+        ...(options.method && options.method !== "GET" ? { "X-CSRF-Token": window.v2AccessPage.csrf } : {}),
         ...(options.headers || {}) } });
     const body = await result.json().catch(() => ({}));
     if (!result.ok) throw new Error(body.error || `Richiesta non riuscita (${result.status}).`);

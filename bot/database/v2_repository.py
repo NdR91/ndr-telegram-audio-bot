@@ -1,16 +1,162 @@
 """Persistence for the isolated, versioned V2 configuration database."""
 
 import os
+import hmac
 import sqlite3
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
 from bot.database.secret_store import SecretStore, SecretStoreError
-from bot.database.v2_schema import DDL, V2_MARKER, V2_SCHEMA_VERSION
+from bot.database.v2_schema import DDL, PROFILE_DDL, V2_MARKER, V2_SCHEMA_VERSION
 from bot.transcription.errors import ConfigurationInvalid
 from bot.transcription.models import CredentialOwner
+
+
+_PAIRING_DDL = "CREATE TABLE pairing_invites (invite_id TEXT PRIMARY KEY, nonce_hash TEXT NOT NULL UNIQUE, kind TEXT NOT NULL CHECK(kind IN ('owner', 'user', 'group')), bot_id INTEGER, expires_at TEXT NOT NULL, candidate_id INTEGER, candidate_name TEXT, candidate_chat_id INTEGER, candidate_chat_type TEXT, observed_at TEXT, confirmed_at TEXT)"
+_DIAGNOSTIC_DDL = "CREATE TABLE diagnostic_events (event_id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, stage TEXT NOT NULL, status TEXT NOT NULL, revision INTEGER, models_json TEXT NOT NULL, duration_ms INTEGER, error_code TEXT)"
+
+
+def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
+    return connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone() is not None
+
+
+def _create_pairing_invites(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "pairing_invites"):
+        connection.execute(_PAIRING_DDL)
+
+
+def _create_diagnostic_events(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "diagnostic_events"):
+        connection.execute(_DIAGNOSTIC_DDL)
+
+
+def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
+    for statement in PROFILE_DDL:
+        connection.execute(statement)
+
+    legacy_receipt_count = int(
+        connection.execute("SELECT COUNT(*) FROM test_receipts").fetchone()[0]
+    )
+    revisions = connection.execute(
+        "SELECT * FROM config_revisions ORDER BY revision"
+    ).fetchall()
+    if not revisions:
+        if legacy_receipt_count:
+            raise ConfigurationInvalid("V2 test history has no configuration revision")
+        return
+
+    cursor = connection.execute(
+        "INSERT INTO profiles(name, generation) VALUES (?, 1)",
+        ("Configurazione predefinita",),
+    )
+    profile_id = int(cursor.lastrowid)
+    for revision in revisions:
+        connection.execute(
+            "INSERT INTO profile_revisions(profile_id, revision, service, mode, "
+            "audio_model, text_model, credential_version, system_prompt, "
+            "refine_template, limits_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                profile_id,
+                revision["revision"],
+                revision["service"],
+                revision["mode"],
+                revision["audio_model"],
+                revision["text_model"],
+                revision["credential_version"],
+                revision["system_prompt"],
+                revision["refine_template"],
+                revision["limits_json"],
+                revision["created_at"],
+            ),
+        )
+
+    references = {
+        row["reference_type"]: row
+        for row in connection.execute("SELECT * FROM config_references")
+    }
+    primary = references.get("active")
+    if primary is not None:
+        connection.execute(
+            "INSERT INTO profile_roles(role, profile_id, revision, generation) "
+            "VALUES ('primary', ?, ?, 1)",
+            (profile_id, primary["revision"]),
+        )
+        connection.execute(
+            "UPDATE profile_role_versions SET generation=1 WHERE role='primary'"
+        )
+        connection.execute(
+            "UPDATE profile_roles_state SET generation=1 WHERE singleton=1"
+        )
+    previous = references.get("previous")
+    if previous is not None:
+        connection.execute(
+            "INSERT INTO profile_role_history(singleton, profile_id, revision) VALUES (1, ?, ?)",
+            (profile_id, previous["revision"]),
+        )
+    draft = references.get("draft")
+    connection.execute(
+        "INSERT INTO profile_drafts(profile_id, revision, generation) VALUES (?, ?, 1)",
+        (profile_id, draft["revision"] if draft is not None else None),
+    )
+
+    connection.execute(
+        "INSERT INTO profile_test_receipts(recorded_order, receipt_id, profile_id, "
+        "revision, credential_service, credential_version, validator_version, success, "
+        "models_json, finished_at) "
+        "SELECT t.recorded_order, t.receipt_id, ?, t.revision, r.service, "
+        "t.credential_version, t.validator_version, t.success, t.models_json, t.finished_at "
+        "FROM test_receipts t JOIN config_revisions r ON r.revision=t.revision "
+        "ORDER BY t.recorded_order",
+        (profile_id,),
+    )
+    migrated_receipt_count = int(
+        connection.execute("SELECT COUNT(*) FROM profile_test_receipts").fetchone()[0]
+    )
+    if migrated_receipt_count != legacy_receipt_count:
+        raise ConfigurationInvalid("V2 test history could not be migrated completely")
+
+    sequence = connection.execute(
+        "SELECT next_revision FROM revision_sequence WHERE singleton=1"
+    ).fetchone()
+    next_revision = int(sequence[0]) if sequence is not None else 1
+    next_revision = max(next_revision, int(revisions[-1]["revision"]) + 1)
+    connection.execute(
+        "INSERT INTO revision_sequence(singleton, next_revision) VALUES (1, ?) "
+        "ON CONFLICT(singleton) DO UPDATE SET next_revision=excluded.next_revision",
+        (next_revision,),
+    )
+
+
+def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
+    columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(diagnostic_events)")
+    }
+    additions = (
+        ("primary_profile_id", "INTEGER"),
+        ("fallback_profile_id", "INTEGER"),
+        ("failure_stage", "TEXT"),
+        ("failure_category", "TEXT"),
+        ("outcome", "TEXT"),
+    )
+    for name, column_type in additions:
+        if name not in columns:
+            connection.execute(
+                f"ALTER TABLE diagnostic_events ADD COLUMN {name} {column_type}"
+            )
+
+
+def _decrement_lease(leases: dict, key: tuple) -> None:
+    remaining = leases[key] - 1
+    if remaining:
+        leases[key] = remaining
+    else:
+        del leases[key]
 
 
 class V2Repository:
@@ -22,6 +168,7 @@ class V2Repository:
         self._connection: sqlite3.Connection | None = None
         self._lock = threading.RLock()
         self._credential_leases: dict[tuple[str, int], int] = {}
+        self._profile_leases: dict[tuple[int, int], int] = {}
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -66,25 +213,30 @@ class V2Repository:
                         "SELECT MAX(version) FROM schema_version"
                     ).fetchone()
                     version = row[0]
-            if marker != V2_MARKER or version not in (1, 2, V2_SCHEMA_VERSION):
+            if marker != V2_MARKER or version not in (1, 2, 3, 4, V2_SCHEMA_VERSION):
                 connection.close()
                 raise ConfigurationInvalid("Database is not a compatible V2 database")
-            if version in (1, 2):
-                try:
-                    connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                while version < V2_SCHEMA_VERSION:
                     if version == 1:
-                        connection.execute(
-                            "CREATE TABLE pairing_invites (invite_id TEXT PRIMARY KEY, nonce_hash TEXT NOT NULL UNIQUE, kind TEXT NOT NULL CHECK(kind IN ('owner', 'user', 'group')), bot_id INTEGER, expires_at TEXT NOT NULL, candidate_id INTEGER, candidate_name TEXT, candidate_chat_id INTEGER, candidate_chat_type TEXT, observed_at TEXT, confirmed_at TEXT)"
-                        )
-                    connection.execute(
-                        "CREATE TABLE diagnostic_events (event_id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, stage TEXT NOT NULL, status TEXT NOT NULL, revision INTEGER, models_json TEXT NOT NULL, duration_ms INTEGER, error_code TEXT)"
-                    )
-                    connection.execute("INSERT INTO schema_version (version) VALUES (?)", (V2_SCHEMA_VERSION,))
-                    connection.commit()
-                except BaseException:
-                    connection.rollback()
-                    connection.close()
-                    raise
+                        _create_pairing_invites(connection)
+                        connection.execute("INSERT INTO schema_version (version) VALUES (2)")
+                    elif version == 2:
+                        _create_diagnostic_events(connection)
+                        connection.execute("INSERT INTO schema_version (version) VALUES (3)")
+                    elif version == 3:
+                        _migrate_v3_to_v4(connection)
+                        connection.execute("INSERT INTO schema_version (version) VALUES (4)")
+                    elif version == 4:
+                        _migrate_v4_to_v5(connection)
+                        connection.execute("INSERT INTO schema_version (version) VALUES (5)")
+                    version += 1
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                connection.close()
+                raise
         else:
             try:
                 connection.execute("BEGIN IMMEDIATE")
@@ -144,6 +296,75 @@ class V2Repository:
                 "updated_at=datetime('now')",
                 (key, value),
             )
+
+    def rotate_web_admin_password(
+        self,
+        *,
+        expected_password_hash: str,
+        new_password_hash: str,
+        new_session_secret: str,
+        recovery_code_hash: str | None = None,
+        now: datetime | None = None,
+    ) -> bool:
+        """Atomically replace the administrator password and session signer.
+
+        When a recovery hash is supplied, its expiry and single-use state are
+        checked and consumed in the same transaction as the credential change.
+        The expected hash is a compare-and-swap guard for concurrent changes.
+        """
+        try:
+            encrypted = self._secret_store.encrypt(new_session_secret)
+        except SecretStoreError as exc:
+            raise ConfigurationInvalid("Session credential cannot be saved") from exc
+        instant = now or datetime.now(timezone.utc)
+        with self.transaction() as connection:
+            current_hash = connection.execute(
+                "SELECT setup_value FROM setup_state WHERE setup_key='web_admin_hash'"
+            ).fetchone()
+            if current_hash is None or not hmac.compare_digest(current_hash[0], expected_password_hash):
+                return False
+            if recovery_code_hash is not None:
+                rows = dict(connection.execute(
+                    "SELECT setup_key, setup_value FROM setup_state "
+                    "WHERE setup_key IN ('v2_recovery_hash', 'v2_recovery_expires_at')"
+                ).fetchall())
+                try:
+                    expires_at = datetime.fromisoformat(rows.get("v2_recovery_expires_at", ""))
+                except ValueError:
+                    return False
+                stored_hash = rows.get("v2_recovery_hash", "")
+                if (expires_at.tzinfo is None or instant >= expires_at
+                        or not hmac.compare_digest(stored_hash, recovery_code_hash)):
+                    return False
+
+            connection.execute(
+                "INSERT INTO credential_sequences(service, next_version) VALUES ('web_session', 1) "
+                "ON CONFLICT(service) DO NOTHING"
+            )
+            version = int(connection.execute(
+                "SELECT next_version FROM credential_sequences WHERE service='web_session'"
+            ).fetchone()[0])
+            connection.execute(
+                "INSERT INTO credentials(service, version, encrypted_value) VALUES ('web_session', ?, ?)",
+                (version, encrypted),
+            )
+            connection.execute(
+                "UPDATE credential_sequences SET next_version=? WHERE service='web_session'",
+                (version + 1,),
+            )
+            connection.executemany(
+                "INSERT INTO setup_state(setup_key, setup_value) VALUES (?, ?) "
+                "ON CONFLICT(setup_key) DO UPDATE SET setup_value=excluded.setup_value, "
+                "updated_at=datetime('now')",
+                (("web_admin_hash", new_password_hash),
+                 ("web_session_credential_version", str(version))),
+            )
+            if recovery_code_hash is not None:
+                connection.execute(
+                    "UPDATE setup_state SET setup_value='', updated_at=datetime('now') "
+                    "WHERE setup_key IN ('v2_recovery_hash', 'v2_recovery_expires_at')"
+                )
+        return True
 
     def get_setting(self, key: str) -> str | None:
         with self.read() as connection:
@@ -346,6 +567,72 @@ class V2Repository:
         return tuple(int(row[0]) for row in rows)
 
     @contextmanager
+    def profile_lease(self, profile_id: int, revision: int) -> Iterator[None]:
+        """Keep one saved profile revision and its credential from pruning."""
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT service, credential_version FROM profile_revisions "
+                "WHERE profile_id=? AND revision=?",
+                (profile_id, revision),
+            ).fetchone()
+            if row is None:
+                raise ConfigurationInvalid("Profile revision is unavailable")
+            profile_key = (profile_id, revision)
+            credential_key = (row["service"], int(row["credential_version"]))
+            self._profile_leases[profile_key] = self._profile_leases.get(profile_key, 0) + 1
+            self._credential_leases[credential_key] = self._credential_leases.get(credential_key, 0) + 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                _decrement_lease(self._profile_leases, profile_key)
+                _decrement_lease(self._credential_leases, credential_key)
+
+    @contextmanager
+    def lease_processing_profile_rows(
+        self, validator_version: str
+    ) -> Iterator[tuple[sqlite3.Row, ...] | None]:
+        """Atomically snapshot roles and lease their revisions and credentials."""
+        with self._lock:
+            rows = tuple(
+                self.connection.execute(
+                    "SELECT pr.role, p.profile_id, p.name, r.revision, r.service, r.mode, "
+                    "r.audio_model, r.text_model, r.credential_version, r.system_prompt, "
+                    "r.refine_template, r.limits_json, r.created_at "
+                    "FROM profile_roles pr "
+                    "JOIN profiles p ON p.profile_id=pr.profile_id "
+                    "JOIN profile_revisions r ON r.profile_id=pr.profile_id AND r.revision=pr.revision "
+                    "WHERE pr.role='primary' OR EXISTS ("
+                    "SELECT 1 FROM profile_test_receipts t "
+                    "WHERE t.profile_id=pr.profile_id AND t.revision=pr.revision "
+                    "AND t.recorded_order=(SELECT MAX(latest.recorded_order) "
+                    "FROM profile_test_receipts latest WHERE latest.profile_id=pr.profile_id "
+                    "AND latest.revision=pr.revision) AND t.success=1 "
+                    "AND t.credential_service=r.service "
+                    "AND t.credential_version=r.credential_version "
+                    "AND t.validator_version=?) "
+                    "ORDER BY CASE pr.role WHEN 'primary' THEN 0 ELSE 1 END",
+                    (validator_version,),
+                ).fetchall()
+            )
+            if not any(row["role"] == "primary" for row in rows):
+                rows = ()
+            for row in rows:
+                profile_key = (int(row["profile_id"]), int(row["revision"]))
+                credential_key = (row["service"], int(row["credential_version"]))
+                self._profile_leases[profile_key] = self._profile_leases.get(profile_key, 0) + 1
+                self._credential_leases[credential_key] = self._credential_leases.get(credential_key, 0) + 1
+        try:
+            yield rows or None
+        finally:
+            with self._lock:
+                for row in rows:
+                    profile_key = (int(row["profile_id"]), int(row["revision"]))
+                    credential_key = (row["service"], int(row["credential_version"]))
+                    _decrement_lease(self._profile_leases, profile_key)
+                    _decrement_lease(self._credential_leases, credential_key)
+
+    @contextmanager
     def credential_lease(self, service: CredentialOwner, version: int) -> Iterator[None]:
         """Keep a credential version available while a request is using it."""
         key = (service, version)
@@ -400,6 +687,12 @@ class V2Repository:
                 and connection.execute(
                     "SELECT 1 FROM config_references "
                     "WHERE credential_service = ? AND credential_version = ?",
+                    (row["service"], row["version"]),
+                ).fetchone()
+                is None
+                and connection.execute(
+                    "SELECT 1 FROM profile_revisions "
+                    "WHERE service = ? AND credential_version = ?",
                     (row["service"], row["version"]),
                 ).fetchone()
                 is None

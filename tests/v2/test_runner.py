@@ -77,6 +77,23 @@ async def test_refinement_failure_returns_partial_transcript(tmp_path, config_va
     assert result.partial and result.text == "spoken" and result.models == ("chosen-audio",)
 
 
+async def test_eligible_refinement_failure_reaches_fallback_only_when_present(tmp_path, config_values):
+    class ProviderFailure(Adapter):
+        async def refine(self, text, model, system, template):
+            self.calls.append(("refine", model, text, system, template))
+            raise ServiceFailure("provider_server_error", "refinement", "safe provider failure")
+
+    audio=tmp_path / "sample.mp3"; audio.write_bytes(b"synthetic")
+    runner=TranscriptionRunner(Pool(ProviderFailure()), tmp_path)
+    partial=await runner.run(_snapshot(config_values), audio)
+    assert partial.partial and partial.text == "spoken"
+
+    with pytest.raises(ServiceFailure) as captured:
+        await runner.run(_snapshot(config_values), audio, allow_partial_refinement=False)
+    assert captured.value.code == "provider_server_error"
+    assert captured.value.fallback_eligible is True
+
+
 async def test_empty_transcription_is_failure(tmp_path, config_values):
     class Empty(Adapter):
         async def transcribe(self, audio, model): return StageResult("  ", model)

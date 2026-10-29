@@ -8,10 +8,11 @@ This repository is also a practical experiment in agent-assisted software
 development. The project began as a learning exercise, but the bot is used in
 practice and is maintained as a small, real-world application.
 
-This checkout contains the V2 implementation through S6 and is still under
-development, not a production release. V2 provides browser setup, authenticated
-configuration and access pages, explicit audio tests, Telegram audio handling,
-bounded metadata-only diagnostics, and an operator-run V1 migration. No real
+This checkout contains the V2 implementation through S6 plus the profile
+catalog and fallback amendment, and is still under development, not a
+production release. V2 provides browser setup, authenticated configuration
+and access pages, explicit audio tests, Telegram audio handling, bounded
+metadata-only diagnostics, and operator-run migration procedures. No real
 database migration or external Telegram/provider call was performed during
 development.
 
@@ -21,8 +22,13 @@ development.
 - Two fixed audio paths: multimodal, or transcription and refinement on the
   same service.
 - Private voice/audio processing and automatic processing in authorized groups.
-- A browser workbench with distinct active and draft revisions; activation
-  requires an explicit successful test of the current draft.
+- A browser catalog for saved transcription profiles, with immutable revisions,
+  role status, CRUD, duplication, and a bundled short sample or explicit upload
+  for testing.
+- A main profile and optional tested fallback. Main can be assigned without a
+  successful test only after explicit confirmation and remains marked
+  unverified; fallback always requires a valid test for its current revision
+  and credential.
 - Authenticated owner, private-user, and group access management.
 - A dashboard and diagnostics page showing runtime, test, and group-receipt
   state without storing transcripts or provider response bodies.
@@ -40,10 +46,17 @@ Download -> FFmpeg MP3 conversion -> Provider transcription
       -> LLM refinement -> Telegram delivery
 ```
 
-The selected provider and models come from the active SQLite configuration.
+The selected provider and models come from the active main profile in SQLite.
 Environment variables cannot override models, prompts, provider credentials,
 or processing limits. A test result stays in process memory briefly; the
-database stores only the proof metadata required for activation.
+database stores only proof metadata. Telegram requests acquire a main/fallback
+snapshot before processing, so changing a role does not change an in-flight
+request. The fallback is attempted at most once, only for typed provider
+timeouts, network errors, HTTP 429, or HTTP 5xx. Empty/invalid output and other
+failures do not trigger it. A fallback attempt can incur an additional charge
+from its provider; the primary provider may already have billed the failed
+attempt. Provider billing is separate, and the application does not promise a
+combined cross-provider cost total.
 
 ## Requirements
 
@@ -72,7 +85,8 @@ database stores only the proof metadata required for activation.
    `docker compose exec bot python -m bot.v2_setup_code`, open the web UI at
    `http://localhost:8086`, and create the web administrator. Then connect
    the Telegram bot and confirm the proposed owner from the browser. The web
-   password may be any nonempty value; no length or character-class rules apply.
+   password may use any nonempty text; no minimum length or character-class
+   rules apply. Passwords are limited to 72 UTF-8 bytes by bcrypt.
 
 Manage private users and authorized groups at `/admin/access`. Guided invites
 require confirmation of the identity observed by the bot; operators can also
@@ -83,6 +97,9 @@ the bot to be an administrator or to have privacy mode disabled in @BotFather;
 after changing privacy mode, remove and re-add the bot. The Access page keeps
 bot membership and the most recent observed voice receipt as separate states.
 It does not retrieve group history.
+The same page includes **Password amministratore**: enter the current password
+and the new password twice. A successful change closes other web sessions and
+keeps the current session active.
 
 Choose “Cerca modello” to open the searchable catalog for the selected service
 and role. Results show names and IDs separately; OpenRouter results can also be
@@ -109,11 +126,22 @@ the basis for authorization. An existing key stays associated with the active co
 choosing a different one requires saving and testing a new draft before activation.
 
 This checkout's V2 implementation is not a production release. A browser test
-uses the configured provider only after the operator uploads audio and presses
-“Avvia prova”; its temporary file is removed after processing. Telegram uses
-only the active revision, and the bot removes its downloaded audio after the
-request completes. The diagnostics page retains at most 100 metadata events for
-seven days.
+uses the configured provider only after the operator chooses the included
+sample or uploads audio and presses “Avvia prova”; temporary audio is removed
+after processing. Telegram uses the main profile and may make one eligible
+fallback attempt. The bot removes its downloaded audio after the request
+completes. The diagnostics page retains at most 100 metadata events for seven
+days and records normalized fallback outcomes without audio or transcript text.
+
+When a fallback is actually used, the owner receives a bounded Telegram notice
+with the two profile names, timestamp, failed stage/category, and final status.
+It contains no audio, transcript, credential, or raw provider error. Notices
+are rate-limited; notification failure does not change the transcription
+result.
+
+The browser test reports upload progress and, when processing completes, lists
+the actual audio conversion, submitted format, and provider stages. This short
+session result contains no audio or transcript in the diagnostic list.
 
 For local administrator recovery, run
 `docker compose exec bot python -m bot.v2_recovery` (or
@@ -145,7 +173,11 @@ refuses to create the host path when it is missing. Use the default
 `docker compose up -d --build` command for empty V2 setup.
 Back up the database and `.master_key-v2` together from this volume and keep the
 backup private; the encrypted credentials cannot be recovered from the database
-without the matching key. Do not use a running database file copy as a backup.
+without the matching key. Stop the application before copying these files; do
+not copy a live SQLite database as a backup. Runtime startup takes an
+OS-level single-instance lock for the configured V2 database. A second live
+process using that database is refused; stop the first process before starting
+another instance against it.
 
 ## Local installation
 
@@ -179,10 +211,18 @@ brew install ffmpeg
 
 ## Configuration
 
-V2 settings, credentials, ACL, active and draft revisions are stored in the
-separate application database. The V2 runtime ignores legacy model and prompt
+V2 settings, credentials, ACL, profile revisions, role assignments, test
+receipts, and rollback-to-previous-main state are stored in the separate
+application database. The V2 runtime ignores legacy model and prompt
 environment variables and never imports `authorized.json`. Use the browser to
 configure and test a draft before activation.
+
+On startup, V2 upgrades an existing V2 schema transactionally into the profile
+schema, carrying forward its active, draft, previous-main references and
+compatible test receipts. This schema upgrade is distinct from the manual V1
+copy-import command below. Keep a stopped-service backup of the database and
+matching master key before upgrading; a failed V2 update can be rolled back by
+stopping the app and restoring that pair together.
 
 The authenticated overview and `/admin/diagnostics` page show whether a
 configuration is active, Telegram is running, a matching test succeeded, and a
@@ -195,16 +235,19 @@ The migration command is manual, reads only operator-created copies, and never
 activates or certifies an imported profile. No real migration is performed by
 the application or by this development work.
 
-After setup, choose one provider and either its multimodal path or its
-transcription-plus-refinement path. Save a draft, upload a synthetic or
-authorized audio sample, and press **Avvia prova**. Only a successful test of
-the unchanged draft and credential version enables **Attiva**. A later edit
-requires another test. Provider/model catalog entries are candidates, not
-quality recommendations. Use [V2 validation](docs/V2-VALIDATION.md) for the
-operator's model comparison and release checks.
+After setup, create or select a profile and choose one provider and either its
+multimodal path or its transcription-plus-refinement path. Save a revision and
+test it with the bundled sample or an authorized upload. Assigning it as main
+without a successful test requires an explicit confirmation and leaves it
+marked unverified. A fallback profile must have a successful test for its
+current revision and credential. Later edits create a revision that needs a
+new test before it can serve as fallback. Provider/model catalog entries are
+candidates, not quality recommendations. Use [V2 validation](docs/V2-VALIDATION.md)
+for the operator's model comparison and release checks.
 
 To recover from a failed update, stop the current container and restore the
-matching application database and master key from the same backup. For a V1
+matching application database and master key from the same stopped-service
+backup. For a V1
 rollback, follow the migration instructions and restart the preserved V1
 image with its original volume; V2 changes do not sync back to V1.
 

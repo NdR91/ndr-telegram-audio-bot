@@ -360,18 +360,45 @@
     if (!setFormBusy(true)) return;
     successfulTest = null;
     $('#activate').disabled = true;
-    $('#test-status').textContent = 'Prova in corso…'; $('#test-result').hidden = true;
+    $('#test-status').textContent = 'Preparazione del caricamento…'; $('#test-result').hidden = true; $('#test-diagnostics').hidden = true;
     const generation = editGeneration;
     const testedRevision = revision;
     const form = new FormData(); form.append('revision', String(revision)); form.append('audio', $('#audio-file').files[0]);
     try {
-      const response = await fetch('/api/transcription/test', { method: 'POST', headers: { 'x-csrf-token': state.csrf }, body: form });
-      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Prova non riuscita.');
+      const data = await new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('POST', '/api/transcription/test');
+        request.setRequestHeader('x-csrf-token', state.csrf);
+        request.upload.addEventListener('progress', event => {
+          if (event.lengthComputable) {
+            $('#test-status').textContent = `Caricamento del file: ${Math.round(event.loaded / event.total * 100)}%.`;
+          }
+        });
+        request.upload.addEventListener('load', () => {
+          $('#test-status').textContent = 'File caricato. Conversione audio e chiamata al servizio in corso…';
+        });
+        request.addEventListener('load', () => {
+          let payload;
+          try { payload = JSON.parse(request.responseText); }
+          catch { reject(new Error('Risposta non valida dal server.')); return; }
+          if (request.status < 200 || request.status >= 300) reject(new Error(payload.error || 'Prova non riuscita.'));
+          else resolve(payload);
+        });
+        request.addEventListener('error', () => reject(new Error('Connessione interrotta durante la prova.')));
+        request.addEventListener('abort', () => reject(new Error('Caricamento della prova interrotto.')));
+        request.send(form);
+      });
       if (data.result) {
         $('#result-text').textContent = data.result.text;
         $('#result-meta').textContent = data.result.models.join(' → ') + ' · ' + data.result.duration_ms + ' ms · costo ' + (data.result.cost || 'non disponibile');
         $('#test-result').hidden = false;
       }
+      const diagnostics = data.result?.diagnostics || data.diagnostics || [];
+      const steps = $('#test-steps');
+      steps.replaceChildren(...diagnostics.map(message => {
+        const item = document.createElement('li'); item.textContent = message; return item;
+      }));
+      $('#test-diagnostics').hidden = !diagnostics.length;
       successfulTest = data.status === 'succeeded' && data.revision === testedRevision
         && revision === testedRevision && generation === editGeneration ? data.id : null;
       if (data.status === 'succeeded' && !successfulTest) {
