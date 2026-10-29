@@ -33,7 +33,7 @@ function element(id, defaults = {}) {
   return item;
 }
 const ids = [
-  "service", "draft-form", "credential", "credential-version", "audio-model-id",
+  "service", "draft-form", "credential", "credential-label", "credential-version", "audio-model-id",
   "text-model-id", "text-model", "audio-model", "audio-model-search", "text-model-search", "text-model-wrap", "system-prompt",
   "refine-template", "max-file-size", "max-user", "max-global", "cooldown",
   "transcribe-timeout", "refine-timeout", "queue-enabled", "draft-state", "save-status",
@@ -100,7 +100,9 @@ const fetch = async (url, options = {}) => {
 };
 const window = { v2Page: {
   csrf: "synthetic-csrf", draft: initialDraft, active: null,
-  credentials: { openai: { configured: true, credential_version: 1 } },
+  credentials: { openai: { configured: true, credential_version: 2, keys: [
+    { version: 1, label: 'Personale' }, { version: 2, label: 'Lavoro' },
+  ] } },
 }, V2TranscriptionState: helper };
 const context = {
   window, document, fetch, FormData, Option: FakeOption, URLSearchParams, console,
@@ -117,6 +119,9 @@ async function fire(target, name, event = {}) {
 
 (async () => {
   assert.ok(form.listeners.submit, "draft submit handler is wired");
+  assert.equal(elements.get('credential-version').value, '1', 'an existing draft keeps its selected key');
+  assert.deepEqual(elements.get('credential-version').options.map(option => option.textContent),
+    ['Scegli una chiave', 'Personale', 'Lavoro']);
   const runTest = elements.get("run-test");
   const activate = elements.get("activate");
   const file = elements.get("audio-file");
@@ -154,4 +159,9 @@ async function fire(target, name, event = {}) {
   await fire(form, "submit");
   assert.equal(draft.revision, 3, "a fresh draft can be created after activation");
   assert.equal(runTest.disabled, false, "the new saved draft re-enables testing");
+  elements.get('credential-version').value = '2';
+  await fire(form, 'change', { target: elements.get('credential-version') });
+  assert.equal(runTest.disabled, true, 'changing keys invalidates the proof until a new draft is saved');
+  await fire(form, 'submit');
+  assert.equal(draft.credential_version, 2, 'the selected saved key is bound to the new draft');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

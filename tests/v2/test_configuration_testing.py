@@ -33,6 +33,22 @@ def test_test_uses_same_runner_and_exact_revision(repo, config_values, ready_pre
     assert activated == revision
 
 
+def test_saved_older_key_remains_testable_after_adding_another(repo, config_values, ready_prerequisites, tmp_path):
+    repo.put_credential_with_state('openai', 'synthetic-first', 'openai_credential_version', saved_label='First')
+    repo.put_credential_with_state('openai', 'synthetic-second', 'openai_credential_version', saved_label='Second')
+    configuration = ConfigurationService(repo, lambda: ready_prerequisites)
+    draft = configuration.save_draft(None, config_values)
+
+    class Runner:
+        async def run(self, snapshot, audio):
+            assert snapshot.values.credential_version == 1
+            return ProcessingResult('Synthetic text', False, ('model',), 1)
+
+    result = asyncio.run(ConfigurationTestService(configuration, Runner()).run(draft.number, tmp_path / 'sample.wav'))
+    assert result.status == 'succeeded'
+    assert configuration.activate(draft.number) == draft
+
+
 def test_changed_draft_rejects_old_test_and_partial_result_cannot_activate(
     repo, config_values, ready_prerequisites, tmp_path
 ):

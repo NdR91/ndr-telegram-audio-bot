@@ -27,7 +27,9 @@
 
   function credentialNeedsUpdate(draft, credentials) {
     if (!draft) return false;
-    const current = credentials?.[draft.service]?.credential_version;
+    const info = credentials?.[draft.service];
+    if (Array.isArray(info?.keys)) return !info.keys.some(key => key.version === draft.credential_version);
+    const current = info?.credential_version;
     return Boolean(current && current !== draft.credential_version);
   }
 

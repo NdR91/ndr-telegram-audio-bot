@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Save and select multiple encrypted API keys per service, with optional
+  names. Existing configurations retain their original credential; selecting a
+  different key in a draft requires a fresh test before activation.
+
 - Curated role-specific model choices, searchable longer lists and an advanced
   manual ID field replace the unfiltered OpenAI model list. OpenAI file
   transcription now offers `gpt-transcribe`; Gemini choices are limited to

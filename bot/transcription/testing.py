@@ -49,9 +49,14 @@ class ConfigurationTestService:
                         "SELECT MAX(version) FROM credentials WHERE service = ?",
                         (snapshot.values.service,),
                     ).fetchone()[0]
+                    saved_key = connection.execute(
+                        'SELECT 1 FROM setup_state WHERE setup_key = ?',
+                        (f'saved_key:{snapshot.values.service}:{snapshot.values.credential_version}',),
+                    ).fetchone()
                 unchanged = (current_draft is not None
                              and current_draft.number == snapshot.number
-                             and int(current_credential or 0) == snapshot.values.credential_version)
+                             and (saved_key is not None or
+                                  int(current_credential or 0) == snapshot.values.credential_version))
                 succeeded = not result.partial and unchanged
                 view = TestView(test_id, revision, "succeeded" if succeeded else "failed",
                                 result=result,

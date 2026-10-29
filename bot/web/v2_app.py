@@ -417,9 +417,14 @@ def create_app(settings: DeploymentSettings | None = None,
         result = {}
         with repo.read() as connection:
             for provider in ("openai", "gemini", "openrouter"):
-                row = connection.execute("SELECT MAX(version) FROM credentials WHERE service = ?", (provider,)).fetchone()
-                version = int(row[0]) if row and row[0] is not None else 0
-                result[provider] = {"configured": version > 0, "credential_version": version or None}
+                rows = connection.execute(
+                    "SELECT c.version, s.setup_value FROM credentials c LEFT JOIN setup_state s "
+                    "ON s.setup_key = ('saved_key:' || c.service || ':' || c.version) "
+                    "WHERE c.service = ? ORDER BY c.version", (provider,),
+                ).fetchall()
+                keys = [{"version": int(row[0]), "label": row[1] or f"Chiave {row[0]}"} for row in rows]
+                version = keys[-1]["version"] if keys else None
+                result[provider] = {"configured": bool(keys), "credential_version": version, "keys": keys}
         return result
 
     @app.get("/api/transcription/draft")
@@ -443,7 +448,7 @@ def create_app(settings: DeploymentSettings | None = None,
                 credential_version=int(body["credential_version"]),
                 system_prompt=str(body.get("system_prompt", "")),
                 refine_template=str(body.get("refine_template", "")), limits=limits)
-            revision = services.configuration.save_draft(body.get("expected_revision"), values)
+            revision = services.configuration.save_draft(body.get("expected_revision"), values, preserve_credential=True)
             return {"draft": revision_payload(revision)}
         except RevisionConflict as exc:
             return JSONResponse({"error": str(exc)}, status_code=409)
@@ -460,9 +465,17 @@ def create_app(settings: DeploymentSettings | None = None,
             service = body.get("service")
             if service not in {"openai", "gemini", "openrouter"}:
                 raise ValueError("Servizio non valido.")
-            version = repo.put_credential_with_state(service, str(body.get("credential", "")),
-                                                     f"{service}_credential_version")
-            return {"service": service, "credential_version": version, "configured": True}
+            credential = body.get("credential", "")
+            label = body.get("label", "")
+            if not isinstance(credential, str) or not isinstance(label, str):
+                raise ValueError("Chiave o nome non validi.")
+            label = label.strip()
+            if len(label) > 80 or (credential and credential in label):
+                raise ValueError("Scegli un nome breve che non contenga la chiave.")
+            version = repo.put_credential_with_state(service, credential,
+                                                     f"{service}_credential_version", saved_label=label)
+            return {"service": service, "credential_version": version, "configured": True,
+                    "keys": credential_status()[service]["keys"]}
         except (ValueError, ConfigurationInvalid) as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
 

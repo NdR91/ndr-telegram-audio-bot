@@ -39,7 +39,7 @@
     $('#text-model-id').value = draft.text_model || '';
     renderModels($('#audio-model'), $('#audio-model-search'), draft.audio_model);
     renderModels($('#text-model'), $('#text-model-search'), draft.text_model || '');
-    $('#credential-version').value = currentCredential || draft.credential_version;
+    renderCredentials(draft.credential_version);
     $('#system-prompt').value = draft.system_prompt;
     $('#refine-template').value = draft.refine_template;
     $('#max-file-size').value = draft.limits.max_file_size_mb;
@@ -114,10 +114,11 @@
     if (!setFormBusy(true)) return;
     try {
       const response = await fetch('/api/transcription/credentials', { method: 'POST', headers,
-        body: JSON.stringify({ service: service.value, credential: key }) });
+      body: JSON.stringify({ service: service.value, credential: key, label: $('#credential-label').value }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Salvataggio non riuscito.');
-      $('#credential-version').value = data.credential_version; $('#credential').value = '';
-      state.credentials[service.value] = { configured: true, credential_version: data.credential_version };
+      $('#credential').value = ''; $('#credential-label').value = '';
+      state.credentials[service.value] = { configured: true, credential_version: data.credential_version, keys: data.keys };
+      renderCredentials(data.credential_version);
       editGeneration += 1;
       credentialNeedsUpdate = transcriptionState.credentialNeedsUpdate(state.draft, state.credentials);
       showCredentialState();
@@ -129,18 +130,20 @@
     const credential = state.credentials?.[service.value];
     if (!credential?.configured) {
       $('#credential-state').textContent = 'Nessuna chiave salvata per questo servizio. La chiave non viene mostrata di nuovo.';
-      if (!revision || state.draft?.service !== service.value) $('#credential-version').value = '';
       return;
     }
-    const version = credential.credential_version;
-    const draftVersion = revision !== null && state.draft?.service === service.value
-      ? state.draft.credential_version : null;
-    $('#credential-state').textContent = draftVersion && draftVersion !== version
-      ? `Chiave configurata · versione ${version}. Il salvataggio aggiornerà la bozza dalla versione ${draftVersion}.`
-      : `Chiave configurata · versione ${version}. La chiave non viene mostrata di nuovo.`;
-    if (!revision || state.draft?.service !== service.value) $('#credential-version').value = version;
+    $('#credential-state').textContent = 'Le chiavi salvate sono cifrate e non vengono mostrate di nuovo.';
   }
-  service.addEventListener('change', () => { clearModels(true); showCredentialState(); });
+  function renderCredentials(selected) {
+    const info = state.credentials?.[service.value];
+    const keys = info?.keys || (info?.credential_version ? [{version: info.credential_version, label: 'Chiave ' + info.credential_version}] : []);
+    const select = $('#credential-version');
+    select.replaceChildren(new Option(keys.length ? 'Scegli una chiave' : 'Nessuna chiave salvata', ''));
+    keys.forEach(key => select.add(new Option(key.label, key.version)));
+    const version = keys.some(key => String(key.version) === String(selected)) ? selected : info?.credential_version;
+    select.value = version == null ? '' : String(version);
+  }
+  service.addEventListener('change', () => { clearModels(true); renderCredentials(null); showCredentialState(); });
   const modelLists = { 'audio-model': [], 'text-model': [] };
   function clearModels(clearIds) {
     for (const id of ['audio-model', 'text-model']) {
@@ -245,6 +248,7 @@
     finally { setFormBusy(false); }
   });
   loadDraft(state.draft);
+  if (!state.draft) renderCredentials(null);
   showCredentialState();
   if (state.active) $('#active-summary').textContent = state.active.service + ' · ' + state.active.audio_model + ' · revisione ' + state.active.revision;
 })();

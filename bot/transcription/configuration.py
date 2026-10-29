@@ -53,7 +53,7 @@ class ConfigurationService:
         return _revision_from_row(row) if row else None
 
     def save_draft(
-        self, expected_revision: int | None, values: ConfigInput
+        self, expected_revision: int | None, values: ConfigInput, *, preserve_credential: bool = False
     ) -> ConfigRevision:
         _validate_config(values)
         with self._repo.transaction() as connection:
@@ -75,6 +75,11 @@ class ConfigurationService:
             ).fetchone()
             if credential is None:
                 raise ConfigurationInvalid("Selected credential version is unavailable")
+            if preserve_credential:
+                connection.execute(
+                    'INSERT OR IGNORE INTO setup_state(setup_key, setup_value) VALUES (?, ?)',
+                    (f'saved_key:{values.service}:{values.credential_version}', f'Chiave {values.credential_version}'),
+                )
             row = connection.execute(
                 "SELECT next_revision FROM revision_sequence WHERE singleton = 1"
             ).fetchone()
@@ -152,7 +157,11 @@ class ConfigurationService:
                 "SELECT MAX(version) FROM credentials WHERE service = ?",
                 (draft["service"],),
             ).fetchone()[0]
-            if int(latest_credential or 0) != int(draft["credential_version"]):
+            saved_key = connection.execute(
+                'SELECT 1 FROM setup_state WHERE setup_key = ?',
+                (f'saved_key:{draft["service"]}:{draft["credential_version"]}',),
+            ).fetchone()
+            if not saved_key and int(latest_credential or 0) != int(draft["credential_version"]):
                 raise TestRequired("Credential changed; save and test the draft again")
             receipt = connection.execute(
                 "SELECT success, credential_version, validator_version "

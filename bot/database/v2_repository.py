@@ -257,7 +257,7 @@ class V2Repository:
 
     def put_credential_with_state(
         self, service: CredentialOwner, plaintext: str, version_key: str,
-        state: dict[str, str] | None = None,
+        state: dict[str, str] | None = None, saved_label: str | None = None,
     ) -> int:
         """Encrypt a credential and replace its setup-state reference atomically."""
         if service not in ("telegram", "web_session", "openai", "gemini", "openrouter"):
@@ -285,6 +285,15 @@ class V2Repository:
             )
             values = dict(state or {})
             values[version_key] = str(version)
+            if saved_label is not None:
+                for row in connection.execute('SELECT version FROM credentials WHERE service=?', (service,)):
+                    old_version = int(row[0])
+                    if old_version != version:
+                        connection.execute(
+                            'INSERT OR IGNORE INTO setup_state(setup_key, setup_value) VALUES (?, ?)',
+                            (f'saved_key:{service}:{old_version}', f'Chiave {old_version}'),
+                        )
+                values[f'saved_key:{service}:{version}'] = saved_label or f'Chiave {version}'
             connection.executemany(
                 "INSERT INTO setup_state(setup_key, setup_value) VALUES (?, ?) ON CONFLICT(setup_key) DO UPDATE SET setup_value=excluded.setup_value, updated_at=datetime('now')",
                 values.items(),
@@ -359,6 +368,10 @@ class V2Repository:
                 if (row["service"], int(row["version"])) not in self._credential_leases
                 and int(row["version"]) != latest[row["service"]]
                 and (row["service"], int(row["version"])) not in setup_references
+                and connection.execute(
+                    'SELECT 1 FROM setup_state WHERE setup_key = ?',
+                    (f'saved_key:{row["service"]}:{row["version"]}',),
+                ).fetchone() is None
                 and connection.execute(
                     "SELECT 1 FROM config_references "
                     "WHERE credential_service = ? AND credential_version = ?",

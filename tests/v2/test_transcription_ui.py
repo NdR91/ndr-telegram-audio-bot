@@ -40,7 +40,8 @@ async def test_ui_separates_active_draft_and_escapes_test_output(tmp_path):
         assert "loadCatalog('refinement'" in javascript
         assert "state.credentials" in javascript
         assert "transcriptionState.credentialNeedsUpdate(state.draft, state.credentials)" in javascript
-        assert "$('#credential-version').value = currentCredential || draft.credential_version" in javascript
+        assert 'id="credential-version"' in response.text
+        assert 'id="credential-label"' in response.text
     services.repo.close()
 
 

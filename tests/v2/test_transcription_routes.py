@@ -9,6 +9,41 @@ from bot.web.auth import hash_password
 from bot.web.v2_app import create_app
 
 
+async def test_multiple_saved_keys_are_selectable_without_exposing_secrets(tmp_path):
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-admin-password"))
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        csrf = (await client.post("/api/login", json={"password": "synthetic-admin-password"})).json()["csrf_token"]
+        headers = {"x-csrf-token": csrf}
+        for label, key in (("Personale", "synthetic-secret-one"), ("Lavoro", "synthetic-secret-two")):
+            response = await client.post('/api/transcription/credentials', headers=headers,
+                json={"service": "openai", "credential": key, "label": label})
+            assert response.status_code == 200
+            assert key not in response.text
+        status = await client.get('/api/transcription/draft')
+        keys = status.json()['credentials']['openai']['keys']
+        assert [(item['version'], item['label']) for item in keys] == [(1, 'Personale'), (2, 'Lavoro')]
+        assert 'synthetic-secret' not in status.text
+        services.repo.prune_credentials()
+        assert services.repo.credential_versions('openai') == (1, 2)
+        values = {"service": "openai", "mode": "multimodal", "audio_model": "gpt-audio-1.5",
+                  "text_model": None, "credential_version": 1, "system_prompt": "Faithful",
+                  "refine_template": "{raw_text}", "limits": {}, "expected_revision": None}
+        saved = await client.put('/api/transcription/draft', json=values, headers=headers)
+        assert saved.status_code == 200
+        assert saved.json()['draft']['credential_version'] == 1
+    services.repo.close()
+    restarted = build_services(settings)
+    try:
+        assert restarted.repo.credential_versions('openai') == (1, 2)
+        assert restarted.repo.get_setup_state('saved_key:openai:1') == 'Personale'
+        assert restarted.repo.get_setup_state('saved_key:openai:2') == 'Lavoro'
+    finally:
+        restarted.repo.close()
+
+
 async def test_routes_require_auth_csrf_and_expected_revision(tmp_path):
     settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
     services = build_services(settings)
@@ -28,7 +63,8 @@ async def test_routes_require_auth_csrf_and_expected_revision(tmp_path):
         saved = await client.put("/api/transcription/draft", json=body, headers={"x-csrf-token": csrf})
         assert saved.status_code == 200
         status = await client.get("/api/transcription/draft")
-        assert status.json()["credentials"]["openai"] == {"configured": True, "credential_version": 1}
+        assert status.json()["credentials"]["openai"] == {"configured": True, "credential_version": 1,
+                                                        "keys": [{"version": 1, "label": "Chiave 1"}]}
         assert "synthetic-api-key" not in status.text
         stale = {**body, "expected_revision": 999}
         conflict = await client.put("/api/transcription/draft", json=stale, headers={"x-csrf-token": csrf})
