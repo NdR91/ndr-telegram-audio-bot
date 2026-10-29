@@ -188,8 +188,10 @@
   }
   function updateProfileActions() {
     const dirty = isDirty();
-    const uploadWithoutFile = document.querySelector('input[name="test-source"]:checked').value === 'upload'
-      && !document.querySelector('#audio-file').files.length;
+    const upload = document.querySelector('input[name="test-source"]:checked').value === 'upload';
+    const audioFile = document.querySelector('#audio-file');
+    audioFile.disabled = !upload;
+    const uploadWithoutFile = upload && !audioFile.files.length;
     document.querySelector('#run-test').disabled = !selected || dirty || uploadWithoutFile;
     document.querySelector('#activate').disabled = !selected || dirty;
   }

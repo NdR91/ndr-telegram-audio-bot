@@ -144,3 +144,10 @@ Task: form in Accessi; verifica password attuale, CSRF e limite tentativi; aggio
 Verifiche: 43 test mirati Python passati con `dotenv.load_dotenv` disattivato, un warning passlib/crypt; tre test Node passati; `git diff --check` pulito. Suite completa non ripetuta: 254 test già verificati nella sessione precedente. Review indipendente su atomicità, sessioni e concorrenza; nessun dato operativo letto.
 Problemi aperti: browser non disponibile per verifica visiva; detector Impeccable segnala possibile contrasto basso generico nelle schermate setup/recovery senza identificare selettori. I gate operativi S7 restano pendenti.
 Prossima azione precisa: verificare Accessi, setup e recovery in browser su desktop/mobile e completare i gate operativi secondo `docs/V2-VALIDATION.md`.
+
+Sessione / data: correzione prova con campione — 29 ottobre 2026
+Stato: fix implementato e verificato offline; verifica browser con il servizio effettivo ancora pendente.
+Branch / worktree: `main` / `/home/ndr/config/telegram-audio-bot`.
+Task: il busy gate delega al catalogo il calcolo delle azioni e conserva la selezione corretta tra campione incluso e upload; aggiunta regressione integrata per le due sorgenti e il salvataggio credenziali.
+Verifiche: `tests/v2/test_transcription_ui.py` con `dotenv.load_dotenv` disattivato → 6 passed, un warning passlib/crypt. Suite completa non ripetuta: 268 test verificati nella sessione precedente. Nessun dato operativo letto.
+Prossima azione precisa: verificare il flusso in browser con il profilo salvato; i gate operativi S7 restano pendenti.

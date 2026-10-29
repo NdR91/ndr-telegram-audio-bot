@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including sanitized conversion failures. Audio and transcript content are
   excluded from the trace.
 
+### Fixed
+
+- Keep the bundled-sample test available without an uploaded file after profile controls leave their busy state.
+
 ### Changed
 
 - Replaced the long native model menu with a searchable catalog dialog with

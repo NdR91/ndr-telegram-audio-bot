@@ -96,9 +96,14 @@
   }
   function hasSavedDraft() { return savedGeneration !== null && savedGeneration === editGeneration; }
   function updateTestButton() {
+    if (window.V2ProfileCatalog?.selected) return;
     $('#run-test').disabled = revision === null || !hasSavedDraft() || credentialNeedsUpdate || !$('#audio-file').files.length;
   }
   function updateActionStates() {
+    if (window.V2ProfileCatalog?.selected) {
+      window.V2ProfileCatalog.updateActions();
+      return;
+    }
     updateTestButton();
     $('#activate').disabled = !successfulTest || !hasSavedDraft() || credentialNeedsUpdate;
   }
@@ -356,6 +361,7 @@
   ['audio', 'text'].forEach(role => $('#' + role + '-model-id').addEventListener('input', () => syncModelSummary(role)));
   service.addEventListener('change', () => { clearModels(true); renderCredentials(null); showCredentialState(); });
   $('#run-test').addEventListener('click', async () => {
+    if (window.V2ProfileCatalog?.selected) return;
     if (revision === null || !hasSavedDraft() || credentialNeedsUpdate) return;
     if (!setFormBusy(true)) return;
     successfulTest = null;
