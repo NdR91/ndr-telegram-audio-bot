@@ -4,7 +4,7 @@ import httpx
 
 from bot.deployment import DeploymentSettings
 from bot.services import build_services
-from bot.transcription.models import ProcessingResult
+from bot.transcription.models import ConfigInput, ProcessingResult, RuntimeLimits
 from bot.transcription.testing import TestView
 from bot.web.auth import hash_password
 from bot.web.v2_app import create_app
@@ -263,4 +263,39 @@ async def test_profile_revision_can_be_updated_to_a_new_saved_credential(tmp_pat
         })
         assert saved.status_code == 200
         assert saved.json()["profile"]["values"]["credential_version"] == 2
+    services.repo.close()
+
+
+async def test_migrated_profile_with_null_draft_can_save_role_revision(tmp_path):
+    settings = DeploymentSettings(tmp_path, tmp_path / "app-v2.sqlite3", tmp_path / "key")
+    services = build_services(settings)
+    services.repo.set_setup_state("web_admin_hash", hash_password("synthetic-admin-password"))
+    services.repo.put_credential("openai", "synthetic-api-key")
+    values = {"service": "openai", "mode": "multimodal", "audio_model": "old-model",
+              "text_model": None, "credential_version": 1, "system_prompt": "Faithful",
+              "refine_template": "{raw_text}", "limits": {}}
+    profile = services.profiles.create("Migrated profile", ConfigInput(
+        "openai", "multimodal", "old-model", None, 1, "Faithful", "{raw_text}", RuntimeLimits(),
+    ))
+    services.profiles.assign_role("primary", profile.profile_id, profile.revision, expected_generation=0)
+    with services.repo.transaction() as connection:
+        connection.execute("UPDATE profile_drafts SET revision=NULL WHERE profile_id=?", (profile.profile_id,))
+    app = create_app(settings, services)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        csrf = (await client.post("/api/login", json={"password": "synthetic-admin-password"})).json()["csrf_token"]
+        headers = {"x-csrf-token": csrf}
+        detail = (await client.get(f"/api/profiles/{profile.profile_id}")).json()["profile"]
+        assert detail["revision"] == profile.revision
+        changed_values = {**values, "audio_model": "new-model"}
+        saved = await client.put(f"/api/profiles/{profile.profile_id}", headers=headers, json={
+            "expected_revision": detail["revision"], "expected_generation": detail["generation"],
+            "name": detail["name"], "values": changed_values,
+        })
+        assert saved.status_code == 200
+        assert saved.json()["profile"]["values"]["audio_model"] == "new-model"
+        stale = await client.put(f"/api/profiles/{profile.profile_id}", headers=headers, json={
+            "expected_revision": detail["revision"], "expected_generation": detail["generation"],
+            "name": detail["name"], "values": values,
+        })
+        assert stale.status_code == 409
     services.repo.close()

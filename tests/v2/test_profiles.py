@@ -169,19 +169,36 @@ def test_catalog_duplicate_and_global_role_generation(repo, config_values):
         service.assign_role("primary", duplicate.profile_id, duplicate.revision, expected_generation=0)
 
 
-def test_catalog_reports_active_revision_when_profile_has_no_draft(repo, config_values):
+@pytest.mark.parametrize("draft_state", ["missing", "null"])
+def test_catalog_reports_active_revision_when_profile_has_no_draft(repo, config_values, draft_state):
     repo.put_credential("openai", "synthetic-key")
     service = ProfileService(repo)
     profile = service.create("Primary", config_values)
     service.record_test(profile.profile_id, _receipt(profile.revision))
     service.assign_role("primary", profile.profile_id, profile.revision, expected_generation=0)
     with repo.transaction() as connection:
-        connection.execute("DELETE FROM profile_drafts WHERE profile_id=?", (profile.profile_id,))
+        if draft_state == "missing":
+            connection.execute("DELETE FROM profile_drafts WHERE profile_id=?", (profile.profile_id,))
+        else:
+            connection.execute("UPDATE profile_drafts SET revision=NULL WHERE profile_id=?", (profile.profile_id,))
 
     entry = service.list_profiles()[0]
     assert entry.current_revision is None
     assert entry.role_revision == profile.revision
     assert entry.verification_state == "verified"
+
+    updated = service.save_revision(
+        profile.profile_id, entry.role_revision, expected_generation=entry.generation,
+        name="Primary updated", values=replace(config_values, audio_model="updated-audio"),
+    )
+    assert updated.revision > profile.revision
+    assert updated.values.audio_model == "updated-audio"
+
+    with pytest.raises(RevisionConflict):
+        service.save_revision(
+            profile.profile_id, entry.role_revision, expected_generation=entry.generation,
+            name="Stale update", values=config_values,
+        )
 
 
 def test_catalog_reports_assigned_revision_proof_separately_from_current_draft(repo, config_values):

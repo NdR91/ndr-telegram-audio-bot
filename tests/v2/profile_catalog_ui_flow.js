@@ -24,7 +24,7 @@ function element(id) {
   return item;
 }
 const ids = [
-  'profile-list', 'profile-status', 'profile-editor', 'draft-form', 'profile-name',
+  'profile-list', 'profile-status', 'profile-editor', 'profile-editor-view', 'profile-catalog', 'catalog-active', 'draft-form', 'profile-name',
   'profile-confirmation', 'profile-delete-confirmation', 'profile-confirmation-title',
   'profile-confirmation-copy', 'profile-unverified-wrap', 'profile-unverified',
   'profile-confirm-action', 'profile-delete-copy', 'profile-delete-action', 'sample-description',
@@ -32,6 +32,7 @@ const ids = [
   'audio-model-id', 'text-model-id', 'system-prompt', 'refine-template', 'max-file-size',
   'max-user', 'max-global', 'cooldown', 'transcribe-timeout', 'refine-timeout', 'queue-enabled',
   'active-title', 'draft-title', 'save-draft', 'test-status', 'audio-file', 'result-text',
+  'editor-breadcrumb', 'page-title', 'page-description', 'profiles-title', 'back-to-catalog',
   'result-meta', 'test-result', 'test-diagnostics', 'credential-state', 'credential-label',
   'credential', 'rename-credential-label', 'rename-credential', 'save-credential',
   'load-models', 'load-text-models', 'text-model-wrap', 'draft-state', 'save-status',
@@ -69,6 +70,13 @@ const initial = {
   role: 'fallback', role_revision: 2, role_values: { service: 'openai', mode: 'multimodal', audio_model: 'role-model', text_model: null },
   verification: 'retest_required', role_verification: 'retest_required', last_test: null,
 };
+let currentUrl = new URL('http://test/admin/transcription');
+let confirmResult = true;
+const history = {
+  pushState(_state, _title, url) { currentUrl = new URL(url, currentUrl); location.pathname = currentUrl.pathname; location.search = currentUrl.search; },
+  replaceState(_state, _title, url) { currentUrl = new URL(url, currentUrl); location.pathname = currentUrl.pathname; location.search = currentUrl.search; },
+};
+const location = { pathname: currentUrl.pathname, search: currentUrl.search };
 let profile = { ...initial };
 let rolePayload = null;
 const roleCalls = [];
@@ -100,13 +108,18 @@ const fetch = async (url, options = {}) => {
   }
   throw new Error('Unexpected request ' + url);
 };
-const window = { v2Page: { csrf: 'synthetic-csrf', credentials: {} }, prompt: () => null, confirm: () => true };
-vm.runInNewContext(source, { window, document, fetch, Option: FakeOption, FormData, Date, URLSearchParams, console });
+const window = { v2Page: { csrf: 'synthetic-csrf', credentials: {} }, prompt: () => null, confirm: () => confirmResult,
+  addEventListener() {}, scrollTo() {} };
+document.title = 'Configurazione e prova · Audio Bot';
+vm.runInNewContext(source, { window, document, fetch, history, location, Option: FakeOption, FormData, Date, URLSearchParams, console });
 
 async function run() {
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(elements.get('profile-list').children.length, 1, 'catalog renders a profile row');
   const card = elements.get('profile-list').children[0];
+  const template = fs.readFileSync('bot/web/templates/v2_transcription.html', 'utf8');
+  assert.ok(template.indexOf('id="profile-status"') < template.indexOf('id="profile-catalog"'), 'status stays outside the view hidden while the editor is open');
+  assert.equal(elements.get('profile-editor-view').hidden, true, 'catalog opens without showing the editor');
   assert.ok(card.children[0].children[0].children[0].textContent === '<Profilo>', 'profile names are assigned as text');
   assert.match(card.children[0].children[0].children[1].textContent, /role-model/, 'assigned runtime summary uses role_values');
   assert.doesNotMatch(card.children[0].children[0].children[1].textContent, /draft-model/, 'draft values are not shown as active');
@@ -114,28 +127,47 @@ async function run() {
   assert.match(card.children[0].children[0].children[3].textContent, /salvata 3.*usa la revisione 2/);
   assert.match(elements.get('sample-description').textContent, /1\.8 secondi/);
   await elements.get('create-profile').listeners.click[0]();
+  assert.match(location.search, /new=1/, 'new profile has a reloadable editor URL');
+  assert.equal(elements.get('profile-editor-view').hidden, false, 'creation opens a separate editor view');
+  assert.equal(elements.get('profile-catalog').hidden, true, 'the catalog is hidden while editing');
   assert.equal(elements.get('run-test').disabled, true, 'a new unsaved profile cannot be tested yet');
   assert.match(elements.get('test-status').textContent, /Salva il profilo senza eseguire una prova/i, 'the disabled test explains that saving does not require a test');
-  const edit = card.children[1].children.find(button => button.textContent === 'Modifica');
+  const edit = card.children[1].children.find(button => button.textContent === 'Modifica profilo');
   await edit.listeners.click[0]();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(location.search, /profile=profile-one/, 'profile editor has a reloadable profile URL');
+  assert.equal(elements.get('editor-breadcrumb').textContent, '<Profilo>');
+  assert.equal(elements.get('profile-status').hidden, false, 'status region remains visible in the editor view');
   assert.equal(elements.get('run-test').disabled, false, 'opening a clean saved profile enables its default sample test');
   assert.equal(elements.get('activate').disabled, false, 'opening a clean saved profile enables the role action');
-  const fallbackAction = card.children[1].children.find(button => button.textContent === 'Imposta fallback');
-  await fallbackAction.listeners.click[0]();
-  assert.equal(elements.get('profile-confirm-action').disabled, true, 'an unverified profile cannot be assigned as fallback');
-  assert.match(elements.get('profile-confirmation-copy').textContent, /prova valida/i, 'fallback confirmation explains its test prerequisite');
-  const actions = card.children[1].children;
+  elements.get('profile-name').value = 'Unsaved name';
+  confirmResult = false;
+  await elements.get('back-to-catalog').listeners.click[0]({ preventDefault() {} });
+  assert.equal(elements.get('profile-editor-view').hidden, false, 'canceling the discard prompt keeps the editor open');
+  assert.match(location.search, /profile=profile-one/, 'canceling the discard prompt keeps the editor URL');
+  confirmResult = true;
+  await elements.get('back-to-catalog').listeners.click[0]({ preventDefault() {} });
+  assert.equal(elements.get('profile-editor-view').hidden, true, 'confirmed navigation returns to the catalog');
+  assert.equal(location.search, '', 'returning to the catalog clears the editor query');
+  const actionMenu = card.children[1].children.find(node => node.className === 'v2-profile-more').children[1];
+  const actions = actionMenu.children;
   assert.ok(card.children[0].children[0].children.some(node => /prova da ripetere/.test(node.textContent)), 'assigned roles display role_verification instead of the general test state');
   const clear = actions.find(button => button.textContent === 'Rimuovi fallback');
   await clear.listeners.click[0]();
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(roleCalls[0], ['/api/profiles/roles/fallback/clear', { expected_generation: 8 }]);
+  const unassignedCard = elements.get('profile-list').children[0];
+  const unassignedMenu = unassignedCard.children[1].children.find(node => node.className === 'v2-profile-more').children[1];
+  await unassignedMenu.children.find(button => button.textContent === 'Imposta fallback').listeners.click[0]();
+  assert.equal(elements.get('profile-confirm-action').disabled, true, 'an unverified profile cannot be assigned as fallback');
+  assert.match(elements.get('profile-confirmation-copy').textContent, /prova valida/i, 'fallback confirmation explains its test prerequisite');
+  elements.get('profile-confirmation').close();
   await elements.get('restore').listeners.click[0]({ preventDefault() {}, stopImmediatePropagation() {} });
   assert.deepEqual(roleCalls[1], ['/api/profiles/roles/primary/restore', { expected_generation: 9 }]);
   assert.match(elements.get('profile-status').textContent, /Non esiste/);
   await new Promise(resolve => setImmediate(resolve));
   const refreshedCard = elements.get('profile-list').children[0];
-  const refreshedActions = refreshedCard.children[1].children;
+  const refreshedActions = refreshedCard.children[1].children.find(node => node.className === 'v2-profile-more').children[1].children;
   const mainAction = refreshedActions.find(button => button.textContent === 'Imposta principale');
   await mainAction.listeners.click[0]();
   assert.equal(elements.get('profile-confirmation').open, true, 'main activation requires a confirmation dialog');

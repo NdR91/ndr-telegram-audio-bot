@@ -206,8 +206,8 @@ When behavior changes:
   output is memory-only and short-lived.
 - `bot/web/v2_app.py`, `bot/web/templates/v2_transcription.html`,
   `bot/web/static/profile_catalog.js`, and `transcription.js`: authenticated
-  profile CRUD/roles, revision-bound sample/upload test, model picker, and
-  existing credential tools.
+  card catalog and separate profile editor, profile CRUD/roles, revision-bound
+  sample/upload test, model picker, and existing credential tools.
 - `bot/web/templates/v2_access.html`, `bot/web/static/access.js`: authenticated V2 access management, guided pairing confirmation, advanced IDs and separate group membership/receipt status.
 - `bot/web/templates/diagnostics.html`: overview and bounded diagnostic history.
 - `bot/rate_limiter.py`: concurrency admission and queueing.

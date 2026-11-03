@@ -127,11 +127,20 @@ class ProfileService:
                     "SELECT revision, generation FROM profile_drafts WHERE profile_id=?",
                     (profile_id,),
                 ).fetchone()
-                if profile is None or draft is None:
+                if profile is None:
                     raise ConfigurationInvalid("Profile not found")
-                current_revision = int(draft["revision"]) if draft["revision"] is not None else None
+                role = connection.execute(
+                    "SELECT revision FROM profile_roles WHERE profile_id=?",
+                    (profile_id,),
+                ).fetchone()
+                draft_revision = draft["revision"] if draft is not None else None
+                role_revision = role["revision"] if role is not None else None
+                current_revision = draft_revision if draft_revision is not None else role_revision
+                current_revision = int(current_revision) if current_revision is not None else None
                 if current_revision != expected_revision or int(profile["generation"]) != expected_generation:
                     raise RevisionConflict("Profile changed; reload its latest revision")
+                if draft is None and current_revision is None:
+                    raise ConfigurationInvalid("Profile not found")
                 _ensure_name_available(connection, name, exclude_profile_id=profile_id)
                 _require_credential(connection, values.service, values.credential_version)
                 connection.execute(
@@ -146,11 +155,18 @@ class ProfileService:
                     "refine_template, limits_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     _revision_values(profile_id, revision, values),
                 )
-                connection.execute(
-                    "UPDATE profile_drafts SET revision=?, generation=generation+1 "
-                    "WHERE profile_id=?",
-                    (revision, profile_id),
-                )
+                if draft is None:
+                    connection.execute(
+                        "INSERT INTO profile_drafts(profile_id, revision, generation) "
+                        "VALUES (?, ?, 1)",
+                        (profile_id, revision),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE profile_drafts SET revision=?, generation=generation+1 "
+                        "WHERE profile_id=?",
+                        (revision, profile_id),
+                    )
                 _advance_revision(connection, revision)
         except sqlite3.IntegrityError as exc:
             if "unique constraint failed: profiles.name" in str(exc).lower():

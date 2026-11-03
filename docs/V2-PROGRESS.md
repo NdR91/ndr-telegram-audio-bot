@@ -158,3 +158,10 @@ Branch / worktree: `main` / `/home/ndr/config/telegram-audio-bot`.
 Task: ricalcolo azioni dopo scelta modello, protezione prove concorrenti e risultati tardivi, aggiornamento verifica dopo prova, URL script versionati e indicazioni esplicite sul salvataggio senza prova e attivazione manuale.
 Verifiche: 11 test mirati UI/API passati con dotenv disattivato, warning passlib/crypt; Chromium headless con app/DB temporanei e provider simulato ha verificato salvataggio senza prova, scelta stesso/altro modello, prova pendente e attivazione. Nessun provider o database operativo letto nelle prove.
 Prossima azione: verifica dell'operatore nel browser con servizio effettivo; gate operativi S7 restano pendenti.
+
+Sessione / data: catalogo profili e conflitto salvataggio — 3 novembre 2026
+Stato: implementato e verificato offline; verifica browser e deployment operativo pendenti.
+Branch / worktree: `main` / `/home/ndr/config/telegram-audio-bot`.
+Task: catalogo a card e viste dedicate a creazione e modifica, avviso modifiche non salvate e feedback visibile; salvataggio di profili con revisione assegnata ma bozza assente o vuota, mantenendo il controllo transazionale dei conflitti.
+Verifiche: suite completa con `dotenv.load_dotenv` disattivato prima della raccolta: 270 test passati, warning noto passlib/crypt; test mirati 26 passati. Harness UI JavaScript con dati sintetici; browser reale non disponibile. Nessun database operativo o provider reale usato per le prove e nessun deployment effettuato.
+Problemi aperti: confermare il flusso nel browser e nel servizio effettivo dopo aggiornamento da parte dell'operatore; i gate S7 restano pendenti. Il caso riprodotto spiega un possibile 409 ma lo stato del database operativo non è stato esaminato.

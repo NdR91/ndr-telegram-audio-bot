@@ -38,12 +38,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allow profiles migrated with an active revision but no draft revision to be
+  edited and saved, while retaining concurrent-change protection.
+
 - Keep the bundled-sample test available without an uploaded file after profile controls leave their busy state.
 - Recalculate profile test availability after model-picker choices and refresh the selected profile's verification after a successful test.
 - Keep in-flight profile tests busy and ignore late results when the selected profile or revision has changed or been deleted.
 - Version the profile workbench scripts by content so browsers load button-state fixes after an update; clarify that saving and manually assigning an untested main profile do not require an audio test.
 
 ### Changed
+
+- Present transcription profiles as cards and open creation and editing in a
+  separate view, with a warning before leaving unsaved changes.
 
 - Replaced the long native model menu with a searchable catalog dialog with
   readable results, provider and price filters, keyboard navigation, and a

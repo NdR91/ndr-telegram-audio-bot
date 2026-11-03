@@ -46,10 +46,10 @@ const ids = [
   "service", "draft-form", "credential", "credential-label", "credential-version", "rename-credential-label", "rename-credential", "audio-model-id",
   "text-model-id", "text-model-wrap", "system-prompt",
   "refine-template", "max-file-size", "max-user", "max-global", "cooldown",
-  "transcribe-timeout", "refine-timeout", "queue-enabled", "draft-state", "save-status",
+  "transcribe-timeout", "refine-timeout", "queue-enabled", "draft-title", "draft-state", "save-status",
   "save-credential", "credential-state", "load-models", "load-text-models", "audio-file",
   "run-test", "test-status", "test-result", "test-diagnostics", "test-steps", "result-text", "result-meta", "activate",
-  "restore", "active-summary", "max-label", "audio-model-current", "text-model-current",
+  "restore", "active-title", "active-summary", "max-label", "audio-model-current", "text-model-current",
   "audio-model-description", "text-model-description", "model-picker", "model-picker-title",
   "model-picker-role", "model-picker-search", "model-provider-filter", "model-provider-filter-wrap",
   "model-price-controls", "model-sort", "model-free-prompt", "model-free-completion",
@@ -57,7 +57,8 @@ const ids = [
   "profile-list", "profile-status", "profile-name", "profile-confirmation", "profile-delete-confirmation",
   "profile-confirmation-title", "profile-confirmation-copy", "profile-unverified-wrap", "profile-unverified",
   "profile-confirm-action", "profile-delete-copy", "profile-delete-action", "sample-description",
-  "create-profile", "profile-editor", "test-result", "test-diagnostics", "test-steps",
+  "create-profile", "profile-editor", "profile-editor-view", "profile-catalog", "catalog-active",
+  "editor-breadcrumb", "page-title", "page-description", "profiles-title", "back-to-catalog", "test-result", "test-diagnostics", "test-steps",
 ];
 ids.forEach((id) => element(id));
 element("save-draft");
@@ -196,9 +197,16 @@ const window = { v2Page: {
   credentials: { openai: { configured: true, credential_version: 2, keys: [
     { version: 1, label: 'Personale' }, { version: 2, label: 'Lavoro' },
   ] } },
-}, V2TranscriptionState: helper, prompt: () => null };
+}, V2TranscriptionState: helper, prompt: () => null, confirm: () => true, addEventListener() {}, scrollTo() {} };
+let currentUrl = new URL("http://test/admin/transcription");
+const location = { pathname: currentUrl.pathname, search: currentUrl.search };
+const history = {
+  pushState(_state, _title, url) { currentUrl = new URL(url, currentUrl); location.pathname = currentUrl.pathname; location.search = currentUrl.search; },
+  replaceState(_state, _title, url) { currentUrl = new URL(url, currentUrl); location.pathname = currentUrl.pathname; location.search = currentUrl.search; },
+};
+document.title = "Configurazione e prova · Audio Bot";
 const context = {
-  window, document, fetch, FormData, XMLHttpRequest: FakeXMLHttpRequest, Option: FakeOption, URLSearchParams, console,
+  window, document, fetch, history, location, URL, FormData, XMLHttpRequest: FakeXMLHttpRequest, Option: FakeOption, URLSearchParams, console,
   setTimeout, clearTimeout,
 };
 vm.runInNewContext(fs.readFileSync(`${__dirname}/../../bot/web/static/transcription.js`, "utf8"), context);
@@ -218,6 +226,13 @@ async function fire(target, name, event = {}) {
     if (payload.stopped) break;
   }
 }
+function cardAction(card, label) {
+  const actions = card.children[1];
+  const direct = actions.children.find(node => node.textContent === label);
+  if (direct) return direct;
+  const menu = actions.children.find(node => node.className === "v2-profile-more");
+  return menu?.children[1].children.find(node => node.textContent === label);
+}
 const runTest = elements.get('run-test');
 const activate = elements.get('activate');
 const file = elements.get('audio-file');
@@ -226,6 +241,7 @@ const file = elements.get('audio-file');
   if (catalogPath) {
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(elements.get('profile-list').children.length, 1, 'catalog script loads alongside the existing workbench');
+    assert.equal(elements.get('profile-editor-view').hidden, true, 'catalog initially shows without the editor');
     file.files = [new Blob(['synthetic audio'], { type: 'audio/wav' })];
     await fire(file, 'change');
     assert.equal(runTest.disabled, true, 'legacy draft state cannot enable the profile test before profile selection');
@@ -235,9 +251,12 @@ const file = elements.get('audio-file');
     assert.equal(requests.some(url => ['/api/transcription/test', '/api/transcription/activate', '/api/transcription/draft'].includes(url)), false,
       'profile mode suppresses all legacy submit, test and activation requests');
     const profileCard = elements.get('profile-list').children[0];
-    const edit = profileCard.children[1].children.find(button => button.textContent === 'Modifica');
+    const edit = cardAction(profileCard, 'Modifica profilo');
     await edit.listeners.click[0].callback();
     await new Promise(resolve => setImmediate(resolve));
+    assert.match(location.search, /profile=1/, 'the editor can be reopened from its profile URL');
+    assert.equal(elements.get('profile-editor-view').hidden, false, 'selecting a profile opens the separate editor view');
+    assert.equal(elements.get('profile-catalog').hidden, true, 'the catalog is hidden in the editor view');
     window.V2ProfileCatalog.updateActions();
     assert.equal(runTest.disabled, false, 'opening a saved profile enables its default sample test');
     await click('load-models');
@@ -304,7 +323,7 @@ const file = elements.get('audio-file');
     await click('activate');
     assert.equal(requests.some(url => url.endsWith('/role')), false, 'dirty profile cannot be assigned');
     const cleanProfileCard = elements.get('profile-list').children[0];
-    await cleanProfileCard.children[1].children.find(button => button.textContent === 'Modifica').listeners.click[0].callback();
+    await cardAction(cleanProfileCard, 'Modifica profilo').listeners.click[0].callback();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(file.disabled, true, 'the included sample keeps the upload picker disabled when a profile opens');
     elements.get('rename-credential-label').value = 'Rinominata';
@@ -326,7 +345,7 @@ const file = elements.get('audio-file');
     assert.equal(window.v2Page.credentials.openai.credential_version, 3, 'credential updates remain visible to the profile editor without reload');
     assert.equal(runTest.disabled, true, 'choosing the new credential makes the saved profile dirty until it is reopened or saved');
     const refreshedCard = elements.get('profile-list').children[0];
-    await refreshedCard.children[1].children.find(button => button.textContent === 'Modifica').listeners.click[0].callback();
+    await cardAction(refreshedCard, 'Modifica profilo').listeners.click[0].callback();
     assert.ok(elements.get('credential-version').options.some(option => option.textContent === 'Nuova'), 'profile editor reads the updated shared key catalog');
     await click('load-models');
     assert.equal(elements.get('model-picker').open, true, 'model catalog remains available in profile mode');
@@ -334,7 +353,7 @@ const file = elements.get('audio-file');
     const deletedProfileTest = click('run-test');
     await new Promise(resolve => setImmediate(resolve));
     const selectedCard = elements.get('profile-list').children[0];
-    await selectedCard.children[1].children.find(button => button.textContent === 'Elimina').listeners.click[0].callback();
+    await cardAction(selectedCard, 'Elimina profilo').listeners.click[0].callback();
     await click('profile-delete-action');
     assert.equal(window.V2ProfileCatalog.selected, null, 'deleting a selected profile clears the editor selection');
     completeProfileTest();

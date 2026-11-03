@@ -101,6 +101,11 @@ The same page includes **Password amministratore**: enter the current password
 and the new password twice. A successful change closes other web sessions and
 keeps the current session active.
 
+The Transcription page opens with profile cards. Select “Modifica” on a card
+to open its editor, or create a new profile from the catalog. Save changes
+before running the bundled audio sample or an uploaded-file test; assigning a
+saved revision to a role is a separate action.
+
 Choose “Cerca modello” to open the searchable catalog for the selected service
 and role. Results show names and IDs separately; OpenRouter results can also be
 filtered by model provider. For OpenRouter, prices are shown separately for

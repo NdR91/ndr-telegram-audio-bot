@@ -139,7 +139,7 @@
 .model-picker-metadata { display: flex; flex-wrap: wrap; gap: .25rem .6rem; grid-column: 2; margin: 0; }
 .model-picker-metadata > div { min-width: 5.3rem; }
 .model-picker-metadata dt { color: var(--color-text-muted); font-size: .62rem; font-weight: 700; letter-spacing: .025em; text-transform: uppercase; }
-.model-picker-metadata dd { font-size: .72rem; line-height: 1.25; margin: .02rem 0 0; overflow-wrap: anywhere; }
+.model-picker-metadata dd { font-size: .875rem; line-height: 1.4; margin: .02rem 0 0; overflow-wrap: anywhere; }
 .model-picker-card > button { grid-column: 3; grid-row: 1; min-height: 36px; padding: .42rem .65rem; white-space: nowrap; }
 .model-picker-more { background: transparent; border: 0; color: oklch(0.29 0.08 195); cursor: pointer; font: inherit; font-size: .84rem; margin: 0 .9rem .7rem; padding: .4rem; text-decoration: underline; text-underline-offset: 3px; }
 .model-picker-more:focus-visible { outline: 3px solid oklch(0.61 0.16 43 / .48); outline-offset: 2px; }
@@ -161,7 +161,7 @@
   .v2-config-checkpoints { gap: .2rem; }
   .v2-config-checkpoints li { gap: .3rem; }
   .v2-config-checkpoints li:not(:last-child)::after { width: .35rem; }
-  .v2-config-checkpoints b { font-size: .72rem; white-space: normal; }
+  .v2-config-checkpoints b { font-size: .875rem; white-space: normal; }
 }
 
 @media (prefers-reduced-motion: reduce) {

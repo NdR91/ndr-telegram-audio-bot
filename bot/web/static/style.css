@@ -2268,16 +2268,33 @@ button.cap-pill:disabled {
 .v2-profile-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 0 0 14px; border-bottom: 1px solid var(--admin-edge); }
 .v2-profile-heading h2 { font-size: 1.05rem; letter-spacing: -.02em; }
 .v2-profile-heading p { margin-top: 4px; color: var(--admin-muted); font-size: .84rem; }
-.v2-profile-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 0 28px; margin: 0; padding: 0; list-style: none; }
-.v2-profile-list > li { min-width: 0; padding: 16px 0; border-bottom: 1px solid var(--admin-edge); }
+.v2-profile-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.v2-profile-list > li { min-width: 0; padding: 18px; border: 1px solid var(--admin-edge); border-radius: 10px; background: var(--admin-panel); }
+.v2-profile-list > li:last-child { border-bottom: 1px solid var(--admin-edge); }
 .v2-profile-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
 .v2-profile-info { min-width: 0; }
-.v2-profile-info strong { display: block; overflow-wrap: anywhere; font-size: .92rem; }
-.v2-profile-info p { margin: 4px 0 0; color: var(--admin-muted); font-size: .8rem; line-height: 1.5; overflow-wrap: anywhere; }
-.v2-profile-role { display: inline-block; margin-top: 7px; padding: 3px 7px; border-radius: 3px; background: oklch(0.92 0.025 155); color: oklch(0.31 0.08 155); font-size: .72rem; font-weight: 700; }
-.v2-profile-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 11px; }
-.v2-profile-actions button { min-height: 34px; padding: 5px 9px; font-size: .76rem; }
-.v2-profile-catalog [role=status] { min-height: 1.4em; margin: 9px 0 0; color: var(--admin-muted); font-size: .83rem; }
+.v2-profile-info strong { display: block; overflow-wrap: anywhere; font-size: .98rem; }
+.v2-profile-info p { margin: 5px 0 0; color: var(--admin-muted); font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; }
+.v2-profile-role { display: inline-block; margin-top: 8px; padding: 4px 8px; border-radius: 4px; background: oklch(0.92 0.025 155); color: oklch(0.31 0.08 155); font-size: .8125rem; font-weight: 700; }
+.v2-profile-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 16px; }
+.v2-profile-actions > .btn { min-height: 40px; padding: 7px 11px; font-size: .875rem; }
+.v2-profile-more { position: relative; }
+.v2-profile-more summary { min-height: 40px; display: flex; align-items: center; padding: 7px 10px; border: 1px solid var(--admin-edge); border-radius: 6px; color: var(--admin-ink); cursor: pointer; font-size: .875rem; font-weight: 600; }
+.v2-profile-more summary:hover { background: oklch(0.94 0.012 170); }
+.v2-profile-more summary:focus-visible, .v2-profile-menu button:focus-visible, .v2-editor-nav a:focus-visible { outline: 3px solid oklch(0.48 0.13 205); outline-offset: 2px; }
+.v2-profile-menu { display: grid; gap: 4px; position: absolute; z-index: 3; top: calc(100% + 5px); right: 0; min-width: 205px; padding: 7px; border: 1px solid var(--admin-edge); border-radius: 8px; background: var(--admin-panel); box-shadow: 0 8px 24px oklch(0.15 0.02 205 / .16); }
+.v2-profile-menu button { justify-content: flex-start; min-height: 38px; padding: 7px 9px; text-align: left; font-size: .875rem; }
+.v2-profile-status { min-height: 1.4em; margin: -14px 0 18px; color: var(--admin-muted); font-size: .875rem; }
+.v2-editor-nav { display: flex; align-items: center; gap: 10px; margin: -8px 0 20px; color: var(--admin-muted); font-size: .875rem; }
+.v2-editor-nav a { color: var(--admin-accent-strong, oklch(0.37 0.08 205)); font-weight: 650; text-underline-offset: 3px; }
+.v2-editor-nav a:hover { text-decoration-thickness: 2px; }
+#profile-editor-view[hidden], #profile-catalog[hidden], #catalog-active[hidden] { display: none; }
+@media (max-width: 520px) {
+    .v2-profile-list { grid-template-columns: minmax(0, 1fr); }
+    .v2-profile-list > li { padding: 15px; }
+    .v2-profile-actions { align-items: stretch; }
+    .v2-profile-menu { right: auto; left: 0; }
+}
 #profile-confirmation, #profile-delete-confirmation { width: min(100% - 32px, 480px); padding: 24px; border: 1px solid var(--admin-edge); border-radius: 8px; color: var(--admin-ink); background: var(--admin-panel); }
 #profile-confirmation::backdrop, #profile-delete-confirmation::backdrop { background: oklch(0.12 0.03 205 / .52); }
 #profile-confirmation h2, #profile-delete-confirmation h2 { font-size: 1.1rem; }

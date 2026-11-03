@@ -5,6 +5,9 @@
   const list = document.querySelector('#profile-list');
   const status = document.querySelector('#profile-status');
   const workbench = document.querySelector('.v2-columns');
+  const editorView = document.querySelector('#profile-editor-view');
+  const catalogView = document.querySelector('#profile-catalog');
+  const catalogActive = document.querySelector('#catalog-active');
   const draftForm = document.querySelector('#draft-form');
   const nameInput = document.querySelector('#profile-name');
   const confirmation = document.querySelector('#profile-confirmation');
@@ -13,10 +16,12 @@
   let catalog = { profiles: [], roles_generation: 0, sample: null };
   let selected = null;
   let savedForm = null;
+  let entrySignature = null;
   let pendingRole = null;
   let pendingDelete = null;
   let busy = false;
   let testRunning = false;
+  let activeUrl = location.pathname + location.search;
 
   const el = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -65,12 +70,16 @@
         info.append(el('p', Number.isNaN(parsed.valueOf()) ? 'Ultima prova registrata' : 'Ultima prova · ' + parsed.toLocaleString()));
       } else info.append(el('p', 'Nessuna prova registrata'));
       const actions = el('div', undefined, 'v2-profile-actions');
-      actions.append(action('Modifica', () => editProfile(profile.id), true));
-      actions.append(action('Duplica', () => duplicateProfile(profile)));
-      actions.append(action('Imposta principale', () => chooseRole(profile, 'main')));
-      actions.append(action('Imposta fallback', () => chooseRole(profile, 'fallback')));
-      if (profile.role === 'fallback') actions.append(action('Rimuovi fallback', () => clearFallback(profile)));
-      actions.append(action('Elimina', () => chooseDelete(profile)));
+      actions.append(action('Modifica profilo', () => navigateTo(`/admin/transcription?profile=${encodeURIComponent(profile.id)}`), true));
+      const more = el('details', undefined, 'v2-profile-more');
+      const menu = el('div', undefined, 'v2-profile-menu');
+      menu.append(action('Duplica', () => duplicateProfile(profile)));
+      if (profile.role !== 'main') menu.append(action('Imposta principale', () => chooseRole(profile, 'main')));
+      if (profile.role !== 'fallback') menu.append(action('Imposta fallback', () => chooseRole(profile, 'fallback')));
+      if (profile.role === 'fallback') menu.append(action('Rimuovi fallback', () => clearFallback(profile)));
+      menu.append(action('Elimina profilo', () => chooseDelete(profile)));
+      more.append(el('summary', 'Altre azioni'), menu);
+      actions.append(more);
       row.append(info);
       item.append(row, actions);
       list.append(item);
@@ -123,21 +132,32 @@
     const queue = document.querySelector('#queue-enabled');
     if (queue) queue.checked = Boolean(limits.queue_enabled);
     workbench.hidden = false;
+    editorView.hidden = false;
+    catalogView.hidden = true;
+    catalogActive.hidden = true;
     savedForm = formSignature();
+    entrySignature = savedForm;
     document.querySelector('#active-title').textContent = 'Modifica profilo';
     document.querySelector('#draft-title').textContent = 'Modifica profilo';
+    document.querySelector('#editor-breadcrumb').textContent = profile.name || 'Modifica profilo';
+    document.querySelector('#page-title').textContent = 'Modifica profilo';
+    document.querySelector('#page-description').textContent = 'Modifica i valori del profilo, salva una nuova revisione e, se vuoi, esegui una prova audio.';
     document.querySelector('#save-draft').textContent = 'Salva profilo';
     document.querySelector('#test-status').textContent = 'Scegli campione o upload e avvia una prova per questa revisione.';
     document.querySelector('#audio-file').disabled = document.querySelector('input[name="test-source"]:checked').value !== 'upload';
     updateProfileActions();
     document.querySelector('#profile-name').focus();
   }
-  async function editProfile(id) {
-    status.textContent = 'Caricamento del profilo…';
+  async function editProfile(id, showLoading = false) {
+    if (showLoading) status.textContent = 'Caricamento del profilo…';
     try {
       const data = await request('/api/profiles/' + encodeURIComponent(id));
       populate(data.profile);
+      document.title = `Modifica ${data.profile.name} · Configurazione e prova`;
+      if (showLoading) status.textContent = 'Profilo caricato.';
+      return true;
     } catch (error) { status.textContent = error.message; }
+    return false;
   }
   function newProfile() {
     selected = null;
@@ -161,13 +181,62 @@
     credentialSelect.replaceChildren(new Option('Scegli una chiave', ''));
     (credentialInfo?.keys || []).forEach(key => credentialSelect.add(new Option(key.label, key.version)));
     credentialSelect.value = String(window.v2Page.draft?.credential_version ?? credentialInfo?.credential_version ?? '');
+    entrySignature = formSignature();
     workbench.hidden = false;
+    editorView.hidden = false;
+    catalogView.hidden = true;
+    catalogActive.hidden = true;
+    document.querySelector('#editor-breadcrumb').textContent = 'Nuovo profilo';
+    document.querySelector('#page-title').textContent = 'Nuovo profilo';
+    document.querySelector('#page-description').textContent = 'Configura un profilo completo. Puoi salvarlo senza provarlo e assegnarlo in seguito dal catalogo.';
+    document.title = 'Nuovo profilo · Configurazione e prova';
     document.querySelector('#active-title').textContent = 'Nuovo profilo';
     document.querySelector('#draft-title').textContent = 'Nuovo profilo';
     document.querySelector('#save-draft').textContent = 'Crea profilo';
     document.querySelector('#test-status').textContent = 'Salva il profilo per provarlo.';
     updateProfileActions();
     nameInput.focus();
+  }
+  function routeState() {
+    const query = new URLSearchParams(location.search);
+    if (query.has('new')) return { mode: 'new' };
+    if (query.has('profile')) return { mode: 'profile', id: query.get('profile') };
+    return { mode: 'catalog' };
+  }
+  function showCatalog() {
+    editorView.hidden = true;
+    catalogView.hidden = false;
+    catalogActive.hidden = false;
+    workbench.hidden = true;
+    document.querySelector('#page-title').textContent = 'Configurazione e prova';
+    document.querySelector('#page-description').textContent = 'Gestisci i profili usati per elaborare i messaggi vocali.';
+    document.querySelector('#active-title').textContent = 'Configurazione attiva';
+    document.title = 'Configurazione e prova · Audio Bot';
+    selected = null;
+    document.querySelector('#profiles-title').focus();
+  }
+  async function renderRoute() {
+    const route = routeState();
+    if (route.mode === 'new') { newProfile(); return; }
+    if (route.mode === 'profile') {
+      const ok = await editProfile(route.id, true);
+      if (!ok) {
+        history.replaceState({}, '', '/admin/transcription');
+        activeUrl = '/admin/transcription';
+        showCatalog();
+      }
+      return;
+    }
+    showCatalog();
+  }
+  function navigateTo(url) {
+    if (busy || testRunning) return;
+    if (!editorView.hidden && hasUnsavedChanges()
+        && !window.confirm('Le modifiche non salvate andranno perse. Vuoi uscire dal profilo?')) return;
+    history.pushState({}, '', url);
+    activeUrl = url;
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    renderRoute();
   }
   function values() {
     const mode = document.querySelector('input[name="mode"]:checked').value;
@@ -186,6 +255,9 @@
   }
   function isDirty() {
     return !selected || savedForm === null || formSignature() !== savedForm;
+  }
+  function hasUnsavedChanges() {
+    return entrySignature !== null && formSignature() !== entrySignature;
   }
   function updateProfileActions() {
     const dirty = isDirty();
@@ -214,6 +286,8 @@
       const result = await request(creating ? '/api/profiles' : '/api/profiles/' + encodeURIComponent(selected.id), { method: creating ? 'POST' : 'PUT', headers, body: JSON.stringify(body) });
       selected = result.profile || result;
       status.textContent = creating ? 'Profilo creato.' : 'Modifiche salvate in una nuova revisione.';
+      activeUrl = `/admin/transcription?profile=${encodeURIComponent(selected.id)}`;
+      history.replaceState({}, '', activeUrl);
       await refresh(status.textContent);
       await editProfile(selected.id);
     } catch (error) { status.textContent = error.message; }
@@ -301,7 +375,11 @@
       if (result.roles_generation !== undefined) catalog.roles_generation = result.roles_generation;
     } catch (error) { status.textContent = error.message; }
   }, true);
-  document.querySelector('#create-profile').addEventListener('click', newProfile);
+  document.querySelector('#create-profile').addEventListener('click', () => navigateTo('/admin/transcription?new=1'));
+  document.querySelector('#back-to-catalog').addEventListener('click', event => {
+    event.preventDefault();
+    navigateTo('/admin/transcription');
+  });
   document.querySelector('#draft-form').addEventListener('input', event => { if (event.target === nameInput) return; });
   document.querySelectorAll('input[name="test-source"]').forEach(input => input.addEventListener('change', () => {
     const upload = document.querySelector('input[name="test-source"]:checked').value === 'upload';
@@ -333,8 +411,9 @@
       await refresh();
       const refreshedProfile = catalog.profiles.find(profile => profile.id === testedProfileId);
       if (isTestSelectionCurrent() && !refreshedProfile) {
-        selected = null;
-        workbench.hidden = true;
+        history.replaceState({}, '', '/admin/transcription');
+        activeUrl = '/admin/transcription';
+        showCatalog();
       } else if (isTestSelectionCurrent() && refreshedProfile?.revision === testedRevision) {
         selected = refreshedProfile;
       }
@@ -359,6 +438,26 @@
     if (isDirty()) { status.textContent = 'Salva le modifiche prima di assegnare il ruolo.'; return; }
     chooseRole(selected, 'main');
   }, true);
+  window.addEventListener('popstate', async () => {
+    if (busy || testRunning) {
+      history.pushState({}, '', activeUrl);
+      return;
+    }
+    const destination = location.pathname + location.search;
+    if (!editorView.hidden && hasUnsavedChanges()
+        && !window.confirm('Le modifiche non salvate andranno perse. Vuoi uscire dal profilo?')) {
+      history.pushState({}, '', activeUrl);
+      return;
+    }
+    activeUrl = destination;
+    await renderRoute();
+  });
+  window.addEventListener('beforeunload', event => {
+    if (!editorView.hidden && hasUnsavedChanges()) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  });
   draftForm.addEventListener('input', updateProfileActions);
   draftForm.addEventListener('change', updateProfileActions);
   window.V2ProfileCatalog = {
@@ -367,5 +466,6 @@
     updateActions: updateProfileActions,
   };
   workbench.hidden = true;
-  refresh();
+  editorView.hidden = true;
+  refresh().then(renderRoute);
 })();
