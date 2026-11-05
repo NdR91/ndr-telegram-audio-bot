@@ -317,10 +317,13 @@ async def test_password_change_rotates_password_and_invalidates_old_session(tmp_
         assert client.cookies.get("session") != old_cookie
         assert verify_password("synthetic-new-password", services.repo.get_setup_state("web_admin_hash"))
         assert not verify_password("synthetic-old-password", services.repo.get_setup_state("web_admin_hash"))
-        client.cookies.set("session", old_cookie)
-        stale = await client.get("/admin/access")
-        assert stale.status_code == 303
-        client.cookies.delete("session")
+        assert (await client.get("/admin/access")).status_code == 200
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test",
+            cookies={"session": old_cookie},
+        ) as stale_client:
+            stale = await stale_client.get("/admin/access")
+            assert stale.status_code == 303
         old_login = await client.post("/api/login", json={"password": "synthetic-old-password"})
         new_login = await client.post("/api/login", json={"password": "synthetic-new-password"})
         assert old_login.status_code == 401

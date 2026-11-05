@@ -7,6 +7,7 @@ Verifiche: suite completa offline con `.venv/bin/python -c` e caricamento dotenv
 Ulteriori verifiche: build Docker isolata dal commit `2854761` riuscita; l'immagine `sha256:c04d6f1c7a2b989bece317f29b95314b0f6404437b1c933785c6cf9cac9ab102` è stata avviata senza rete e senza dati locali: UID 1000, FFmpeg e import principali disponibili. Chromium 131 headless ha caricato login, recovery e le quattro aree amministrative a 1440×900 e 390×844 contro un'app e un database sintetici isolati: HTTP 200, nessun errore JavaScript rilevato e nessun overflow orizzontale del documento. È uno smoke test degli stati iniziali, non la revisione completa dei flussi o dei requisiti di accessibilità.
 Problemi aperti: revisione browser e prove operative con provider e Telegram secondo `V2-VALIDATION.md`; nessuna release dichiarata pronta.
 Preparazione collaudo: checklist operatore, avvio isolato facoltativo e scheda risultati in `V2-RELEASE-TEST.md`; le prove operative restano da eseguire.
+Correzione CI: installazione esplicita di FFmpeg nei job e verifica delle sessioni vecchia e rinnovata con client distinti, evitando cookie omonimi ambigui. Confermare l'esito sulla matrice GitHub prima di dichiarare verde la CI.
 
 Ultimo aggiornamento: 5 novembre 2026, verifica offline pre-release S7.
 

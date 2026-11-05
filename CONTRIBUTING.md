@@ -84,6 +84,7 @@ credentials.
 
 GitHub Actions runs the suite on Python 3.10, 3.11, and 3.12. The workflow must
 remain independent of repository secrets and real service credentials.
+It installs FFmpeg for tests that exercise real audio conversion.
 The current workflow also compiles Python sources and imports the `bot`
 package before running the suite. These are configured CI jobs; do not describe
 the matrix as passed unless the corresponding remote run is available.

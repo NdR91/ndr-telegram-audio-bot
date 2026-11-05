@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- Install FFmpeg in GitHub Actions so audio conversion tests run on CI workers.
+- Test revoked and renewed administrator sessions independently to avoid ambiguous duplicate cookies.
+
 - Correct the safe pytest commands so multiprocessing tests can start child processes.
 
 ### Added
