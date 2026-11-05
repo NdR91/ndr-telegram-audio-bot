@@ -95,6 +95,9 @@ decision based on these recorded measurements.
 
 ## Visual and live release checks
 
+For a step-by-step operator checklist and a results template, see
+[V2-RELEASE-TEST.md](V2-RELEASE-TEST.md).
+
 On 5 November 2026, Chromium 131 headless loaded login, recovery, Overview,
 Transcription, Access, and Diagnostics at 1440×900 and 390×844 against an
 isolated app and synthetic temporary database. All responses were HTTP 200;
