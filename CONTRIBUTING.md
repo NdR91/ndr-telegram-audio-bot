@@ -46,25 +46,28 @@ service.
 Run the complete suite:
 
 ```bash
-.venv/bin/python - <<'PYTEST'
+.venv/bin/python -c "
 from unittest.mock import patch
 import pytest
 with patch('dotenv.load_dotenv', return_value=False):
     raise SystemExit(pytest.main(['-q', '-p', 'no:cacheprovider', 'tests/']))
-PYTEST
+"
 ```
 
 For an isolated V2 run in environments containing local dotenv files, use the
 development interpreter and patch `dotenv.load_dotenv` before pytest collection:
 
 ```bash
-.venv/bin/python - <<'PY'
+.venv/bin/python -c "
 from unittest.mock import patch
 import pytest
 with patch('dotenv.load_dotenv', return_value=False):
     raise SystemExit(pytest.main(['-q', '-p', 'no:cacheprovider', 'tests/v2/']))
-PY
+"
 ```
+
+Use `-c` rather than standard input: multiprocessing tests need a main module
+that can be started by spawned processes.
 
 Run a single test:
 

@@ -45,13 +45,16 @@ Run from the repository root. This patches dotenv before pytest collection and
 does not read local dotenv values:
 
 ```sh
-.venv/bin/python - <<'PY'
+.venv/bin/python -c "
 from unittest.mock import patch
 import pytest
 with patch('dotenv.load_dotenv', return_value=False):
     raise SystemExit(pytest.main(['-q', '-p', 'no:cacheprovider', 'tests/']))
-PY
+"
 ```
+
+Use `-c` rather than standard input so multiprocessing tests can spawn their
+child processes.
 
 The suite must use temporary SQLite files, synthetic keys/tokens/IDs/audio,
 and mocked Telegram/provider clients. It must not inspect `.env`,

@@ -1,6 +1,12 @@
 # Registro di avanzamento V2
 
-Ultimo aggiornamento: 29 ottobre 2026, implementazione S3–S6 e verifica offline S7.
+Sessione / data: verifica pre-release — 5 novembre 2026
+Stato: S7 ancora in corso; gate operativi pendenti.
+Branch / worktree: `main` / `/home/ndr/config/telegram-audio-bot`.
+Verifiche: suite completa offline con `.venv/bin/python -c` e caricamento dotenv disattivato: 270 passed, un warning passlib/`crypt`. Il precedente comando via stdin causava sei errori nei test multiprocessing; istruzioni corrette in `CONTRIBUTING.md` e `V2-VALIDATION.md`. Nessuna API reale o database operativo esaminato.
+Problemi aperti: revisione browser e prove operative con provider e Telegram secondo `V2-VALIDATION.md`; nessuna release dichiarata pronta.
+
+Ultimo aggiornamento: 5 novembre 2026, verifica offline pre-release S7.
 
 **Prossima azione:** completare le prove operative previste dal protocollo e verificare il flusso browser con il servizio effettivo; non dichiarare pronta la release senza queste evidenze.
 **Branch di preparazione:** `codex/v2-product-design`.
