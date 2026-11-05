@@ -4,6 +4,7 @@ Sessione / data: verifica pre-release — 5 novembre 2026
 Stato: S7 ancora in corso; gate operativi pendenti.
 Branch / worktree: `main` / `/home/ndr/config/telegram-audio-bot`.
 Verifiche: suite completa offline con `.venv/bin/python -c` e caricamento dotenv disattivato: 270 passed, un warning passlib/`crypt`. Il precedente comando via stdin causava sei errori nei test multiprocessing; istruzioni corrette in `CONTRIBUTING.md` e `V2-VALIDATION.md`. Nessuna API reale o database operativo esaminato.
+Ulteriori verifiche: build Docker isolata dal commit `2854761` riuscita; l'immagine `sha256:c04d6f1c7a2b989bece317f29b95314b0f6404437b1c933785c6cf9cac9ab102` è stata avviata senza rete e senza dati locali: UID 1000, FFmpeg e import principali disponibili. Chromium 131 headless ha caricato login, recovery e le quattro aree amministrative a 1440×900 e 390×844 contro un'app e un database sintetici isolati: HTTP 200, nessun errore JavaScript rilevato e nessun overflow orizzontale del documento. È uno smoke test degli stati iniziali, non la revisione completa dei flussi o dei requisiti di accessibilità.
 Problemi aperti: revisione browser e prove operative con provider e Telegram secondo `V2-VALIDATION.md`; nessuna release dichiarata pronta.
 
 Ultimo aggiornamento: 5 novembre 2026, verifica offline pre-release S7.
@@ -22,7 +23,7 @@ Ultimo aggiornamento: 5 novembre 2026, verifica offline pre-release S7.
 | S4 | Configurazione e prova collegate al motore reale | S3 | Implementata e verificata con browser sintetico | Test UI/API offline; `docs/audits/2026-10-29-v2-ui-validation.md` |
 | S5 | Elaborazione Telegram, gruppi e gestione accessi | S4 | Implementata e verificata offline | Test Telegram simulati, ACL, consegna e shutdown |
 | S6 | Migrazione, diagnostica e rimozione dei percorsi superati | S5 | Implementata e verificata offline | Fixture sintetiche; `docs/V2-S6-RETIREMENT.md` |
-| S7 | Verifica finale, rifinitura UI, documentazione e consegna | S6 | In corso; prove operative pendenti | `docs/V2-VALIDATION.md`; 159 test passati, browser sintetico e build Docker riuscita |
+| S7 | Verifica finale, rifinitura UI, documentazione e consegna | S6 | In corso; prove operative pendenti | `docs/V2-VALIDATION.md`; 270 test passati, smoke browser sintetico e build Docker riuscita |
 
 ## Evoluzione multi-profilo implementata offline
 

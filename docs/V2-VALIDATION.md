@@ -95,6 +95,14 @@ decision based on these recorded measurements.
 
 ## Visual and live release checks
 
+On 5 November 2026, Chromium 131 headless loaded login, recovery, Overview,
+Transcription, Access, and Diagnostics at 1440×900 and 390×844 against an
+isolated app and synthetic temporary database. All responses were HTTP 200;
+no JavaScript page errors or document-level horizontal overflow were observed.
+This was an initial-state smoke test, not a review of all interaction states,
+keyboard behavior, contrast, setup, or the real service. Those checks remain
+pending below.
+
 Before a release, an operator with a local browser should review all four
 areas—Overview, Transcription, Access, and Diagnostics—and setup, login, and
 recovery at 1440×900 and 390×844. Check empty, loading, error, success, long
